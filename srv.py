@@ -1,8 +1,7 @@
 #!/usr/bin/python3
 #coding=utf-8
 
-import asyncio, logging, aiohttp, jwt, os, base64, \
-        json, time, smtplib, io
+import asyncio, logging, aiohttp, jwt, os, base64, json, time, smtplib, io
 from datetime import datetime
 from aiohttp import web
 from common import siteConf, loadJSON, appRoot, startLogging
@@ -11,18 +10,17 @@ from sendEmail import sendEmail
 from secret import secret
 from recaptcha import checkRecaptcha
 
-startLogging( 'srv_test' if args.test else 'srv' )
+startLogging( 'srv' )
 logging.debug( "restart" )
 
-class CfmRdaServer:
+class CfmRdaServer():
 
     def __init__(self, app):
         self.app = app
         self.conf = siteConf()
         self.db = DBConn( self.conf.items( 'db' ) )
         asyncio.async( self.db.connect() )
-        self.secret = secret( self.conf.get( 'files', 'secret' )
-
+        self.secret = secret( self.conf.get( 'files', 'secret' ) )
 
     @asyncio.coroutine
     def getUserData( self, callsign ):
@@ -66,7 +64,7 @@ class CfmRdaServer:
         return web.HTTPBadRequest( text = error )
 
     @asyncio.coroutine
-    def testGetHandler(request):
+    def testGetHandler(self, request):
         return web.Response( text = 'OK' )
 
 

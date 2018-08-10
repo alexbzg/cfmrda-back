@@ -11,5 +11,5 @@ def secret( fp ):
     if not secret:
         secret = base64.b64encode( os.urandom( 64 ) )
         with open( fp, 'wb' ) as fSecret:
-            fSecret.write( str( secret ) )
+            fSecret.write( secret )
 
