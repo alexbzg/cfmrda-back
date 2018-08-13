@@ -1,26 +1,50 @@
 #!/usr/bin/python3
 #coding=utf-8
-import logging, unittest, asyncio
+import logging
+import asyncio
+import sys
 
-from cfmrda.qrz import QRZComLink
+import pytest
+
+sys.path.append('cfmrda')
+from qrz import QRZComLink, QRZRuLink
+from common import appRoot
 
 logging.basicConfig( level = logging.DEBUG,
         format='%(asctime)s %(message)s', 
         datefmt='%Y-%m-%d %H:%M:%S' )
 logging.info( 'starting qrz tests' )
 
+@pytest.fixture(scope="session")
+def qrz_com_link():
+    return QRZComLink(asyncio.get_event_loop())
 
-class TestQrz(unittest.TestCase):
+@pytest.fixture(scope="session")
+def qrz_ru_link():
+    return QRZRuLink(asyncio.get_event_loop())
 
-    def setUp( self ):
-        logging.info( 'create qrz.com link' )
-        self.qcl = QRZComLink( asyncio.get_event_loop() )
+def test_qcl_get_data(qrz_com_link):
+    logging.warning('test qrz.com query')
+    data = qrz_com_link.get_data('R7CL')
+    assert data['email'] == 'welcome@masterslav.ru'
+    logging.warning( data )
 
-    def testGetData( self ):
-        logging.info( 'test qrz.com query' )
-        data = self.qcl.getData( 'R7CL' )
-        self.assertEqual( data['email'], 'welcome@masterslav.ru' )
+def test_qrl_get_data(qrz_ru_link):
+    logging.warning('test qrz.ru query')
+    loop = asyncio.get_event_loop()
+    answer = asyncio.Event(loop=loop)
 
-if __name__ == '__main__':
-    unittest.main()
+    def data_cb(data):
+        logging.warning(data)
+        assert data['email'] == 'welcome@masterslav.ru'
+        answer.set()
+        assert 0
+
+    @asyncio.coroutine
+    def do_test():
+        req = {'cs': 'R7CL', 'cb': data_cb}
+        yield from qrz_ru_link.cs_queue.put(req)
+        yield from answer.wait()
+
+    loop.run_until_complete(do_test())
 

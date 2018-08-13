@@ -1,88 +1,91 @@
 #!/usr/bin/python3
 #coding=utf-8
 
-import asyncio, logging, aiohttp, jwt, os, base64, json, time, smtplib, io
-from datetime import datetime
+import asyncio
+import logging
+import time
+
 from aiohttp import web
-from common import siteConf, loadJSON, appRoot, startLogging
-from db import DBConn, spliceParams
+import jwt
+
+from common import siteConf, startLogging
+from db import DBConn
 from sendEmail import sendEmail
 from secret import secret
 from recaptcha import checkRecaptcha
 
-startLogging( 'srv' )
-logging.debug( "restart" )
+startLogging('srv')
+logging.debug("restart")
 
 class CfmRdaServer():
 
     def __init__(self, app):
-        self.app = app
+        self._app = app
         self.conf = siteConf()
-        self.db = DBConn( self.conf.items( 'db' ) )
-        asyncio.async( self.db.connect() )
-        self.secret = secret( self.conf.get( 'files', 'secret' ) )
+        self._db = DBConn(self.conf.items('db'))
+        asyncio.async(self._db.connect())
+        self.secret = secret(self.conf.get('files', 'secret'))
 
     @asyncio.coroutine
-    def getUserData( self, callsign ):
-        return ( yield from self.db.getObject( 'users', \
-                { 'callsign': callsign }, False, True ) )
-
+    def get_user_data(self, callsign):
+        return (yield from self._db.getObject('users', \
+                {'callsign': callsign}, False, True))
+        
     @asyncio.coroutine
-    def passwordRecoveryRequestHandler(self, request):
+    def pwd_recovery_req_hndlr(self, request):
         error = None
         data = yield from request.json()
-        userData = False
-        if not 'login' in data or len( data['login'] ) < 2:
+        user_data = False
+        if 'login' not in data or len(data['login']) < 2:
             error = 'Minimal login length is 2 symbols'
         if not error:
             data['login'] = data['login'].lower()
-            rcTest = yield from checkRecaptcha( data['recaptcha'] )
-            userData = yield from getUserData( data['login'] )
-            if not rcTest:
+            rc_test = yield from checkRecaptcha(data['recaptcha'])
+            user_data = yield from self.get_user_data(data['login'])
+            if not rc_test:
                 error = 'Recaptcha test failed. Please try again'
             else:
-                if not userData:
+                if not user_data:
                     error = 'This callsign is not registered.'
                 else:
-                    if not userData['email']:
+                    if not user_data['email']:
                         error = 'This account has no email address.'
                     else:
-                        token = jwt.encode( 
-                            { 'callsign': data['login'], 'time': time.time() }, \
-                            secret, algorithm='HS256' ).decode('utf-8')
+                        token = jwt.encode({'callsign': data['login'], 'time': time.time()}, \
+                            secret, algorithm='HS256').decode('utf-8')
                         text = 'Click on this link to recover your tnxqso.com ' + \
-                                'password:' + webAddress + \
+                                'password:' + self.conf.get('web', 'address') + \
                                 '/#/changePassword?token=' + token + """
     If you did not request password recovery just ignore this message. 
     The link above will be valid for 1 hour.
 
     tnxqso.com support"""
-                        sendEmail( text = text, fr = conf.get( 'email', 'address' ), \
-                            to = userData['email'], \
-                            subject = "tnxqso.com password recovery" )
-                        return web.Response( text = 'OK' )
-        return web.HTTPBadRequest( text = error )
+                        sendEmail(text=text, fr=self.conf.get('email', 'address'), \
+                            to=user_data['email'], \
+                            subject="tnxqso.com password recovery")
+                        return web.Response(text='OK')
+        return web.HTTPBadRequest(text=error)
 
-    @asyncio.coroutine
-    def testGetHandler(self, request):
-        return web.Response( text = 'OK' )
+@asyncio.coroutine
+def test_get_handler(request):
+    return web.Response(text='OK')
 
 
-def decodeToken( data ):
+def decode_token(data):
     callsign = None
     if 'token' in data:
         try:
-            pl = jwt.decode( data['token'], secret, algorithms=['HS256'] )
-        except jwt.exceptions.DecodeError as e:
-            return web.HTTPBadRequest( text = 'Login expired' )
-        if 'callsign' in pl:
-            callsign = pl['callsign'].lower()
-        if 'time' in pl and time.time() - pl['time'] > 60 * 60:
-            return web.HTTPBadRequest( text = 'Password change link is expired' )
-    return callsign if callsign else web.HTTPBadRequest( text = 'Not logged in' )
+            payload = jwt.decode(data['token'], secret, algorithms=['HS256'])
+        except jwt.exceptions.DecodeError:
+            return web.HTTPBadRequest(text='Login expired')
+        if 'callsign' in payload:
+            callsign = payload['callsign'].lower()
+        if 'time' in payload and time.time() - payload['time'] > 60 * 60:
+            return web.HTTPBadRequest(text='Password change link is expired')
+    return callsign if callsign else web.HTTPBadRequest(text='Not logged in')
 
 if __name__ == '__main__':
-    app = web.Application( client_max_size = 10 * 1024 ** 2 )
-    srv = CfmRdaServer( app )
-    app.router.add_get('/aiohttp/test', srv.testGetHandler)
-    web.run_app(app, path = srv.conf.get( 'files', 'server_socket' ) )
+    APP = web.Application(client_max_size=10 * 1024 ** 2)
+    SRV = CfmRdaServer(APP)
+    APP.router.add_get('/aiohttp/test', test_get_handler)
+    web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))
