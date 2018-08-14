@@ -4,32 +4,75 @@
 import asyncio
 import logging
 import time
+import json
 
 from aiohttp import web
 import jwt
 
-from common import siteConf, startLogging
+from common import site_conf, start_logging
 from db import DBConn
 from sendEmail import sendEmail
 from secret import secret
 from recaptcha import checkRecaptcha
 
-startLogging('srv')
+start_logging('srv')
 logging.debug("restart")
 
 class CfmRdaServer():
 
     def __init__(self, app):
         self._app = app
-        self.conf = siteConf()
+        self.conf = site_conf()
         self._db = DBConn(self.conf.items('db'))
         asyncio.async(self._db.connect())
-        self.secret = secret(self.conf.get('files', 'secret'))
+        self._secret = secret(self.conf.get('files', 'secret'))
 
     @asyncio.coroutine
     def get_user_data(self, callsign):
         return (yield from self._db.getObject('users', \
                 {'callsign': callsign}, False, True))
+
+    @asyncio.coroutine
+    def login_hndlr(self, request):
+        error = None
+        data = yield from request.json()
+        user_data = False
+        if not 'login' in data or len( data['login'] ) < 2:
+            error = 'Minimal login length is 2 symbols'
+        if not 'password' in data or len( data['password'] ) < 6:
+            error = 'Minimal password length is 6 symbols'
+        if not error:
+            data['login'] = data['login'].lower()
+            userData = yield from self.get_user_data( data['login'] )
+            if 'newUser' in data and data['newUser']:
+                rcTest = yield from checkRecaptcha( data['recaptcha'] )
+                if not rcTest:
+                    error = 'Recaptcha test failed. Please try again'
+                else:
+                    if userData:
+                        error = 'This callsign is already registered.'
+                    else:
+                        userData = yield from self._db.getObject( 'users', \
+                            { 'callsign': data['login'], \
+                            'password': data['password'], \
+                            'email': data['email'],
+                            'settings': 
+                                json.dumps( defUserSettings ) }, True )
+                        createFtpUser( data['login'], data['password'], 
+                            args.test )
+            else:
+                if not userData or userData['password'] != data['password']:
+                    error = 'Wrong callsign or password.'            
+        if error:
+            return web.HTTPBadRequest( text = error )
+        else:
+            userData['token'] = jwt.encode( { 'callsign': data['login'] }, \
+                    secret, algorithm='HS256' ).decode('utf-8') 
+            del userData['password']
+            if data['login'] in siteAdmins:
+                userData['siteAdmin'] = True
+            return web.json_response( userData )
+       
         
     @asyncio.coroutine
     def pwd_recovery_req_hndlr(self, request):
@@ -67,7 +110,10 @@ class CfmRdaServer():
         return web.HTTPBadRequest(text=error)
 
 @asyncio.coroutine
-def test_get_handler(request):
+def test_hndlr(request):
+    if request.method == 'POST':
+        data = yield from request.json()
+        return web.json_response( data )
     return web.Response(text='OK')
 
 
@@ -87,5 +133,6 @@ def decode_token(data):
 if __name__ == '__main__':
     APP = web.Application(client_max_size=10 * 1024 ** 2)
     SRV = CfmRdaServer(APP)
-    APP.router.add_get('/aiohttp/test', test_get_handler)
+    APP.router.add_get('/aiohttp/test', test_hndlr)
+    APP.router.add_post('/aiohttp/test', test_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))

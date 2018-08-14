@@ -2,11 +2,11 @@
 #coding=utf-8
 
 import asyncio, aiohttp, logging
-from common import siteConf
+from common import site_conf
 
 @asyncio.coroutine
 def checkRecaptcha( response ):
-    conf = siteConf()
+    conf = site_conf()
     try:
         rcData = { 'secret': conf.get( 'recaptcha', 'secret' ),\
                 'response': response }

@@ -3,8 +3,6 @@
 
 import aiopg, logging, traceback, json, asyncio, psycopg2
 
-from common import siteConf
-
 @asyncio.coroutine
 def toDict( cur, keys = None ):
     if cur and cur.rowcount:

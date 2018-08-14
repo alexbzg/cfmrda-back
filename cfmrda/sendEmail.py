@@ -6,10 +6,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 
-from common import siteConf
+from common import site_conf
 
 def sendEmail( **email ):
-    conf = siteConf()
+    conf = site_conf()
     myAddress = conf.get( 'email', 'address' )
     msg = MIMEMultipart()
     msg.attach(  MIMEText( email['text'].encode( 'utf-8' ), 'plain', 'UTF-8' ) )

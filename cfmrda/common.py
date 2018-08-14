@@ -2,55 +2,53 @@
 #coding=utf-8
 
 
-import configparser, decimal, json, logging, logging.handlers, os
+import configparser
+import decimal
+import json
+
+import logging
+import logging.handlers
+
 from os import path
 from datetime import datetime, date
-from passlib.apache import HtpasswdFile
 
-appRoot = path.dirname( path.abspath( __file__ ) ) 
+APP_ROOT = path.dirname(path.abspath(__file__))
 
-def siteConf():
+def site_conf():
     conf = configparser.ConfigParser()
     conf.optionxform = str
-    conf.read( appRoot + '/site.conf' )
+    conf.read(APP_ROOT + '/site.conf')
     return conf
 
-def readConf( file ):
-    conf = configparser.ConfigParser()
-    conf.read( appRoot + '/' + file )
-    return conf
-
-
-def jsonEncodeExtra( obj ):
-    if isinstance( obj, decimal.Decimal ):
-        return float( obj )
+def json_encode_extra(obj):
+    if isinstance(obj, decimal.Decimal):
+        return float(obj)
     elif isinstance(obj, datetime):
         return obj.isoformat()
     elif isinstance(obj, date):
         return obj.isoformat()
-    raise TypeError( repr( obj ) + " is not JSON serializable" )
+    raise TypeError(repr(obj) + " is not JSON serializable")
 
-def loadJSON( pathJS ):
-    if not path.isfile( pathJS ):
-        logging.exception( pathJS + " not found" )
+def load_json(path_json):
+    if not path.isfile(path_json):
+        logging.exception(path_json + " not found")
         return False
     try:
-        r = json.load( open( pathJS ) )
-        return r
-    except Exception as ex:
-        logging.error( "Error loading " + pathJS )
-        logging.exception( ex )
+        data = json.load(open(path_json))
+        return data
+    except Exception:
+        logging.exception("Error loading " + path_json)
         return False
 
-def startLogging( type, level = logging.DEBUG ):
-    conf = siteConf()
-    fpLog = conf.get( 'logs', type ) 
+def start_logging(log_type, level=logging.DEBUG):
+    conf = site_conf()
+    fp_log = conf.get('logs', log_type)
     logger = logging.getLogger('')
-    logger.setLevel( level )
-    loggerHandler = logging.handlers.WatchedFileHandler( fpLog )
-    loggerHandler.setLevel( level )
-    loggerHandler.setFormatter( logging.Formatter( \
-        '%(asctime)s %(name)-12s %(levelname)-8s %(message)s' ) )
-    logger.addHandler( loggerHandler )
+    logger.setLevel(level)
+    handler = logging.handlers.WatchedFileHandler(fp_log)
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter(\
+        '%(asctime)s %(name)-12s %(levelname)-8s %(message)s'))
+    logger.addHandler(handler)
 
 

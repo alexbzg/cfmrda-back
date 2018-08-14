@@ -9,12 +9,12 @@ import asyncio
 import requests
 import xmltodict
 
-from common import siteConf
+from common import site_conf
 
 class QRZComLink:
 
     def __init__(self, loop):
-        conf = siteConf()
+        conf = site_conf()
         self.loop = loop
         self.login = conf.get('QRZCom', 'login')
         self.password = conf.get('QRZCom', 'password')
@@ -22,7 +22,7 @@ class QRZComLink:
         self.get_session_id()
 
     def get_session_id(self):
-        conf = siteConf()
+        conf = site_conf()
         fp_session = conf.get('QRZCom', 'session_file')
         if os.path.isfile(fp_session):
             with open(fp_session, 'r') as f_session:
@@ -98,7 +98,7 @@ class QRZComLink:
 class QRZRuLink:
 
     def __init__(self, loop):
-        conf = siteConf()
+        conf = site_conf()
         self.loop = loop
         self.login = conf.get('QRZRu', 'login')
         self.password = conf.get('QRZRu', 'password')
@@ -114,12 +114,15 @@ class QRZRuLink:
         self.get_session_id()
 
     @asyncio.coroutine
+    def do_queue_task(self):
+        while True:
+            queue_item = yield from self.cs_queue.get()
+            queue_item['cb'](self.get_data(queue_item['cs']))
+            yield from asyncio.sleep(self._query_interval)
+
     def start_queue_task(self):
-        queue_item = yield from self.cs_queue.get()
         self.stop_queue_task()
-        self.queue_task = \
-            self.loop.call_later(self._query_interval, self.start_queue_task)
-        queue_item['cb'](self.get_data(queue_item['cs']))
+        self.queue_task = asyncio.async(self.do_queue_task())
 
     def stop_queue_task(self):
         if self.queue_task:
@@ -130,7 +133,7 @@ class QRZRuLink:
         if self.queue_task:
             self.stop_queue_task()
             self.session_id = None
-            self.loop.call_later(self._query_interval, self.get_session_id)
+            self.session_task = self.loop.call_later(self._query_interval, self.get_session_id)
             return
         if self.session_task:
             self.session_task.cancel()
@@ -142,20 +145,20 @@ class QRZRuLink:
             r_body = req.text
             req.raise_for_status()
             r_dict = xmltodict.parse(r_body)
-            logging.warning( r_dict )
+            logging.warning(r_dict)
             if 'session_id' in r_dict['QRZDatabase']['Session']:
                 self.session_id = r_dict['QRZDatabase']['Session']['session_id']
-                asyncio.async(self.start_queue_task())
+                self.start_queue_task()
                 self.session_task = \
-                    self.loop.call_later(self._session_interval_success, 
-                            self.get_session_id) 
+                    self.loop.call_later(self._session_interval_success,\
+                    self.get_session_id)
             else:
                 if 'error' in r_dict['QRZDatabase']['Session']:
                     logging.error('QRZ returned error: ' + \
                             r_dict['QRZDatabase']['Session']['error'])
                     self.session_task = \
-                        self.loop.call_laterr(self.session_interval_failure, 
-                                self.get_session_id)
+                        self.loop.call_later(self.session_interval_failure,\
+                        self.get_session_id)
                 else:
                     raise Exception('Wrong QRZ response')
         except Exception:
@@ -164,8 +167,8 @@ class QRZRuLink:
                 logging.error('Http result code: ' + str(req.status_code))
                 logging.error('Http response body: ' + r_body)
             self.session_task = \
-                self.loop.call_later(self.session_interval_failure, 
-                        self.get_session_id)
+                self.loop.call_later(self.session_interval_failure,\
+                    self.get_session_id)
 
     def get_data(self, callsign):
         if self.session_id:
@@ -173,7 +176,7 @@ class QRZRuLink:
             try:
                 req = requests.get('http://api.qrz.ru/callsign?id=' + \
                         self.session_id + '&callsign=' + callsign)
-                r_body = r.text
+                r_body = req.text
                 r_dict = xmltodict.parse(r_body)
                 if 'Callsign' in r_dict['QRZDatabase']:
                     return r_dict['QRZDatabase']['Callsign']

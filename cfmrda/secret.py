@@ -12,4 +12,5 @@ def secret( fp ):
         secret = base64.b64encode( os.urandom( 64 ) )
         with open( fp, 'wb' ) as fSecret:
             fSecret.write( secret )
+    return secret
 
