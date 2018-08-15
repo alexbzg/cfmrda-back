@@ -1,164 +1,135 @@
 #!/usr/bin/python3
 #coding=utf-8
 
-import aiopg, logging, traceback, json, asyncio, psycopg2
+import logging
+import traceback
+import json
+import asyncio
+
+import aiopg
 
 @asyncio.coroutine
-def toDict( cur, keys = None ):
+def to_dict(cur, keys=None):
     if cur and cur.rowcount:
-        colNames = [ col.name for col in cur.description ]
+        columns_names = [col.name for col in cur.description]
         if cur.rowcount == 1 and not keys:
             data = yield from cur.fetchone()
-            return dict( zip( colNames, data ) )
+            return dict(zip(columns_names, data))
         else:
             data = yield from cur.fetchall()
-            if ( 'id' in colNames ) and keys:
-                idIdx = colNames.index( 'id' )
-                return { row[ idIdx ]: dict( zip( colNames, row ) ) \
-                        for row in data }
+            if ('id' in columns_names) and keys:
+                id_idx = columns_names.index('id')
+                return {row[id_idx]: dict(zip(columns_names, row)) \
+                        for row in data}
             else:
-                return [ dict( zip( colNames, row ) ) for
-                        row in data ]
+                return [dict(zip(columns_names, row)) for
+                        row in data]
     else:
         return False
 
-def paramStr( params, str ):
-    return str.join( [ x + " = %(" + x + ")s" for x in params.keys() ] )
+def params_str(params, str_delim):
+    return str_delim.join([x + " = %(" + x + ")s" for x in params.keys()])
 
-def spliceParams( data, params ):
-    return { param: json.dumps( data[param] ) \
-            if isinstance( data[param],dict ) else data[param] \
+def splice_params(data, params):
+    return {param: json.dumps(data[param]) \
+            if isinstance(data[param], dict) else data[param] \
         for param in params \
-        if param in data }
+        if param in data}
 
 @asyncio.coroutine
-def initConnection( cn ):
-    cn.set_client_encoding( 'UTF8' )
-    logging.debug( 'new db connection' )
+def init_connection(conn):
+    conn.set_client_encoding('UTF8')
+    logging.debug('new db connection')
 
 
 class DBConn:
 
-    def __init__( self, dbParams ):
-        self.dsn = ' '.join( 
-                [ k + "='" + v + "'" 
-                    for k, v in dbParams ] )
+    def __init__(self, db_params):
+        self.dsn = ' '.join([k + "='" + v + "'" for k, v in db_params])
         self.verbose = False
-
+        self.pool = None
+        self.error = None
 
     @asyncio.coroutine
-    def connect( self ):
+    def connect(self):
         try:
-            self.pool = yield from aiopg.create_pool( self.dsn, \
-                    on_connect = initConnection  )
-            logging.debug( 'db connections pool created' )
-        except:
-            logging.exception( 'Error creating connection pool' )
-            logging.error( self.dsn )
+            self.pool = yield from aiopg.create_pool(self.dsn, \
+                    on_connect=init_connection)
+            logging.debug('db connections pool created')
+        except Exception:
+            logging.exception('Error creating connection pool')
+            logging.error(self.dsn)
 
     @asyncio.coroutine
-    def fetch( self, sql, params = None ):
+    def fetch(self, sql, params=None):
         res = False
-        cur = yield from self.execute( sql, params )
+        cur = yield from self.execute(sql, params)
         if cur.rowcount:
             res = yield from cur.fetchall()
         return res
 
     @asyncio.coroutine
-    def paramUpdate( self, table, idParams, updParams ):
-        return ( yield from self.execute( 'update ' + table + \
-                ' set ' + paramStr( updParams, ', ' ) + \
-                " where " + paramStr( idParams, ' and ' ), \
-                dict( idParams, **updParams ) ) )
+    def param_update(self, table, id_params, upd_params):
+        return (yield from self.execute('update ' + table + \
+                ' set ' + params_str(upd_params, ', ') + \
+                " where " + params_str(id_params, ' and '), \
+                dict(id_params, **upd_params)))
 
     @asyncio.coroutine
-    def paramDelete( self, table, idParams ):
-        return ( yield from self.execute( 'delete from ' + table + \
-                " where " + paramStr( idParams, ' and ' ), \
-                idParams ) )
+    def param_delete(self, table, id_params):
+        return (yield from self.execute('delete from ' + table + \
+                " where " + params_str(id_params, ' and '), \
+                id_params))
 
     @asyncio.coroutine
-    def paramUpdateInsert( self, table, idParams, updParams ):
-        lookup = yield from self.getObject( table, idParams, False, True )
-        r = None
+    def param_update_insert(self, table, id_params, upd_params):
+        lookup = yield from self.get_object(table, id_params, False, True)
+        res = None
         if lookup:
-            r = yield from self.paramUpdate( table, idParams, updParams )
+            res = yield from self.param_update(table, id_params, upd_params)
         else:
-            r = yield from self.getObject( table, dict( idParams, **updParams ), \
-                    True )
-        return r
+            res = yield from self.get_object(table, dict(id_params, **upd_params),\
+                    True)
+        return res
 
     @asyncio.coroutine
-    def execute( self, sql, params = None ):
+    def execute(self, sql, params=None):
         res = False
         with (yield from self.pool.cursor()) as cur:
             try:
                 if self.verbose:
-                    logging.debug( sql )
-                    logging.debug( params )
-                yield from cur.execute( sql, params )                                
-                res = ( yield from toDict( cur ) ) if cur.description != None else True
-            except psycopg2.Error as e:
-                logging.exception( "Error executing: " + sql + "\n" )
+                    logging.debug(sql)
+                    logging.debug(params)
+                yield from cur.execute(sql, params)
+                res = (yield from to_dict(cur)) if cur.description != None else True
+            except Exception:
+                logging.exception("Error executing: " + sql + "\n")
                 stack = traceback.extract_stack()
-                logging.error( stack )
+                logging.error(stack)
                 if params:
-                    logging.error( "Params: " )
-                    logging.error( params )
-                if e.pgerror:
-                    logging.error(  e.pgerror )
-                    self.error = e.pgerror
+                    logging.error("Params: ")
+                    logging.error(params)
         return res
-        
-        
 
     @asyncio.coroutine
-    def getValue( self, sql, params = None ):
-        res = yield from self.fetch( sql, params )
-        if res:
-            return res[0][0]
-        else:
-            return False
-
-    @asyncio.coroutine
-    def getObject( self, table, params, create = False, 
-            never_create = False ):
+    def get_object(self, table, params, create=False, never_create=False):
         sql = ''
         res = False
         if not create:
-            sql = "select * from %s where %s" % (
-                    table, 
-                    " and ".join( [ k + " = %(" + k + ")s"
-                        if params[ k ] != None 
-                        else k + " is null"
-                        for k in params.keys() ] ) )
-            res = yield from self.execute( sql, params )
-        if create or ( not res and not never_create ):
+            sql = "select * from %s where %s" %\
+                (table,\
+                " and ".join([k + " = %(" + k + ")s"\
+                    if params[k] != None\
+                    else k + " is null"\
+                    for k in params.keys()]))
+            res = yield from self.execute(sql, params)
+        if create or (not res and not never_create):
             keys = params.keys()
-            sql = "insert into " + table + " ( " + \
-                ", ".join( keys ) + ") values ( " + \
-                ', '.join( [ "%(" + k + ")s" for k in keys ] ) + \
-                " ) returning *"
-            logging.debug( 'creating object in db' )
-            res = yield from self.execute( sql, params )
-        return res 
-
-    @asyncio.coroutine
-    def updateObject( self, table, params, idParam = "id" ):
-        paramString = ", ".join( [ k + " = %(" + k + ")s" 
-            for k in params.keys() if k != idParam ] )
-        if paramString != '':
-            sql = "update " + table + " set " + paramString + \
-                " where " + idParam + " = %(" + idParam + ")s returning *" 
-            with ( yield from self.execute( sql, params ) ) as cur:
-                if cur:
-                    objRes = yield from toDdict( cur )
-                    return objRes
-    
-    @asyncio.coroutine
-    def deleteObject( self, table, id ):
-        sql = "delete from " + table + " where id = %s" 
-        yield from self.execute( sql, ( id, ) )
-
-
+            sql = "insert into " + table + " (" + \
+                ", ".join(keys) + ") values (" + \
+                ', '.join(["%(" + k + ")s" for k in keys]) + \
+                ") returning *"
+            logging.debug('creating object in db')
+            res = yield from self.execute(sql, params)
+        return res
 

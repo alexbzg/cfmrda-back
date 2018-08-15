@@ -4,76 +4,100 @@
 import asyncio
 import logging
 import time
-import json
 
 from aiohttp import web
 import jwt
+import jsonschema
 
 from common import site_conf, start_logging
 from db import DBConn
 from sendEmail import sendEmail
 from secret import secret
-from recaptcha import checkRecaptcha
+import recaptcha
+from json_utils import load_json, JSONvalidator
+from qrz import QRZComLink
 
 start_logging('srv')
 logging.debug("restart")
 
 class CfmRdaServer():
 
-    def __init__(self, app):
-        self._app = app
+    def __init__(self, loop):
+        self._loop = loop
         self.conf = site_conf()
         self._db = DBConn(self.conf.items('db'))
+        self._qrzcom = QRZComLink(loop)
         asyncio.async(self._db.connect())
         self._secret = secret(self.conf.get('files', 'secret'))
+        self._json_validator = JSONvalidator(\
+            load_json(self.conf.get('web', 'root') + '/json/schemas.json'))
+
 
     @asyncio.coroutine
     def get_user_data(self, callsign):
-        return (yield from self._db.getObject('users', \
+        return (yield from self._db.get_object('users', \
                 {'callsign': callsign}, False, True))
 
     @asyncio.coroutine
     def login_hndlr(self, request):
-        error = None
         data = yield from request.json()
-        user_data = False
-        if not 'login' in data or len( data['login'] ) < 2:
-            error = 'Minimal login length is 2 symbols'
-        if not 'password' in data or len( data['password'] ) < 6:
-            error = 'Minimal password length is 6 symbols'
-        if not error:
-            data['login'] = data['login'].lower()
-            userData = yield from self.get_user_data( data['login'] )
-            if 'newUser' in data and data['newUser']:
-                rcTest = yield from checkRecaptcha( data['recaptcha'] )
-                if not rcTest:
-                    error = 'Recaptcha test failed. Please try again'
-                else:
-                    if userData:
-                        error = 'This callsign is already registered.'
-                    else:
-                        userData = yield from self._db.getObject( 'users', \
-                            { 'callsign': data['login'], \
-                            'password': data['password'], \
-                            'email': data['email'],
-                            'settings': 
-                                json.dumps( defUserSettings ) }, True )
-                        createFtpUser( data['login'], data['password'], 
-                            args.test )
-            else:
-                if not userData or userData['password'] != data['password']:
-                    error = 'Wrong callsign or password.'            
-        if error:
-            return web.HTTPBadRequest( text = error )
+        if 'register' in data:
+            return (yield from self.register_user(data))
         else:
-            userData['token'] = jwt.encode( { 'callsign': data['login'] }, \
-                    secret, algorithm='HS256' ).decode('utf-8') 
-            del userData['password']
-            if data['login'] in siteAdmins:
-                userData['siteAdmin'] = True
-            return web.json_response( userData )
-       
-        
+            return (yield from self.login((data)))
+
+    @asyncio.coroutine
+    def register_user(self, data):
+        error = None
+        try:
+            self._json_validator.validate('register', data)
+            rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+            if rc_test:
+                test_callsign = yield from self.get_user_data(data['callsign'])
+                if test_callsign:
+                    error = 'Этот позывной уже зарегистрирован.'
+                else:
+                    qrz_data = self._qrzcom.get_data(data['callsign'])
+                    if qrz_data and qrz_data['email'] == data['email']:
+                        yield from self._db.get_object('users',\
+                            {'callsign': data['callsign'],\
+                            'password': data['password'],\
+                            'email': data['email'],\
+                            'email_validated': False},\
+                            True)
+                    else:
+                        error = 'Позывной или адрес электронной почты не зарегистрирован на QRZ.com'
+            else:
+                error = 'Проверка на робота не пройдена или данные устарели. Попробуйте еще раз.'
+        except jsonschema.exceptions.ValidationError:
+            error = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
+        if error:
+           return web.HTTPBadRequest(text=error)
+        else:
+            return (yield from self.send_user_data(data['callsign']))
+
+    @asyncio.coroutine
+    def login(self, data):
+        error = None
+        if self._json_validator.validate('login', data):
+            user_data = yield from self.get_user_data(data['callsign'])
+            if user_data and user_data['password'] == data['password']:
+                return (yield from self.send_user_data(data['callsign']))
+            else:
+                error = 'Неверный позывной или пароль'
+        else:
+            error = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
+        if error:
+            return web.HTTPBadRequest(text=error)
+
+    @asyncio.coroutine
+    def send_user_data(self, callsign):
+        user_data = yield from self.get_user_data(callsign)
+        user_data['token'] = jwt.encode({'callsign': callsign},\
+            self._secret, algorithm='HS256').decode('utf-8')
+        del user_data['password']
+        return web.json_response(user_data)
+
     @asyncio.coroutine
     def pwd_recovery_req_hndlr(self, request):
         error = None
@@ -83,7 +107,7 @@ class CfmRdaServer():
             error = 'Minimal login length is 2 symbols'
         if not error:
             data['login'] = data['login'].lower()
-            rc_test = yield from checkRecaptcha(data['recaptcha'])
+            rc_test = yield from check_recaptcha(data['recaptcha'])
             user_data = yield from self.get_user_data(data['login'])
             if not rc_test:
                 error = 'Recaptcha test failed. Please try again'
@@ -113,7 +137,7 @@ class CfmRdaServer():
 def test_hndlr(request):
     if request.method == 'POST':
         data = yield from request.json()
-        return web.json_response( data )
+        return web.json_response(data)
     return web.Response(text='OK')
 
 
@@ -132,7 +156,8 @@ def decode_token(data):
 
 if __name__ == '__main__':
     APP = web.Application(client_max_size=10 * 1024 ** 2)
-    SRV = CfmRdaServer(APP)
+    SRV = CfmRdaServer(APP.loop)
     APP.router.add_get('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/test', test_hndlr)
+    APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))

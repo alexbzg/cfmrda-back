@@ -2,18 +2,10 @@
 #coding=utf-8
 import logging
 import asyncio
-import sys
 
 import pytest
 
-sys.path.append('cfmrda')
-from qrz import QRZComLink, QRZRuLink
-from common import appRoot
-
-logging.basicConfig( level = logging.DEBUG,
-        format='%(asctime)s %(message)s', 
-        datefmt='%Y-%m-%d %H:%M:%S' )
-logging.info( 'starting qrz tests' )
+from qrz import QRZComLink
 
 @pytest.fixture(scope="session")
 def qrz_com_link():
