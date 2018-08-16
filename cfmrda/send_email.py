@@ -8,11 +8,11 @@ from email.mime.application import MIMEApplication
 
 from common import site_conf
 
-def sendEmail( **email ):
+def send_email(**email):
     conf = site_conf()
-    myAddress = conf.get( 'email', 'address' )
+    my_address = conf.get('email', 'address')
     msg = MIMEMultipart()
-    msg.attach(  MIMEText( email['text'].encode( 'utf-8' ), 'plain', 'UTF-8' ) )
+    msg.attach(MIMEText(email['text'].encode('utf-8'), 'plain', 'UTF-8'))
     msg['from'] = email['fr']
     msg['to'] = email['to']
     msg['MIME-Version'] = "1.0"
@@ -22,11 +22,10 @@ def sendEmail( **email ):
 
     if 'attachments' in email and email['attachments']:
         for item in email['attachments']:
-            part = MIMEApplication( item['data'],
-                        Name = item['name'] )
+            part = MIMEApplication(item['data'], Name=item['name'])
             part['Content-Disposition'] = 'attachment; filename="%s"' % item['name']
             msg.attach(part)
-    server = smtplib.SMTP_SSL( conf.get( 'email', 'smtp' ) )
-    server.login( myAddress, conf.get( 'email', 'password' ) )
-    server.sendmail( myAddress, msg['to'], str( msg ) )
+    server = smtplib.SMTP_SSL(conf.get('email', 'smtp'))
+    server.login(my_address, conf.get('email', 'password'))
+    server.sendmail(my_address, msg['to'], str(msg))
 

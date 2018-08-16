@@ -11,7 +11,7 @@ import jsonschema
 
 from common import site_conf, start_logging
 from db import DBConn
-from sendEmail import sendEmail
+import send_email
 from secret import secret
 import recaptcha
 from json_utils import load_json, JSONvalidator
@@ -32,6 +32,8 @@ class CfmRdaServer():
         self._json_validator = JSONvalidator(\
             load_json(self.conf.get('web', 'root') + '/json/schemas.json'))
 
+    def create_token(self, data):
+        return jwt.encode(data, self._secret, algorithm='HS256').decode('utf-8')
 
     @asyncio.coroutine
     def get_user_data(self, callsign):
@@ -63,29 +65,48 @@ class CfmRdaServer():
                             {'callsign': data['callsign'],\
                             'password': data['password'],\
                             'email': data['email'],\
-                            'email_validated': False},\
+                            'email_confirmed': False},\
                             True)
+                        token = self.create_token(\
+                            {'callsign': data['callsign'], 'time': time.time()})
+                        text = """
+Пройдите по ссылкe, чтобы подтвердить свою электроную почту на CFMRDA.ru:
+
+""" \
+                            + self.conf.get('web', 'address')\
+                            + '/aiohttp/confirmEmail?token=' + token + """
+
+Если вы не регистрировали учетную запись на CFMRDA.ru, просто игнорируйте это письмо.
+Ссылка будет действительна в течение 1 часа.
+
+Служба поддержки CFMRDA.ru"""
+                        send_email.send_email(text=text,\
+                            fr=self.conf.get('email', 'address'),\
+                            to=data['email'],\
+                            subject="CFMRDA.ru - подтверждение электронной почты")
                     else:
-                        error = 'Позывной или адрес электронной почты не зарегистрирован на QRZ.com'
+                        error =\
+                            'Позывной или адрес электронной почты не зарегистрирован на QRZ.com'
             else:
                 error = 'Проверка на робота не пройдена или данные устарели. Попробуйте еще раз.'
         except jsonschema.exceptions.ValidationError:
             error = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
         if error:
-           return web.HTTPBadRequest(text=error)
+            return web.HTTPBadRequest(text=error)
         else:
             return (yield from self.send_user_data(data['callsign']))
 
     @asyncio.coroutine
     def login(self, data):
         error = None
-        if self._json_validator.validate('login', data):
+        try:
+            self._json_validator.validate('login', data)
             user_data = yield from self.get_user_data(data['callsign'])
             if user_data and user_data['password'] == data['password']:
                 return (yield from self.send_user_data(data['callsign']))
             else:
                 error = 'Неверный позывной или пароль'
-        else:
+        except jsonschema.exceptions.ValidationError:
             error = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
         if error:
             return web.HTTPBadRequest(text=error)
@@ -93,8 +114,7 @@ class CfmRdaServer():
     @asyncio.coroutine
     def send_user_data(self, callsign):
         user_data = yield from self.get_user_data(callsign)
-        user_data['token'] = jwt.encode({'callsign': callsign},\
-            self._secret, algorithm='HS256').decode('utf-8')
+        user_data['token'] = self.create_token({'callsign': callsign})
         del user_data['password']
         return web.json_response(user_data)
 
@@ -107,7 +127,7 @@ class CfmRdaServer():
             error = 'Minimal login length is 2 symbols'
         if not error:
             data['login'] = data['login'].lower()
-            rc_test = yield from check_recaptcha(data['recaptcha'])
+            rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
             user_data = yield from self.get_user_data(data['login'])
             if not rc_test:
                 error = 'Recaptcha test failed. Please try again'
@@ -118,20 +138,47 @@ class CfmRdaServer():
                     if not user_data['email']:
                         error = 'This account has no email address.'
                     else:
-                        token = jwt.encode({'callsign': data['login'], 'time': time.time()}, \
-                            secret, algorithm='HS256').decode('utf-8')
-                        text = 'Click on this link to recover your tnxqso.com ' + \
-                                'password:' + self.conf.get('web', 'address') + \
-                                '/#/changePassword?token=' + token + """
-    If you did not request password recovery just ignore this message. 
-    The link above will be valid for 1 hour.
+                        token = self.create_token({'callsign': data['login'], 'time': time.time()})
+                        text = 'Пройдите по ссылке, чтобы восстановить свой пароль ' + \
+                                'на CFMRDA.ru:' + self.conf.get('web', 'address') + \
+                                '/aiohttp/changePassword?token=' + token + """
+    Если вы не запрашивали восстановление пароля, просто игнорируйте это письмо.
+    Ссылка будет действительна в течение 1 часа.
 
-    tnxqso.com support"""
-                        sendEmail(text=text, fr=self.conf.get('email', 'address'), \
+    Служба поддержки CFMRDA.ru"""
+                        send_email.send_email(text=text, fr=self.conf.get('email', 'address'), \
                             to=user_data['email'], \
                             subject="tnxqso.com password recovery")
                         return web.Response(text='OK')
         return web.HTTPBadRequest(text=error)
+
+    @asyncio.coroutine
+    def cfm_email_hndlr(self, request):
+        data = request.query
+        callsign = self.decode_token(data, check_time=True)
+        if isinstance(callsign, str):
+            yield from self._db.param_update('users', {'callsign': callsign},\
+                {'email_confirmed': True})
+            return web.HTTPFound(self.conf.get('web', 'address'))
+        else:
+            return callsign
+
+    def decode_token(self, data, check_time=False):
+        callsign = None
+        if 'token' in data:
+            try:
+                payload = jwt.decode(data['token'], self._secret, algorithms=['HS256'])
+            except jwt.exceptions.DecodeError:
+                return web.HTTPBadRequest(text='Токен просрочен. Пожалуйста, повторите операцию.')
+            if 'callsign' in payload:
+                callsign = payload['callsign'].upper()
+            if check_time:
+                if 'time' not in payload or time.time() - payload['time'] > 60 * 60:
+                    return web.HTTPBadRequest(\
+                        text='Токен просрочен. Пожалуйста, повторите операцию.')
+        return callsign if callsign\
+            else web.HTTPBadRequest(text='Необходимо войти в учетную запись.')
+
 
 @asyncio.coroutine
 def test_hndlr(request):
@@ -141,18 +188,6 @@ def test_hndlr(request):
     return web.Response(text='OK')
 
 
-def decode_token(data):
-    callsign = None
-    if 'token' in data:
-        try:
-            payload = jwt.decode(data['token'], secret, algorithms=['HS256'])
-        except jwt.exceptions.DecodeError:
-            return web.HTTPBadRequest(text='Login expired')
-        if 'callsign' in payload:
-            callsign = payload['callsign'].lower()
-        if 'time' in payload and time.time() - payload['time'] > 60 * 60:
-            return web.HTTPBadRequest(text='Password change link is expired')
-    return callsign if callsign else web.HTTPBadRequest(text='Not logged in')
 
 if __name__ == '__main__':
     APP = web.Application(client_max_size=10 * 1024 ** 2)
@@ -160,4 +195,5 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
+    APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))
