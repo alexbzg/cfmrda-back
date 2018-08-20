@@ -43,7 +43,7 @@ class CfmRdaServer():
     @asyncio.coroutine
     def login_hndlr(self, request):
         data = yield from request.json()
-        if 'register' in data:
+        if 'register' in data and data['register']:
             return (yield from self.register_user(data))
         else:
             return (yield from self.login((data)))
@@ -99,14 +99,13 @@ class CfmRdaServer():
     @asyncio.coroutine
     def login(self, data):
         error = None
-        try:
-            self._json_validator.validate('login', data)
+        if self._json_validator.validate('login', data):
             user_data = yield from self.get_user_data(data['callsign'])
             if user_data and user_data['password'] == data['password']:
                 return (yield from self.send_user_data(data['callsign']))
             else:
                 error = 'Неверный позывной или пароль'
-        except jsonschema.exceptions.ValidationError:
+        else:
             error = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
         if error:
             return web.HTTPBadRequest(text=error)

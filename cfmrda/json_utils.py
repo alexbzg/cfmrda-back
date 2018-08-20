@@ -8,7 +8,7 @@ import decimal
 
 from datetime import datetime, date
 
-from jsonschema import validate
+import jsonschema
 
 def json_encode_extra(obj):
     if isinstance(obj, decimal.Decimal):
@@ -36,5 +36,14 @@ class JSONvalidator:
         self._schemas = schemas
 
     def validate(self, schema, data):
-        return validate(data, self._schemas[schema])
+        try:
+            jsonschema.validate(data, self._schemas[schema])
+            return True
+        except jsonschema.exceptions.ValidationError:
+            logging.exception('Error validating json data')
+            logging.error(data)
+            logging.error('schema: ' + schema)
+            return False
+
+
 
