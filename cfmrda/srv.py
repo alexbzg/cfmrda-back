@@ -7,7 +7,6 @@ import time
 
 from aiohttp import web
 import jwt
-import jsonschema
 
 from common import site_conf, start_logging
 from db import DBConn
@@ -21,6 +20,7 @@ start_logging('srv')
 logging.debug("restart")
 
 class CfmRdaServer():
+    DEF_ERROR_MSG = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
 
     def __init__(self, loop):
         self._loop = loop
@@ -41,18 +41,74 @@ class CfmRdaServer():
                 {'callsign': callsign}, False, True))
 
     @asyncio.coroutine
-    def login_hndlr(self, request):
+    def login_hndlr(self, request):        
         data = yield from request.json()
-        if 'register' in data and data['register']:
-            return (yield from self.register_user(data))
+        if 'mode' in data:
+            if data['mode'] == 'register':
+                return (yield from self.register_user(data))
+            elif data['mode'] == 'login':
+                return (yield from self.login((data)))
+            elif data['mode'] == 'passwordRequest':
+                return (yield from self.password_request((data)))
+            elif data['mode'] == 'passwordChange':
+                return (yield from self.password_change((data)))
+        logging.debug(data)
+        return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+
+    @asyncio.coroutine
+    def password_request(self, data):
+        error = None
+        if self._json_validator.validate('passwordRequest', data):
+            rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+            if rc_test:
+                user_data = yield from self.get_user_data(data['callsign'])
+                if user_data:
+                    token = self.create_token(\
+                        {'callsign': data['callsign'], 'time': time.time()})
+                    text = """
+Пройдите по ссылкe, чтобы сменить пароль на CFMRDA.ru:
+
+""" \
+                        + self.conf.get('web', 'address')\
+                        + '/#/login?token=' + token + """
+
+Если вы не запрашивали смену пароля на CFMRDA.ru, просто игнорируйте это письмо.
+Ссылка будет действительна в течение 1 часа.
+
+Служба поддержки CFMRDA.ru"""
+                    send_email.send_email(text=text,\
+                        fr=self.conf.get('email', 'address'),\
+                        to=user_data['email'],\
+                        subject="CFMRDA.ru - смена пароля")
+                else:
+                    error =\
+                        'Позывной не зарегистрирован на CFMRDA.ru'
+            else:
+                error = 'Проверка на робота не пройдена или данные устарели. Попробуйте еще раз.'
         else:
-            return (yield from self.login((data)))
+            error = CfmRdaServer.DEF_ERROR_MSG
+        if error:
+            return web.HTTPBadRequest(text=error)
+        else:
+            return web.Response(text='OK')
+
+    @asyncio.coroutine
+    def password_change(self, data):
+        if self._json_validator.validate('passwordChange', data):
+            callsign = self.decode_token(data, check_time=True)
+            if isinstance(callsign, str):
+                yield from self._db.param_update('users', {'callsign': callsign},\
+                    {'email_confirmed': True, 'password': data['password']})
+                return web.Response(text='OK')
+            else:
+                return callsign
+        else:
+            return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
 
     @asyncio.coroutine
     def register_user(self, data):
         error = None
-        try:
-            self._json_validator.validate('register', data)
+        if self._json_validator.validate('register', data):
             rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
             if rc_test:
                 test_callsign = yield from self.get_user_data(data['callsign'])
@@ -89,13 +145,13 @@ class CfmRdaServer():
                             'Позывной или адрес электронной почты не зарегистрирован на QRZ.com'
             else:
                 error = 'Проверка на робота не пройдена или данные устарели. Попробуйте еще раз.'
-        except jsonschema.exceptions.ValidationError:
-            error = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
+        else:
+            error = CfmRdaServer.DEF_ERROR_MSG
         if error:
             return web.HTTPBadRequest(text=error)
         else:
             return (yield from self.send_user_data(data['callsign']))
-
+ 
     @asyncio.coroutine
     def login(self, data):
         error = None
@@ -104,9 +160,9 @@ class CfmRdaServer():
             if user_data and user_data['password'] == data['password']:
                 return (yield from self.send_user_data(data['callsign']))
             else:
-                error = 'Неверный позывной или пароль'
+                error = 'Неверный позывной или пароль.'
         else:
-            error = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
+            error = CfmRdaServer.DEF_ERROR_MSG
         if error:
             return web.HTTPBadRequest(text=error)
 
@@ -116,40 +172,6 @@ class CfmRdaServer():
         user_data['token'] = self.create_token({'callsign': callsign})
         del user_data['password']
         return web.json_response(user_data)
-
-    @asyncio.coroutine
-    def pwd_recovery_req_hndlr(self, request):
-        error = None
-        data = yield from request.json()
-        user_data = False
-        if 'login' not in data or len(data['login']) < 2:
-            error = 'Minimal login length is 2 symbols'
-        if not error:
-            data['login'] = data['login'].lower()
-            rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
-            user_data = yield from self.get_user_data(data['login'])
-            if not rc_test:
-                error = 'Recaptcha test failed. Please try again'
-            else:
-                if not user_data:
-                    error = 'This callsign is not registered.'
-                else:
-                    if not user_data['email']:
-                        error = 'This account has no email address.'
-                    else:
-                        token = self.create_token({'callsign': data['login'], 'time': time.time()})
-                        text = 'Пройдите по ссылке, чтобы восстановить свой пароль ' + \
-                                'на CFMRDA.ru:' + self.conf.get('web', 'address') + \
-                                '/aiohttp/changePassword?token=' + token + """
-    Если вы не запрашивали восстановление пароля, просто игнорируйте это письмо.
-    Ссылка будет действительна в течение 1 часа.
-
-    Служба поддержки CFMRDA.ru"""
-                        send_email.send_email(text=text, fr=self.conf.get('email', 'address'), \
-                            to=user_data['email'], \
-                            subject="tnxqso.com password recovery")
-                        return web.Response(text='OK')
-        return web.HTTPBadRequest(text=error)
 
     @asyncio.coroutine
     def cfm_email_hndlr(self, request):

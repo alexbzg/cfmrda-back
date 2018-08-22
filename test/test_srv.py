@@ -53,7 +53,7 @@ def test_register(cfm_rda_server):
 
     _data = {'callsign': 'R7CLL',\
             'password': 'rytqcypz',\
-            'register': True,\
+            'mode': 'register',\
             'recaptcha': 'mock_true',\
             'email': 'welcome@masterslav.ru'}
 
@@ -106,10 +106,11 @@ def test_register(cfm_rda_server):
             assert rsp.status == 400        
 
             logging.debug('Test login')
-            rsp = yield from cfm_rda_server.login_hndlr(create_request(method, url,\
-                {k: _data[k] for k in ('callsign', 'password')}))
+            _data['mode'] = 'login'
+            rsp = yield from cfm_rda_server.login_hndlr(create_request(method, url, _data))
             logging.debug(rsp.text + '\n')
             assert rsp.status == 200        
+
 
             method = 'GET'
 
@@ -144,22 +145,53 @@ def test_register(cfm_rda_server):
             assert user_data['password'] == _data['password']
             assert user_data['email_confirmed']
 
+            method = 'POST'
+
+            logging.debug('Change password request - invalid recaptcha')
+            _data['mode'] = 'passwordRequest'
+            _data['callsign'] = 'TEST'
+            _data['recaptcha'] ='hf;sadhf;aschn;sadhnac;'
+            rsp = yield from cfm_rda_server.login_hndlr(create_request(method, url, _data))
+            logging.debug(rsp.text + '\n')
+            assert rsp.status == 400        
+
+            logging.debug('Change password request')
+            _data['recaptcha'] ='mock_true'
+            rsp = yield from cfm_rda_server.login_hndlr(create_request(method, url, _data))
+            logging.debug(rsp.text + '\n')
+            assert rsp.status == 200        
+           
+
         finally:
             if clean_user:
                 logging.debug('cleaning user' + '\n')
-                yield from cfm_rda_server._db.param_delete('users', {'callsign': _data['callsign']})
+                yield from cfm_rda_server._db.param_delete('users', {'callsign': 'R7CL'})
 
     asyncio.get_event_loop().run_until_complete(do_test())
+
+def test_password_change(cfm_rda_server):
+    data = {'password': '22222222', 'mode': 'passwordChange'}
+
+    logging.debug('change password test - obsolete token')
+    data['token'] = cfm_rda_server.create_token({'time': time.time() - 60 * 70, 'callsign': 'TEST'})
+    rsp = requests.post(API_URI + '/login', data=json.dumps(data))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 400
+
+    logging.debug('change password test')
+    data['token'] = cfm_rda_server.create_token({'time': time.time(), 'callsign': 'TEST'})
+    rsp = requests.post(API_URI + '/login', data=json.dumps(data))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
 
 def test_login():
     global token
     logging.debug('login test')
     rsp = requests.post(API_URI + '/login',\
-        data=json.dumps({'callsign': 'TEST', 'password': '11111111'}))
+        data=json.dumps({'callsign': 'TEST', 'password': '22222222', 'mode': 'login'}))
     logging.debug(rsp.text)
-    data = json.loads(rsp.text)
     assert rsp.status_code == 200
+    data = json.loads(rsp.text)
     assert data['email'] == 'alexbzg@gmail.com'
-    token = data['token']
     
 

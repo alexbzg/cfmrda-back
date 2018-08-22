@@ -44,6 +44,3 @@ class JSONvalidator:
             logging.error(data)
             logging.error('schema: ' + schema)
             return False
-
-
-
