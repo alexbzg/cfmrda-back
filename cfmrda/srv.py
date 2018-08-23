@@ -41,7 +41,7 @@ class CfmRdaServer():
                 {'callsign': callsign}, False, True))
 
     @asyncio.coroutine
-    def login_hndlr(self, request):        
+    def login_hndlr(self, request):
         data = yield from request.json()
         if 'mode' in data:
             if data['mode'] == 'register':
@@ -151,14 +151,17 @@ class CfmRdaServer():
             return web.HTTPBadRequest(text=error)
         else:
             return (yield from self.send_user_data(data['callsign']))
- 
+
     @asyncio.coroutine
     def login(self, data):
         error = None
         if self._json_validator.validate('login', data):
             user_data = yield from self.get_user_data(data['callsign'])
             if user_data and user_data['password'] == data['password']:
-                return (yield from self.send_user_data(data['callsign']))
+                if user_data['email_confirmed']:
+                    return (yield from self.send_user_data(data['callsign']))
+                else:
+                    error = 'Ваш адрес электронной почты не подтвержден.'
             else:
                 error = 'Неверный позывной или пароль.'
         else:

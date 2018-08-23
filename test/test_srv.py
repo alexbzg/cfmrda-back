@@ -105,11 +105,11 @@ def test_register(cfm_rda_server):
             logging.debug(rsp.text + '\n')
             assert rsp.status == 400        
 
-            logging.debug('Test login')
+            logging.debug('Test login with no confirmed email')
             _data['mode'] = 'login'
             rsp = yield from cfm_rda_server.login_hndlr(create_request(method, url, _data))
             logging.debug(rsp.text + '\n')
-            assert rsp.status == 200        
+            assert rsp.status == 400        
 
 
             method = 'GET'
@@ -134,6 +134,14 @@ def test_register(cfm_rda_server):
             rsp = yield from cfm_rda_server.cfm_email_hndlr(create_request(method, url))
             logging.debug(rsp.text + '\n')
             assert rsp.status == 302
+
+            method = 'POST'
+
+            logging.debug('Test login')
+            _data['mode'] = 'login'
+            rsp = yield from cfm_rda_server.login_hndlr(create_request(method, url, _data))
+            logging.debug(rsp.text + '\n')
+            assert rsp.status == 200        
 
             logging.debug('check db record')
             user_data = yield from cfm_rda_server._db.get_object('users', {'callsign': _data['callsign']},\
