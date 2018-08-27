@@ -47,13 +47,26 @@ class CfmRdaServer():
             if data['mode'] == 'register':
                 return (yield from self.register_user(data))
             elif data['mode'] == 'login':
-                return (yield from self.login((data)))
+                return (yield from self.login(data))
             elif data['mode'] == 'passwordRequest':
-                return (yield from self.password_request((data)))
+                return (yield from self.password_request(data))
             elif data['mode'] == 'passwordChange':
-                return (yield from self.password_change((data)))
+                return (yield from self.password_change(data))
+            elif data['mode'] == 'emailRequest':
+                return (yield from self.email_request(data))
         logging.debug(data)
         return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+
+    @asyncio.coroutine
+    def email_request(self, data):
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            yield from self._db.param_update('users', {'callsign': callsign},\
+                {'email_confirmed': True})
+            return web.HTTPFound(self.conf.get('web', 'address'))
+        else:
+            return callsign
+
 
     @asyncio.coroutine
     def password_request(self, data):
@@ -105,6 +118,25 @@ class CfmRdaServer():
         else:
             return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
 
+    def send_email_cfm(self, callsign, email):
+        token = self.create_token(\
+            {'callsign': callsign, 'time': time.time()})
+        text = """
+Пройдите по ссылкe, чтобы подтвердить свою электроную почту на CFMRDA.ru:
+
+""" \
+            + self.conf.get('web', 'address')\
+            + '/aiohttp/confirm_emai?token=' + token + """
+
+Если вы не регистрировали учетную запись на CFMRDA.ru, просто игнорируйте это письмо.
+Ссылка будет действительна в течение 1 часа.
+
+Служба поддержки CFMRDA.ru"""
+        send_email.send_email(text=text,\
+            fr=self.conf.get('email', 'address'),\
+            to=email,\
+            subject="CFMRDA.ru - подтверждение электронной почты")
+
     @asyncio.coroutine
     def register_user(self, data):
         error = None
@@ -123,23 +155,7 @@ class CfmRdaServer():
                             'email': data['email'],\
                             'email_confirmed': False},\
                             True)
-                        token = self.create_token(\
-                            {'callsign': data['callsign'], 'time': time.time()})
-                        text = """
-Пройдите по ссылкe, чтобы подтвердить свою электроную почту на CFMRDA.ru:
-
-""" \
-                            + self.conf.get('web', 'address')\
-                            + '/aiohttp/confirmEmail?token=' + token + """
-
-Если вы не регистрировали учетную запись на CFMRDA.ru, просто игнорируйте это письмо.
-Ссылка будет действительна в течение 1 часа.
-
-Служба поддержки CFMRDA.ru"""
-                        send_email.send_email(text=text,\
-                            fr=self.conf.get('email', 'address'),\
-                            to=data['email'],\
-                            subject="CFMRDA.ru - подтверждение электронной почты")
+                        self.send_email_cfm(data['callsign'], data['email'])
                     else:
                         error =\
                             'Позывной или адрес электронной почты не зарегистрирован на QRZ.com'
@@ -150,7 +166,7 @@ class CfmRdaServer():
         if error:
             return web.HTTPBadRequest(text=error)
         else:
-            return (yield from self.send_user_data(data['callsign']))
+            return web.Response(text='OK')
 
     @asyncio.coroutine
     def login(self, data):
@@ -161,7 +177,9 @@ class CfmRdaServer():
                 if user_data['email_confirmed']:
                     return (yield from self.send_user_data(data['callsign']))
                 else:
-                    error = 'Ваш адрес электронной почты не подтвержден.'
+                    error = 'Необходимо подтвердить адрес электронной почты. ' +\
+                            'Вам отправлено повторное письмо с инструкциями.'
+                    self.send_email_cfm(data['callsign'], user_data['email'])
             else:
                 error = 'Неверный позывной или пароль.'
         else:
@@ -183,7 +201,7 @@ class CfmRdaServer():
         if isinstance(callsign, str):
             yield from self._db.param_update('users', {'callsign': callsign},\
                 {'email_confirmed': True})
-            return web.HTTPFound(self.conf.get('web', 'address'))
+            return web.Response(text='Ваш адрес электронной почты был подвержден.')
         else:
             return callsign
 
@@ -219,5 +237,5 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
-    APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
+    APP.router.add_get('/aiohttp/confirm_emai', SRV.cfm_email_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))

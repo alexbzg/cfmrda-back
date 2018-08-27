@@ -116,14 +116,14 @@ def test_register(cfm_rda_server):
 
             logging.debug('Confirm email with no callsign token')
             token = cfm_rda_server.create_token({'time': time.time()})
-            url = '/aiohttp/confirm_email?token=' + token
+            url = '/aiohttp/confirm_emai?token=' + token
             rsp = yield from cfm_rda_server.cfm_email_hndlr(create_request(method, url))
             logging.debug(rsp.text + '\n')
             assert rsp.status == 400        
 
             logging.debug('Confirm email obsolete token')
             token = cfm_rda_server.create_token({'time': time.time() - 60 * 70, 'callsign': 'R7CL'})
-            url = '/aiohttp/confirm_email?token=' + token
+            url = '/aiohttp/confirm_emai?token=' + token
             rsp = yield from cfm_rda_server.cfm_email_hndlr(create_request(method, url))
             logging.debug(rsp.text + '\n')
             assert rsp.status == 400        
@@ -133,7 +133,7 @@ def test_register(cfm_rda_server):
             url = '/aiohttp/confirm_email?token=' + token
             rsp = yield from cfm_rda_server.cfm_email_hndlr(create_request(method, url))
             logging.debug(rsp.text + '\n')
-            assert rsp.status == 302
+            assert rsp.status == 200
 
             method = 'POST'
 
