@@ -28,6 +28,8 @@ def replace_recaptcha(monkeypatch):
         return val == 'mock_true'
 
     def mock_send_email(**kwargs):
+        logging.debug('Send email')
+        logging.debug(kwargs)
         return True
         
     monkeypatch.setattr(recaptcha, 'check_recaptcha', mock_recaptcha)
@@ -167,8 +169,26 @@ def test_register(cfm_rda_server):
             _data['recaptcha'] ='mock_true'
             rsp = yield from cfm_rda_server.login_hndlr(create_request(method, url, _data))
             logging.debug(rsp.text + '\n')
-            assert rsp.status == 200        
-           
+            assert rsp.status == 200       
+
+            logging.debug('Contact support test - not logged user')
+            rsp = yield from cfm_rda_server.contact_support_hndlr(create_request(method, 
+                '/aiohttp/contact_support', 
+                {'email': '18@73.ru', 
+                'recaptcha': 'asgds,cblhav./dsjvab.jkasdbckdjas',
+                'text':'blah blah blah blah blah blah blah'}))
+            logging.debug(rsp.text + '\n')
+            assert rsp.status == 200       
+          
+            logging.debug('Contact support - logged user')
+            rsp = yield from cfm_rda_server.contact_support_hndlr(create_request(method, 
+                '/aiohttp/contact_support', 
+                {'token': cfm_rda_server.create_token({'callsign': 'R7CL'}), 
+                'recaptcha': 'asgds,cblhav./dsjvab.jkasdbckdjas',
+                'text':'blah blah blah blah blah blah blah'}))
+            logging.debug(rsp.text + '\n')
+            assert rsp.status == 200       
+          
 
         finally:
             if clean_user:
@@ -201,5 +221,13 @@ def test_login():
     assert rsp.status_code == 200
     data = json.loads(rsp.text)
     assert data['email'] == 'alexbzg@gmail.com'
+    token = data['token']
     
+def test_contact_support():
+    global token
+    logging.debug('Contact support test - logged user')
+    rsp = requests.post(API_URI + '/contact_support',\
+        data=json.dumps({'token': token, 'text': 'blah blah blah blah blah blah blah'}))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
 

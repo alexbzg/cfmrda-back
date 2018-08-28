@@ -58,6 +58,30 @@ class CfmRdaServer():
         return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
 
     @asyncio.coroutine
+    def contact_support_hndlr(self, request):
+        data = yield from request.json()
+        if self._json_validator.validate('contactSupport', data):
+            email = None
+            callsign = None
+            if 'token' in data:
+                callsign = self.decode_token(data)
+                if isinstance(callsign, str):
+                    user_data = yield from self.get_user_data(callsign)
+                    email = user_data['email']
+                else:
+                    return callsign
+            else:
+                email = data['email']
+            send_email.send_email(text=data['text'],\
+                to=self.conf.get('email', 'address'),\
+                fr=email,\
+                subject="CFMRDA.ru support" + \
+                    (' (' + callsign + ')' if callsign else ''))
+            return web.Response(text='OK')
+
+        return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+
+    @asyncio.coroutine
     def email_request(self, data):
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
@@ -78,8 +102,7 @@ class CfmRdaServer():
                 if user_data:
                     token = self.create_token(\
                         {'callsign': data['callsign'], 'time': time.time()})
-                    text = """
-Пройдите по ссылкe, чтобы сменить пароль на CFMRDA.ru:
+                    text = """Пройдите по ссылкe, чтобы сменить пароль на CFMRDA.ru:
 
 """ \
                         + self.conf.get('web', 'address')\
@@ -121,8 +144,7 @@ class CfmRdaServer():
     def send_email_cfm(self, callsign, email):
         token = self.create_token(\
             {'callsign': callsign, 'time': time.time()})
-        text = """
-Пройдите по ссылкe, чтобы подтвердить свою электроную почту на CFMRDA.ru:
+        text = """Пройдите по ссылкe, чтобы подтвердить свою электроную почту на CFMRDA.ru:
 
 """ \
             + self.conf.get('web', 'address')\
@@ -148,7 +170,8 @@ class CfmRdaServer():
                     error = 'Этот позывной уже зарегистрирован.'
                 else:
                     qrz_data = self._qrzcom.get_data(data['callsign'])
-                    if qrz_data and qrz_data['email'] == data['email']:
+                    if qrz_data and 'email' in qrz_data and \
+                        qrz_data['email'] == data['email']:
                         yield from self._db.get_object('users',\
                             {'callsign': data['callsign'],\
                             'password': data['password'],\
@@ -237,5 +260,6 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
+    APP.router.add_post('/aiohttp/contact_support', SRV.contact_support_hndlr)
     APP.router.add_get('/aiohttp/confirm_emai', SRV.cfm_email_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))
