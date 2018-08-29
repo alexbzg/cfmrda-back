@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import time
+import base64
 
 from aiohttp import web
 import jwt
@@ -91,6 +92,36 @@ class CfmRdaServer():
         else:
             return callsign
 
+    @asyncio.coroutine
+    def adif_hndlr(self, request):
+        error = None
+        data = yield from request.json()
+        if self._json_validator.validate('adif', data):
+            callsign = self.decode_token(data)
+            if isinstance(callsign, str):
+                user_data = yield from self.get_user_data(callsign)
+                if user_data['email_confirmed']:
+                    file = base64.b64decode(data['file'].split(',')[1])
+                    file_rec = yield from self._db.execute(\
+                        "insert into uploads (user, rda, station_callsign) " + \
+                        "values (%(callsign)s, %(rda)s, %(station_callsign)s)" + \
+                        "returning id",\
+                        {'callsign': callsign,\
+                        'rda': data['rda'],\
+                        'station_callsign': data['stationCallsign']})
+                    logging.debug(file_rec)
+                    for line in file:
+                        logging.debug(line)
+                else:
+                    error = 'Ваш адрес электронной почты не подтвержден.'
+            else:
+                return callsign
+        else:
+            error = CfmRdaServer.DEF_ERROR_MSG
+        if error:
+            return web.HTTPBadRequest(text=error)
+        else:
+            return web.Response(text='OK')
 
     @asyncio.coroutine
     def password_request(self, data):
