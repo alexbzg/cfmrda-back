@@ -16,6 +16,7 @@ from secret import secret
 import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
+from adif import load_adif
 
 start_logging('srv')
 logging.debug("restart")
@@ -101,17 +102,35 @@ class CfmRdaServer():
             if isinstance(callsign, str):
                 user_data = yield from self.get_user_data(callsign)
                 if user_data['email_confirmed']:
-                    file = base64.b64decode(data['file'].split(',')[1])
+                    adif = base64.b64decode(data['file'].split(',')[1]).decode()
+                    adif_data = load_adif(adif)
                     file_rec = yield from self._db.execute(\
-                        "insert into uploads (user, rda, station_callsign) " + \
-                        "values (%(callsign)s, %(rda)s, %(station_callsign)s)" + \
+                        "insert into uploads " +\
+                            "(user_cs, rda, station_callsign, date_start, " +\
+                                "date_end) " +\
+                        "values (%(callsign)s, %(rda)s, %(station_callsign)s, " +\
+                            "%(date_start)s, %(date_end)s)" + \
                         "returning id",\
                         {'callsign': callsign,\
                         'rda': data['rda'],\
-                        'station_callsign': data['stationCallsign']})
-                    logging.debug(file_rec)
-                    for line in file:
-                        logging.debug(line)
+                        'station_callsign': data['stationCallsign'],\
+                        'date_start': adif_data['date_start'],\
+                        'date_end': adif_data['date_end']})
+                    qso_sql = "insert into qso " +\
+                        "(upload_id, callsign, station_callsign, rda, band," +\
+                            "mode, tstamp) " +\
+                        "values (%(upload_id)s, %(callsign)s, " +\
+                            "%(station_callsign)s, %(rda)s, %(band)s, %(mode)s, " +\
+                            "%(tstamp)s)"
+                    for qso in adif_data['qso']:
+                        yield from self._db.execute(qso_sql,\
+                            {'upload_id': file_rec['id'],\
+                            'callsign': qso['callsign'],\
+                            'station_callsign': data['stationCallsign'],\
+                            'rda': data['rda'],\
+                            'band': qso['band'],\
+                            'mode': qso['mode'],\
+                            'tstamp': qso['tstamp']})
                 else:
                     error = 'Ваш адрес электронной почты не подтвержден.'
             else:
@@ -292,5 +311,6 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
     APP.router.add_post('/aiohttp/contact_support', SRV.contact_support_hndlr)
+    APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
     APP.router.add_get('/aiohttp/confirm_emai', SRV.cfm_email_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))

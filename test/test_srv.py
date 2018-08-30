@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from os import path
 
 import pytest
 from aiohttp.test_utils import make_mocked_request
@@ -53,11 +54,11 @@ class MockPayload():
 
 def test_register(cfm_rda_server):
 
-    _data = {'callsign': 'R7CLL',\
+    _data = {'callsign': 'RN6BNL',\
             'password': 'rytqcypz',\
             'mode': 'register',\
             'recaptcha': 'mock_true',\
-            'email': 'welcome@masterslav.ru'}
+            'email': 'rn6bn@mail.ru'}
 
     def create_request(method, url, data=None):
         req = make_mocked_request(method, url)
@@ -89,7 +90,7 @@ def test_register(cfm_rda_server):
             assert rsp.status == 400
 
             logging.debug('Creating user with invalid captcha')
-            _data['callsign'] = 'R7CL'
+            _data['callsign'] = 'RN6BN'
             _data['recaptcha'] = 'lawecnhjasmknd.c/lasfhewuo;fh'
             rsp = yield from cfm_rda_server.login_hndlr(create_request(method, url, _data))
             logging.debug(rsp.text + '\n')
@@ -124,14 +125,14 @@ def test_register(cfm_rda_server):
             assert rsp.status == 400        
 
             logging.debug('Confirm email obsolete token')
-            token = cfm_rda_server.create_token({'time': time.time() - 60 * 70, 'callsign': 'R7CL'})
+            token = cfm_rda_server.create_token({'time': time.time() - 60 * 70, 'callsign': 'RN6BN'})
             url = '/aiohttp/confirm_emai?token=' + token
             rsp = yield from cfm_rda_server.cfm_email_hndlr(create_request(method, url))
             logging.debug(rsp.text + '\n')
             assert rsp.status == 400        
 
             logging.debug('Confirm email')
-            token = cfm_rda_server.create_token({'time': time.time(), 'callsign': 'R7CL'})
+            token = cfm_rda_server.create_token({'time': time.time(), 'callsign': 'RN6BN'})
             url = '/aiohttp/confirm_email?token=' + token
             rsp = yield from cfm_rda_server.cfm_email_hndlr(create_request(method, url))
             logging.debug(rsp.text + '\n')
@@ -183,17 +184,33 @@ def test_register(cfm_rda_server):
             logging.debug('Contact support - logged user')
             rsp = yield from cfm_rda_server.contact_support_hndlr(create_request(method, 
                 '/aiohttp/contact_support', 
-                {'token': cfm_rda_server.create_token({'callsign': 'R7CL'}), 
+                {'token': cfm_rda_server.create_token({'callsign': 'RN6BN'}), 
                 'recaptcha': 'asgds,cblhav./dsjvab.jkasdbckdjas',
                 'text':'blah blah blah blah blah blah blah'}))
             logging.debug(rsp.text + '\n')
             assert rsp.status == 200       
+
+            logging.debug('ADIF upload')
+            adif = None
+            with open(path.dirname(path.abspath(__file__)) + '/test.adif', 'r') as _tf:
+                adif = _tf.read()
+            rsp = yield from cfm_rda_server.adif_hndlr(create_request(method, 
+                '/aiohttp/adif', 
+                {'token': cfm_rda_server.create_token({'callsign': 'RN6BN'}), 
+                'rda': 'HA-01',
+                'file': adif,
+                'stationCallsign':'QQQ_TEST'}))
+            logging.debug(rsp.text + '\n')
+            assert rsp.status == 200       
+           
           
 
         finally:
             if clean_user:
                 logging.debug('cleaning user' + '\n')
-                yield from cfm_rda_server._db.param_delete('users', {'callsign': 'R7CL'})
+                yield from cfm_rda_server._db.param_delete('qso', {'station_callsign': 'QQQ_TEST'})
+                yield from cfm_rda_server._db.param_delete('uploads', {'user_cs': 'RN6BN'})
+                yield from cfm_rda_server._db.param_delete('users', {'callsign': 'RN6BN'})
 
     asyncio.get_event_loop().run_until_complete(do_test())
 
