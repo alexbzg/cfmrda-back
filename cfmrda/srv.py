@@ -8,6 +8,7 @@ import base64
 
 from aiohttp import web
 import jwt
+import chardet
 
 from common import site_conf, start_logging
 from db import DBConn
@@ -102,7 +103,10 @@ class CfmRdaServer():
             if isinstance(callsign, str):
                 user_data = yield from self.get_user_data(callsign)
                 if user_data['email_confirmed']:
-                    adif = base64.b64decode(data['file'].split(',')[1]).decode()
+                    adif_bytes = base64.b64decode(data['file'].split(',')[1])
+                    adif_enc = chardet.detect(adif_bytes)
+                    logging.debug(adif_enc)
+                    adif = adif_bytes.decode(adif_enc['encoding'])
                     adif_data = load_adif(adif)
                     file_rec = yield from self._db.execute(\
                         "insert into uploads " +\
@@ -122,15 +126,18 @@ class CfmRdaServer():
                         "values (%(upload_id)s, %(callsign)s, " +\
                             "%(station_callsign)s, %(rda)s, %(band)s, %(mode)s, " +\
                             "%(tstamp)s)"
+                    qso_params = []
                     for qso in adif_data['qso']:
-                        yield from self._db.execute(qso_sql,\
-                            {'upload_id': file_rec['id'],\
+                        qso_params.append({'upload_id': file_rec['id'],\
                             'callsign': qso['callsign'],\
                             'station_callsign': data['stationCallsign'],\
                             'rda': data['rda'],\
                             'band': qso['band'],\
                             'mode': qso['mode'],\
                             'tstamp': qso['tstamp']})
+                    res = yield from self._db.execute(qso_sql, qso_params)
+                    if not res:
+                        error = CfmRdaServer.DEF_ERROR_MSG
                 else:
                     error = 'Ваш адрес электронной почты не подтвержден.'
             else:

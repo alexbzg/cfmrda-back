@@ -100,8 +100,14 @@ class DBConn:
                 if self.verbose:
                     logging.debug(sql)
                     logging.debug(params)
-                yield from cur.execute(sql, params)
-                res = (yield from to_dict(cur)) if cur.description != None else True
+                if not params or isinstance(params, dict):
+                    yield from cur.execute(sql, params)
+                    res = (yield from to_dict(cur))\
+                        if cur.description != None else True
+                else:
+                    for item in params:
+                        yield from cur.execute(sql, item)
+                    res = True
             except Exception:
                 logging.exception("Error executing: " + sql + "\n")
                 stack = traceback.extract_stack()
