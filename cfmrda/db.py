@@ -2,11 +2,11 @@
 #coding=utf-8
 
 import logging
-import traceback
 import json
 import asyncio
 
 import aiopg
+from psycopg2.extensions import TRANSACTION_STATUS_IDLE
 
 @asyncio.coroutine
 def to_dict(cur, keys=None):
@@ -105,13 +105,17 @@ class DBConn:
                     res = (yield from to_dict(cur))\
                         if cur.description != None else True
                 else:
+                    yield from cur.execute('begin transaction;')
                     for item in params:
                         yield from cur.execute(sql, item)
+                    yield from cur.execute('commit transaction;')
                     res = True
             except Exception:
-                logging.exception("Error executing: " + sql + "\n")
-                stack = traceback.extract_stack()
-                logging.error(stack)
+                if cur.connection.get_transaction_status() !=\
+                        TRANSACTION_STATUS_IDLE:
+                    yield from cur.execute('rollback transaction;')
+                logging.exception("Error executing: " + sql + "\n",\
+                    exc_info=True)
                 if params:
                     logging.error("Params: ")
                     logging.error(params)

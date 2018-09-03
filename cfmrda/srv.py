@@ -17,7 +17,7 @@ from secret import secret
 import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
-from adif import load_adif
+from adif import load_adif, ADIFParseException
 
 start_logging('srv')
 logging.debug("restart")
@@ -96,58 +96,75 @@ class CfmRdaServer():
 
     @asyncio.coroutine
     def adif_hndlr(self, request):
-        error = None
         data = yield from request.json()
         if self._json_validator.validate('adif', data):
             callsign = self.decode_token(data)
             if isinstance(callsign, str):
                 user_data = yield from self.get_user_data(callsign)
                 if user_data['email_confirmed']:
-                    adif_bytes = base64.b64decode(data['file'].split(',')[1])
-                    adif_enc = chardet.detect(adif_bytes)
-                    logging.debug(adif_enc)
-                    adif = adif_bytes.decode(adif_enc['encoding'])
-                    adif_data = load_adif(adif)
-                    file_rec = yield from self._db.execute(\
-                        "insert into uploads " +\
-                            "(user_cs, rda, station_callsign, date_start, " +\
-                                "date_end) " +\
-                        "values (%(callsign)s, %(rda)s, %(station_callsign)s, " +\
-                            "%(date_start)s, %(date_end)s)" + \
-                        "returning id",\
-                        {'callsign': callsign,\
-                        'rda': data['rda'],\
-                        'station_callsign': data['stationCallsign'],\
-                        'date_start': adif_data['date_start'],\
-                        'date_end': adif_data['date_end']})
-                    qso_sql = "insert into qso " +\
-                        "(upload_id, callsign, station_callsign, rda, band," +\
-                            "mode, tstamp) " +\
-                        "values (%(upload_id)s, %(callsign)s, " +\
-                            "%(station_callsign)s, %(rda)s, %(band)s, %(mode)s, " +\
-                            "%(tstamp)s)"
-                    qso_params = []
-                    for qso in adif_data['qso']:
-                        qso_params.append({'upload_id': file_rec['id'],\
-                            'callsign': qso['callsign'],\
-                            'station_callsign': data['stationCallsign'],\
-                            'rda': data['rda'],\
-                            'band': qso['band'],\
-                            'mode': qso['mode'],\
-                            'tstamp': qso['tstamp']})
-                    res = yield from self._db.execute(qso_sql, qso_params)
-                    if not res:
-                        error = CfmRdaServer.DEF_ERROR_MSG
+                    station_callsign_field = None
+                    station_callsign = None
+                    response = {'filesLoaded': 0, 'errors': []}
+                    if data['stationCallsignFieldEnable']:
+                        station_callsign_field = data['stationCallsignField']
+                    else:
+                        station_callsign = data['stationCallsign']
+                    for file in data['files']:
+                        error = {'filename': file['name'],\
+                                'rda': file['rda'],\
+                                'message': 'Ошибка загрузки'}
+                        try:
+                            logging.debug('Adif file: ' + file['name'])
+                            adif_bytes = \
+                                base64.b64decode(file['file'].split(',')[1])
+                            adif_enc = chardet.detect(adif_bytes)
+                            adif = adif_bytes.decode(adif_enc['encoding'])
+                            adif_data = load_adif(adif, \
+                                station_callsign_field=station_callsign_field)
+                            file_rec = yield from self._db.execute(\
+                                "insert into uploads " +\
+                                    "(user_cs, rda, date_start, date_end) " +\
+                                "values (%(callsign)s, %(rda)s, " +\
+                                    "%(date_start)s, %(date_end)s)" + \
+                                "returning id",\
+                                {'callsign': callsign,\
+                                'rda': file['rda'],\
+                                'date_start': adif_data['date_start'],\
+                                'date_end': adif_data['date_end']})
+                            logging.debug('Upload id: ' + str(file_rec['id']))
+                            qso_sql = "insert into qso " +\
+                                "(upload_id, callsign, station_callsign, rda, " +\
+                                    "band, mode, tstamp) " +\
+                                "values (%(upload_id)s, %(callsign)s, " +\
+                                    "%(station_callsign)s, %(rda)s, %(band)s, " +\
+                                    "%(mode)s, %(tstamp)s)"
+                            qso_params = []
+                            for qso in adif_data['qso']:
+                                qso_params.append({'upload_id': file_rec['id'],\
+                                    'callsign': qso['callsign'],\
+                                    'station_callsign': station_callsign or \
+                                        qso['station_callsign'],\
+                                    'rda': file['rda'],\
+                                    'band': qso['band'],\
+                                    'mode': qso['mode'],\
+                                    'tstamp': qso['tstamp']})
+                            res = yield from self._db.execute(qso_sql, qso_params)
+                            if res:
+                                response['filesLoaded'] += 1
+                            else:
+                                raise Exception()
+                        except Exception as exc:
+                            if isinstance(exc, ADIFParseException):
+                                error['message'] = str(exc)
+                            logging.exception('ADIF load error')
+                            response['errors'].append(error)
+                    return web.json_response(response)
                 else:
-                    error = 'Ваш адрес электронной почты не подтвержден.'
+                    return web.HTTPBadRequest(text='Ваш адрес электронной почты не подтвержден.')
             else:
                 return callsign
         else:
-            error = CfmRdaServer.DEF_ERROR_MSG
-        if error:
-            return web.HTTPBadRequest(text=error)
-        else:
-            return web.Response(text='OK')
+            return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
 
     @asyncio.coroutine
     def password_request(self, data):
@@ -312,7 +329,7 @@ def test_hndlr(request):
 
 
 if __name__ == '__main__':
-    APP = web.Application(client_max_size=10 * 1024 ** 2)
+    APP = web.Application(client_max_size=100 * 1024 ** 2)
     SRV = CfmRdaServer(APP.loop)
     APP.router.add_get('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/test', test_hndlr)
