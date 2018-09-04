@@ -15,12 +15,14 @@ from db import DBConn
 import send_email
 from secret import secret
 import recaptcha
-from json_utils import load_json, JSONvalidator
+from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink
 from adif import load_adif, ADIFParseException
 
 start_logging('srv')
 logging.debug("restart")
+
+BANDS = ("1.8", "3.5", "7", "10", "14", "18", "21", "24", "28")
 
 class CfmRdaServer():
     DEF_ERROR_MSG = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
@@ -95,6 +97,60 @@ class CfmRdaServer():
             return callsign
 
     @asyncio.coroutine
+    def export_rankings(self):
+
+        rankings = {'hunters': {'bands': {}}, 'activators': {'bands': {}}}
+
+        rankings['activators']['total'] = yield from self._db.execute("""
+            select callsign, count(*), rank() over (order by count(*) desc) 
+            from 
+                (select callsign, rda, sum(qso_count) 
+                    from stats_activators 
+                    group by callsign, rda 
+                    having sum(qso_count) > 100) as rda_filter
+            group by callsign""")
+
+        for band in BANDS:
+
+            rankings['activators']['bands'][band] = yield from self._db.execute("""
+                select callsign, count(*), rank() over (order by count(*) desc) 
+                from
+                    (select callsign, rda, sum(qso_count) 
+                    from stats_activators 
+                    where band = %(band)s 
+                    group by callsign, rda 
+                    having sum(qso_count) > 100) as rda_filter
+                group by callsign""", {'band': band})
+
+            rankings['hunters']['bands'][band] = yield from self._db.execute("""
+                select callsign, count(*), rank() over (order by count(*) desc) 
+                from stats_hunters 
+                where band = %(band)s 
+                group by callsign""", {'band': band})
+
+        rankings['activators']['bandsSum'] = yield from self._db.execute("""
+            select callsign, count(*), rank() over (order by count(*) desc) 
+            from 
+                (select callsign, rda, band, sum(qso_count) 
+                from stats_activators 
+                group by callsign, rda, band 
+                having sum(qso_count) > 100) as rda_filter
+            group by callsign""")
+
+        rankings['hunters']['total'] = yield from self._db.execute("""
+            select callsign, count(*), rank() over (order by count(*) desc) 
+            from 
+                (select distinct callsign, rda 
+                from stats_hunters) as rda_filter
+            group by callsign""")
+
+        rankings['hunters']['bandsSum'] = yield from self._db.execute("""
+            select callsign, count(*), rank() over (order by count(*) desc) 
+            from stats_hunters group by callsign""")
+
+        save_json(rankings, self.conf.get('web', 'root') + '/json/rankings.json')
+
+    @asyncio.coroutine
     def adif_hndlr(self, request):
         data = yield from request.json()
         if self._json_validator.validate('adif', data):
@@ -158,6 +214,8 @@ class CfmRdaServer():
                                 error['message'] = str(exc)
                             logging.exception('ADIF load error')
                             response['errors'].append(error)
+                    if response['filesLoaded']:
+                        self.export_rankings()
                     return web.json_response(response)
                 else:
                     return web.HTTPBadRequest(text='Ваш адрес электронной почты не подтвержден.')

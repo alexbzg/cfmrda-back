@@ -190,18 +190,6 @@ def test_register(cfm_rda_server):
             logging.debug(rsp.text + '\n')
             assert rsp.status == 200       
 
-            logging.debug('ADIF upload')
-            adif = None
-            with open(path.dirname(path.abspath(__file__)) + '/test.adif', 'r') as _tf:
-                adif = _tf.read()
-            rsp = yield from cfm_rda_server.adif_hndlr(create_request(method, 
-                '/aiohttp/adif', 
-                {'token': cfm_rda_server.create_token({'callsign': 'RN6BN'}), 
-                'rda': 'HA-01',
-                'file': adif,
-                'stationCallsign':'QQQ_TEST'}))
-            logging.debug(rsp.text + '\n')
-            assert rsp.status == 200       
            
           
 
@@ -247,4 +235,23 @@ def test_contact_support():
         data=json.dumps({'token': token, 'text': 'blah blah blah blah blah blah blah'}))
     logging.debug(rsp.text)
     assert rsp.status_code == 200
+
+def test_ADIF_upload():
+    logging.debug('ADIF upload')
+    adif = None
+    with open(path.dirname(path.abspath(__file__)) + '/test.adif', 'r') as _tf:
+        adif = _tf.read()
+    rsp = requests.post(API_URI + '/adif', 
+        {'token': cfm_rda_server.create_token({'callsign': 'RN6BN'}), 
+        'files': [
+            { 
+                'rda': 'HA-01',
+                'file': adif,
+                'name': 'test.adi'
+            }],
+        'stationCallsignFieldEnable': True,
+        'stationCallsign':'QQQ_TEST'})
+    logging.debug(rsp.text + '\n')
+    assert rsp.status == 200      
+
 
