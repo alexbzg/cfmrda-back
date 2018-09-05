@@ -34,17 +34,26 @@ CREATE FUNCTION add_qso(_callsign character varying, _station_callsign character
     AS $$declare
   _activator_callsign character varying; 
 begin
-  _activator_callsign := get_activator_callsign(_station_callsign);
-  if exists(select from stats_activators 
+  _activator_callsign := strip_callsign(_station_callsign);
+  if exists(select from stats_activators_bands 
     where callsign = _activator_callsign and
       rda = _rda and band = _band)
   then
-    update stats_activators set qso_count = qso_count + 1
+    update stats_activators_bands set qso_count = qso_count + 1
       where callsign = _activator_callsign and
         rda = _rda and band = _band;
   else
-    insert into stats_activators 
+    insert into stats_activators_bands 
       values (_activator_callsign, _rda, _band, 1);
+  end if;
+  if exists(select from stats_activators_total
+    where callsign = _activator_callsign and rda = _rda)
+  then
+    update stats_activators_total set qso_count = qso_count + 1
+      where callsign = _activator_callsign and rda = _rda;
+  else
+    insert into stats_activators_total 
+      values (_activator_callsign, _rda, 1);
   end if;
   if not exists(select from stats_hunters 
     where callsign = _callsign and rda = _rda and
@@ -61,20 +70,6 @@ end
 ALTER FUNCTION public.add_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character varying) OWNER TO postgres;
 
 --
--- Name: get_activator_callsign(character varying); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION get_activator_callsign(callsign character varying) RETURNS character
-    LANGUAGE plpgsql
-    AS $$begin
-  return substring(callsign from '[A-Z]+\d+[A-Z]+');
-end
-  $$;
-
-
-ALTER FUNCTION public.get_activator_callsign(callsign character varying) OWNER TO postgres;
-
---
 -- Name: recreate_stats(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -82,11 +77,15 @@ CREATE FUNCTION recreate_stats() RETURNS void
     LANGUAGE plpgsql
     AS $$begin
   delete from stats_hunters;
-  delete from stats_activators;
+  delete from stats_activators_bands;
+  delete from stats_activators_total;
   insert into stats_hunters select distinct callsign, rda, band from qso;
-  insert into stats_activators 
+  insert into stats_activators_bands 
      select get_activator_callsign(station_callsign), rda, band, sum(1) from qso
        group by get_activator_callsign(station_callsign), rda, band;
+  insert into stats_activators_total
+     select get_activator_callsign(station_callsign), rda, sum(1) from qso
+       group by get_activator_callsign(station_callsign), rda;
 end$$;
 
 
@@ -101,10 +100,12 @@ CREATE FUNCTION remove_qso(_callsign character varying, _station_callsign charac
     AS $$declare
   _activator_callsign character varying; 
 begin
-  _activator_callsign := get_activator_callsign(_station_callsign);
-  update stats_activators set qso_count = qso_count - 1
+  _activator_callsign := strip_callsign(_station_callsign);
+  update stats_activators_bands set qso_count = qso_count - 1
     where callsign = _activator_callsign and 
       rda = _rda and band = _band;
+  update stats_activators_bands set qso_count = qso_count - 1
+    where callsign = _activator_callsign and rda = _rda;
   if not exists(select from qso 
     where callsign = _callsign and rda = _rda and band = _band)
   then
@@ -116,6 +117,19 @@ end
 
 
 ALTER FUNCTION public.remove_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character varying) OWNER TO postgres;
+
+--
+-- Name: strip_callsign(character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION strip_callsign(callsign character varying) RETURNS character varying
+    LANGUAGE plpgsql IMMUTABLE
+    AS $$begin
+  return substring(callsign from '[A-Z]+\d+[A-Z]+');
+end$$;
+
+
+ALTER FUNCTION public.strip_callsign(callsign character varying) OWNER TO postgres;
 
 --
 -- Name: tf_qso_ad(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -147,6 +161,25 @@ $$;
 
 
 ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
+
+--
+-- Name: tf_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_qso_bi() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$begin
+  new.callsign = strip_callsign(new.callsign);
+  if new.callsign is null
+  then
+    return null;
+  else
+    return new;
+  end if;
+ end$$;
+
+
+ALTER FUNCTION public.tf_qso_bi() OWNER TO postgres;
 
 SET default_tablespace = '';
 
@@ -192,10 +225,10 @@ ALTER SEQUENCE qso_id_seq OWNED BY qso.id;
 
 
 --
--- Name: stats_activators; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: stats_activators_bands; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
-CREATE TABLE stats_activators (
+CREATE TABLE stats_activators_bands (
     callsign character varying(32) NOT NULL,
     rda character(5) NOT NULL,
     band character varying(16) NOT NULL,
@@ -203,7 +236,20 @@ CREATE TABLE stats_activators (
 );
 
 
-ALTER TABLE stats_activators OWNER TO postgres;
+ALTER TABLE stats_activators_bands OWNER TO postgres;
+
+--
+-- Name: stats_activators_total; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE stats_activators_total (
+    callsign character varying(32)[] NOT NULL,
+    rda character(5) NOT NULL,
+    qso_count integer DEFAULT 0 NOT NULL
+);
+
+
+ALTER TABLE stats_activators_total OWNER TO postgres;
 
 --
 -- Name: stats_hunters; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -295,8 +341,16 @@ ALTER TABLE ONLY qso
 -- Name: stats_activators_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
 --
 
-ALTER TABLE ONLY stats_activators
+ALTER TABLE ONLY stats_activators_bands
     ADD CONSTRAINT stats_activators_pkey PRIMARY KEY (callsign, rda, band);
+
+
+--
+-- Name: stats_activators_total_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY stats_activators_total
+    ADD CONSTRAINT stats_activators_total_pkey PRIMARY KEY (callsign, rda);
 
 
 --
@@ -321,6 +375,27 @@ ALTER TABLE ONLY uploads
 
 ALTER TABLE ONLY users
     ADD CONSTRAINT users_pkey PRIMARY KEY (callsign);
+
+
+--
+-- Name: qso_activator; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_activator ON qso USING btree (strip_callsign(station_callsign), rda, callsign);
+
+
+--
+-- Name: qso_activator_band; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_activator_band ON qso USING btree (strip_callsign(station_callsign), rda, band, callsign);
+
+
+--
+-- Name: qso_band_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_band_idx ON qso USING btree (band);
 
 
 --
@@ -356,6 +431,13 @@ CREATE TRIGGER tr_qso_ad AFTER DELETE ON qso FOR EACH ROW EXECUTE PROCEDURE tf_q
 --
 
 CREATE TRIGGER tr_qso_ai AFTER INSERT ON qso FOR EACH ROW EXECUTE PROCEDURE tf_qso_ai();
+
+
+--
+-- Name: tr_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_qso_bi BEFORE INSERT ON qso FOR EACH ROW EXECUTE PROCEDURE tf_qso_bi();
 
 
 --
@@ -429,6 +511,17 @@ GRANT ALL ON FUNCTION tf_qso_ai() TO "www-group";
 
 
 --
+-- Name: tf_qso_bi(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION tf_qso_bi() FROM PUBLIC;
+REVOKE ALL ON FUNCTION tf_qso_bi() FROM postgres;
+GRANT ALL ON FUNCTION tf_qso_bi() TO postgres;
+GRANT ALL ON FUNCTION tf_qso_bi() TO PUBLIC;
+GRANT ALL ON FUNCTION tf_qso_bi() TO "www-group";
+
+
+--
 -- Name: qso; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -449,13 +542,13 @@ GRANT ALL ON SEQUENCE qso_id_seq TO "www-group";
 
 
 --
--- Name: stats_activators; Type: ACL; Schema: public; Owner: postgres
+-- Name: stats_activators_bands; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE stats_activators FROM PUBLIC;
-REVOKE ALL ON TABLE stats_activators FROM postgres;
-GRANT ALL ON TABLE stats_activators TO postgres;
-GRANT SELECT,INSERT,DELETE,TRIGGER,UPDATE ON TABLE stats_activators TO "www-group";
+REVOKE ALL ON TABLE stats_activators_bands FROM PUBLIC;
+REVOKE ALL ON TABLE stats_activators_bands FROM postgres;
+GRANT ALL ON TABLE stats_activators_bands TO postgres;
+GRANT SELECT,INSERT,DELETE,TRIGGER,UPDATE ON TABLE stats_activators_bands TO "www-group";
 
 
 --

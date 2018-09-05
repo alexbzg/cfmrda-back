@@ -93,7 +93,7 @@ class DBConn:
         return res
 
     @asyncio.coroutine
-    def execute(self, sql, params=None):
+    def execute(self, sql, params=None, keys=None):
         res = False
         with (yield from self.pool.cursor()) as cur:
             try:
@@ -102,7 +102,7 @@ class DBConn:
                     logging.debug(params)
                 if not params or isinstance(params, dict):
                     yield from cur.execute(sql, params)
-                    res = (yield from to_dict(cur))\
+                    res = (yield from to_dict(cur, keys))\
                         if cur.description != None else True
                 else:
                     yield from cur.execute('begin transaction;')
