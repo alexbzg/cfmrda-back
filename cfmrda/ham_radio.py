@@ -20,6 +20,7 @@ def get_adif_field(line, field):
     return line[i_beg:i_end]
 
 class ADIFParseException(Exception):
+    """currently only when station_callsign_field is absent or no qso in file"""
     pass
 
 def load_adif(adif, station_callsign_field=None):
@@ -34,10 +35,14 @@ def load_adif(adif, station_callsign_field=None):
             qso['callsign'] = get_adif_field(line, 'CALL')
             qso['mode'] = get_adif_field(line, 'MODE')
             qso['band'] = get_adif_field(line, 'BAND')
+            if not qso['band']:
+                continue
+            qso['band'] = qso['band'].replace(',', '.')
             if qso['band'] in BANDS_WL:
                 qso['band'] = BANDS_WL[qso['band']]
-            if not qso['band'] in BANDS or not qso['callsign']:
+            if qso['band'] not in BANDS or not qso['callsign']:
                 continue
+
             qso['tstamp'] = get_adif_field(line, 'QSO_DATE') + ' ' + \
                     get_adif_field(line, 'TIME_ON')
 
@@ -55,5 +60,7 @@ def load_adif(adif, station_callsign_field=None):
                 data['date_end'] = qso['tstamp']
 
             data['qso'].append(qso)
-
-    return data
+    if data['qso']:
+        return data
+    else:
+        raise ADIFParseException("Не найдено корректных qso.")
