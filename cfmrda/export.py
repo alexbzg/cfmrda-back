@@ -144,10 +144,10 @@ def main():
     parser.add_argument('-r', action="store_true")
     parser.add_argument('-d', action="store_true")
     args = parser.parse_args()
-    logging.debug(args)
-    if args.r:
+    export_all = not args.r and not args.d
+    if args.r or export_all:
         asyncio.get_event_loop().run_until_complete(export_rankings(conf))
-    if args.d:
+    if args.d or export_all:
         asyncio.get_event_loop().run_until_complete(export_hunters(conf))
 
 if __name__ == "__main__":
