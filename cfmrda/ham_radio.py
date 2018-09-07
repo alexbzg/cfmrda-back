@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 #coding=utf-8
 """various constants and functions for working with ham radio data"""
-#import logging
+import re
 
 BANDS_WL = {'160M': '1.8', '80M': '3.5', '40M': '7', \
         '30M': '10', '20M': '14', '14M': '20', '17M': '18', '15M': '21', \
@@ -9,6 +9,15 @@ BANDS_WL = {'160M': '1.8', '80M': '3.5', '40M': '7', \
         '33CM': 'UHF', '23CM':'UHF', '13CM': 'UHF'}
 
 BANDS = ("1.8", "3.5", "7", "10", "14", "18", "21", "24", "28")
+
+RE_STRIP_CALLSIGN = re.compile(r"\d*[A-Z]+\d+[A-Z]+")
+
+def strip_callsign(callsign):
+    cs_match = RE_STRIP_CALLSIGN.search(callsign)
+    if cs_match:
+        return cs_match.group(0)
+    else:
+        return None
 
 def get_adif_field(line, field):
     i_head = line.find('<' + field + ':')
@@ -35,12 +44,15 @@ def load_adif(adif, station_callsign_field=None):
             qso['callsign'] = get_adif_field(line, 'CALL')
             qso['mode'] = get_adif_field(line, 'MODE')
             qso['band'] = get_adif_field(line, 'BAND')
-            if not qso['band']:
+            if qso['band']:
+                qso['band'] = qso['band'].replace(',', '.')
+                if qso['band'] in BANDS_WL:
+                    qso['band'] = BANDS_WL[qso['band']]
+            if qso['band'] not in BANDS:
                 continue
-            qso['band'] = qso['band'].replace(',', '.')
-            if qso['band'] in BANDS_WL:
-                qso['band'] = BANDS_WL[qso['band']]
-            if qso['band'] not in BANDS or not qso['callsign']:
+            if qso['callsign']:
+                qso['callsign'] = strip_callsign(qso['callsign'])
+            if not qso['callsign']:
                 continue
 
             qso['tstamp'] = get_adif_field(line, 'QSO_DATE') + ' ' + \
