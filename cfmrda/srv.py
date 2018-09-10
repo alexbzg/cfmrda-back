@@ -25,6 +25,7 @@ logging.debug("restart")
 
 class CfmRdaServer():
     DEF_ERROR_MSG = 'Ошибка сайта. Пожалуйста, попробуйте позднее.'
+    RECAPTCHA_ERROR_MSG = 'Проверка на робота не пройдена или данные устарели. Попробуйте еще раз.'
 
     def __init__(self, loop):
         self._loop = loop
@@ -75,6 +76,9 @@ class CfmRdaServer():
                 else:
                     return callsign
             else:
+                rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+                if not rc_test:
+                    return web.HTTPBadRequest(text=CfmRdaServer.RECAPTCHA_ERROR_MSG)
                 email = data['email']
             send_email.send_email(text=data['text'],\
                 to=self.conf.get('email', 'address'),\
@@ -140,7 +144,7 @@ class CfmRdaServer():
                                 "values (%(upload_id)s, %(callsign)s, " +\
                                     "%(station_callsign)s, %(rda)s, %(band)s, " +\
                                     "%(mode)s, %(tstamp)s)"
-                            qso_params = [] 
+                            qso_params = []
                             for qso in adif_data['qso']:
                                 qso_params.append({'upload_id': file_rec['id'],\
                                     'callsign': qso['callsign'],\
@@ -292,7 +296,7 @@ class CfmRdaServer():
                         error =\
                             'Позывной или адрес электронной почты не зарегистрирован на QRZ.com'
             else:
-                error = 'Проверка на робота не пройдена или данные устарели. Попробуйте еще раз.'
+                error = CfmRdaServer.RECAPTCHA_ERROR_MSG
         else:
             error = CfmRdaServer.DEF_ERROR_MSG
         if error:
