@@ -375,5 +375,5 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
     APP.router.add_post('/aiohttp/contact_support', SRV.contact_support_hndlr)
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
-    APP.router.add_get('/aiohttp/confirm_emai', SRV.cfm_email_hndlr)
+    APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))
