@@ -47,7 +47,8 @@ def export_rankings(conf):
     rankings['activators']['bandsSum'] = activators_bands['bands_sum']
 
     rankings['hunters']['total'] = yield from _db.execute("""
-        select callsign, rank() over (order by count(distinct rda) desc) from
+        select callsign, rank() over (order by count(distinct rda) desc),
+            count(distinct rda) from
         (select callsign, rdas.rda from
         (WITH RECURSIVE t AS (
         (SELECT rda FROM qso ORDER BY rda LIMIT 1) 
@@ -67,7 +68,7 @@ def export_rankings(conf):
         group by callsign""", None, True)
 
     hunters_bands = yield from _db.execute("""
-        with bands_data as (select callsign, band, count(distinct rda) as rda_count,
+         with bands_data as (select callsign, band, count(distinct rda),
                     rank() over (partition by band order by count(distinct rda) desc)
                 from
                 (select callsign, band, qso.rda from
@@ -87,11 +88,13 @@ def export_rankings(conf):
                             having count(distinct callsign) > 99)) as rda_all
                 group by callsign, band)
         select (select json_object_agg(band, data) from
-        (select band, json_agg(json_build_object('callsign', callsign, 'rank', rank)) 
+        (select band, json_agg(json_build_object('callsign', callsign, 'rank', rank,
+            'count', count))
         as data from bands_data group by band) as l0) as bands,
-        (select json_agg(json_build_object('callsign', callsign, 'rank', rank)) from
-        (select callsign, rank() over (order by sum(rda_count) desc) from bands_data
-        group by callsign) as l0_1) as bands_sum""")
+        (select json_agg(json_build_object('callsign', callsign, 'rank', rank, 'count', count)) from
+        (select callsign, rank() over (order by sum(count) desc), sum(count) as count from bands_data
+        group by callsign) as l0_1) as bands_sum        
+            """)
     rankings['hunters']['bands'] = hunters_bands['bands']
     rankings['hunters']['bandsSum'] = hunters_bands['bands_sum']
 
