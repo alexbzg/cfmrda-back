@@ -47,40 +47,23 @@ def export_rankings(conf):
     rankings['activators']['bandsSum'] = activators_bands['bands_sum']
 
     rankings['hunters']['total'] = yield from _db.execute("""
-        select callsign, rank() over (order by count(distinct rda) desc),
+         select callsign, rank() over (order by count(distinct rda) desc),
             count(distinct rda) from
-        (select callsign, rdas.rda from
-        (WITH RECURSIVE t AS (
-        (SELECT rda FROM qso ORDER BY rda LIMIT 1) 
-        UNION ALL
-        SELECT (SELECT rda FROM qso WHERE rda > t.rda ORDER BY rda LIMIT 1)
-        FROM t
-        WHERE t.rda IS NOT NULL
-        )
-        SELECT rda FROM t WHERE rda IS NOT NULL) as rdas, qso 
-            where rdas.rda = qso.rda
-        union 
+        (select callsign, rda from qso
+        union all 
         (select activator as callsign,
                         rda
                     from qso
                     group by activator, rda
                     having count(distinct callsign) > 99)) as rda_all
-        group by callsign""", None, True)
+        group by callsign        
+            """, None, True)
 
     hunters_bands = yield from _db.execute("""
          with bands_data as (select callsign, band, count(distinct rda),
                     rank() over (partition by band order by count(distinct rda) desc)
                 from
-                (select callsign, band, qso.rda from
-                (WITH RECURSIVE t AS (
-                (SELECT rda FROM qso ORDER BY rda LIMIT 1)
-                UNION ALL
-                SELECT (SELECT rda FROM qso WHERE rda > t.rda ORDER BY rda LIMIT 1)
-                FROM t
-                WHERE t.rda IS NOT NULL
-                )
-                SELECT rda FROM t WHERE rda IS NOT NULL) as rdas, qso
-                    where rdas.rda = qso.rda
+                (select callsign, band, rda from qso
                 union
                 (select activator as callsign, band, rda
                             from qso
@@ -108,30 +91,29 @@ def export_hunters(conf):
     yield from _db.connect()
 
     data = yield from _db.execute("""
-        select callsign, json_object_agg(rda, _data) as data from
-        (select callsign, rda, json_object_agg(_type, _data) as _data from
-        (select callsign, qso.rda, 
-            json_agg(json_build_object('band', band, 'tstamp', qso.tstamp, 
-                'stationCallsign', station_callsign, 'uploader', user_cs)) as _data, 
-        'hunter' as _type
-        from qso, uploads where qso.upload_id = uploads.id
-        group by callsign, qso.rda
-        union all
-        select activator as callsign, rda, 
-            json_agg(json_build_object('band', band, 'tstamp', tstamp, 'qsoCount', 
-            qso_count, 'uploader', user_cs)) as _data, 'activator' as _type from
-        (select qso.activator, qso.rda, user_cs, extract(day from qso.tstamp) as tstamp, 
-            band, count(qso.id) as qso_count from
-        (select activator, rda
-                    from qso
-                    group by activator, rda
-                    having count(distinct callsign) > 99) as rda_filter, qso, uploads
-        where rda_filter.activator = qso.activator and rda_filter.rda = qso.rda and 
-            uploads.id = qso.upload_id
-        group by qso.activator, qso.rda, user_cs, extract(day from qso.tstamp), band) as l0
-        group by activator, rda) as u
-        group by callsign, rda) as l1
-        group by callsign             
+        WITH RECURSIVE cs AS (
+        (SELECT callsign FROM qso ORDER BY callsign LIMIT 1)
+        UNION ALL
+        SELECT (SELECT callsign FROM qso WHERE callsign > cs.callsign ORDER BY callsign LIMIT 1)
+        FROM cs
+        WHERE cs.callsign IS NOT NULL)
+        SELECT callsign, 
+        (select json_object_agg(rda, 
+            (select json_object_agg(band, data) from
+            (select band, json_agg(json_build_object('band', band, 'tstamp', qso.tstamp,
+                        'stationCallsign', station_callsign, 'uploader', user_cs)) as data 
+                from qso, uploads where qso.callsign = cs.callsign and qso.rda = rdas_1.rda 
+                and qso.upload_id = uploads.id
+                group by band) as bands_0))
+        from (WITH RECURSIVE rdas AS (
+        (SELECT rda FROM qso where qso.callsign = cs.callsign ORDER BY rda LIMIT 1)
+        UNION ALL
+        SELECT (SELECT rda FROM qso WHERE rda > rdas.rda and 
+            qso.callsign = cs.callsign ORDER BY rda LIMIT 1)
+        FROM rdas
+        WHERE rda IS NOT NULL)
+        select rda from rdas where rda is not null) as rdas_1) as data
+        FROM cs WHERE callsign IS NOT NULL
             """, None, True)
 
     for row in data:

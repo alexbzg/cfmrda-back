@@ -200,8 +200,11 @@ class CfmRdaServer():
                 hunter_details = {}
             for rda in new_details[hunter]:
                 if rda not in hunter_details:
-                    hunter_details[rda] = {'hunter': []}
-                hunter_details[rda]['hunter'] += new_details[hunter][rda]
+                    hunter_details[rda] = {'hunter': {}}
+                for qso in new_details[hunter][rda]:
+                    if qso['band'] not in hunter_details[rda]:
+                        hunter_details[rda][qso['band']] = []
+                    hunter_details[rda][qso['band']].append(qso) 
             save_json(hunter_details, hunter_file_path)
 
 
