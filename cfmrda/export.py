@@ -101,6 +101,8 @@ def export_hunters(conf):
         (select json_object_agg(rda, 
             (select json_object_agg(band, data) from
             (select band, json_agg(json_build_object('band', band, 'tstamp', qso.tstamp,
+                    'date', to_char(qso.tstamp, 'DD Month YYYY'), 
+                    'time', to_char(qso.tstamp, 'HH24:MI'), 'mode', mode,
                         'stationCallsign', station_callsign, 'uploader', user_cs)) as data 
                 from qso, uploads where qso.callsign = cs.callsign and qso.rda = rdas_1.rda 
                 and qso.upload_id = uploads.id
