@@ -26,6 +26,39 @@ COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';
 SET search_path = public, pg_catalog;
 
 --
+-- Name: hunters_rdas(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION hunters_rdas() RETURNS TABLE(callsign character varying, rda character)
+    LANGUAGE plpgsql
+    AS $$
+declare 
+  hunter varchar(32);
+begin
+  for hunter in 
+    WITH RECURSIVE t AS (
+            (select qso.callsign from qso order by qso.callsign limit 1)
+            union all
+            select (select qso.callsign from qso where qso.callsign > t.callsign
+                order by qso.callsign limit 1)
+            from t where t.callsign is not null)
+        select * from t where t.callsign is not null
+  loop
+    return query WITH RECURSIVE t AS (
+            (select qso.rda from qso where qso.callsign = hunter order by qso.rda limit 1)
+            union all
+            select (select qso.rda from qso where qso.rda > t.rda and qso.callsign = hunter
+                order by qso.rda limit 1)
+            from t where t.rda is not null)
+        select hunter, t.rda from t where t.rda is not null;
+  end loop;
+end
+$$;
+
+
+ALTER FUNCTION public.hunters_rdas() OWNER TO postgres;
+
+--
 -- Name: strip_callsign(character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -192,20 +225,6 @@ ALTER TABLE ONLY users
 
 
 --
--- Name: qso_activator; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_activator ON qso USING btree (strip_callsign(station_callsign), rda, callsign);
-
-
---
--- Name: qso_activator_band; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_activator_band ON qso USING btree (strip_callsign(station_callsign), rda, band, callsign);
-
-
---
 -- Name: qso_activator_rda_band_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -220,66 +239,17 @@ CREATE INDEX qso_activator_rda_callsign_idx ON qso USING btree (activator, rda, 
 
 
 --
--- Name: qso_band_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: qso_activator_rda_mode_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
-CREATE INDEX qso_band_idx ON qso USING btree (band);
-
-
---
--- Name: qso_band_rda_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_band_rda_callsign_idx ON qso USING btree (band, rda, callsign);
+CREATE INDEX qso_activator_rda_mode_callsign_idx ON qso USING btree (activator, rda, mode, callsign);
 
 
 --
--- Name: qso_callsign_band_rda_station_callsign_tstamp_upload_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: qso_callsign_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
-CREATE INDEX qso_callsign_band_rda_station_callsign_tstamp_upload_id_idx ON qso USING btree (callsign, band, rda, station_callsign, tstamp, upload_id);
-
-
---
--- Name: qso_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_callsign_idx ON qso USING btree (callsign);
-
-
---
--- Name: qso_hunter; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_hunter ON qso USING btree (callsign, rda);
-
-
---
--- Name: qso_rda_band_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_rda_band_idx ON qso USING btree (rda, band);
-
-
---
--- Name: qso_rda_callsign_band_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_rda_callsign_band_idx ON qso USING btree (rda, callsign, band);
-
-
---
--- Name: qso_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_rda_idx ON qso USING btree (rda);
-
-
---
--- Name: qso_upload_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_upload_id_idx ON qso USING btree (upload_id);
+CREATE INDEX qso_callsign_band_rda_idx ON qso USING btree (callsign, band, rda);
 
 
 --

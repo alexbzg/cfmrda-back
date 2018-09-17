@@ -17,9 +17,10 @@ def export_rankings(conf):
     _db = DBConn(conf.items('db'))
     yield from _db.connect()
 
-    rankings = {'hunters': {'bands': {}}, 'activators': {}}
+    rankings = {'hunters': {'total': {}, 'modes': {}}, 
+            'activators': {'total': {}, 'modes': {}}}
 
-    rankings['activators']['total'] = yield from _db.execute("""
+    rankings['activators']['total']['total'] = yield from _db.execute("""
         select activator as callsign, count(*),
             rank() over (order by count(*) desc)
         from (select activator, rda, count(distinct callsign)
@@ -28,6 +29,21 @@ def export_rankings(conf):
             having count(distinct callsign) > 99) as rda_filter
         group by activator
         limit 100""", None, True)
+
+   rankings['activators']['total']['modes'] = yield from _db.execute("""
+        select json_build_object(mode, json_agg(json_build_object(
+            'callsign', callsign, 'count', count, 'rank', rank))) 
+        from (select activator as callsign, mode, count(*),
+                    rank() over (partition by mode order by count(*) desc)
+                from (select activator, rda, mode, count(distinct callsign)
+                    from qso
+                    group by activator, rda, mode
+                    having count(distinct callsign) > 99) as rda_filter
+                group by activator, mode
+                ) as l_0
+        where rank < 101
+        group by mode
+        """, None, True)
 
     activators_bands = yield from _db.execute("""
         with bands_data as (select activator, count(rda) as rda_count, band, 
@@ -64,7 +80,7 @@ def export_rankings(conf):
                     rank() over (partition by band order by count(distinct rda) desc)
                 from
                 (select callsign, band, rda from qso
-                union
+                union all
                 (select activator as callsign, band, rda
                             from qso
                             group by activator, rda, band
