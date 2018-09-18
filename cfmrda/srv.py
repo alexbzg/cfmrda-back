@@ -114,7 +114,6 @@ class CfmRdaServer():
                         station_callsign_field = data['stationCallsignField']
                     else:
                         station_callsign = data['stationCallsign']
-                    new_details = {} #data for adding to hunters' detailed stats
                     for file in data['files']:
                         error = {'filename': file['name'],\
                                 'rda': file['rda'],\
@@ -158,18 +157,6 @@ class CfmRdaServer():
                             if res:
                                 #file was uploaded to db successfully
                                 response['filesLoaded'] += 1
-                                #prepare data for adding to hunters' detailed stats
-                                for qso in adif_data['qso']:
-                                    if qso['callsign'] not in new_details:
-                                        new_details[qso['callsign']] = {}
-                                    if file['rda'] not in new_details[qso['callsign']]:
-                                        new_details[qso['callsign']][file['rda']] = []
-                                    new_details[qso['callsign']][file['rda']].append(\
-                                        {'band': qso['band'],\
-                                        'tstamp': qso['tstamp'],\
-                                        'stationCallsign': station_callsign or \
-                                            qso['station_callsign'],\
-                                        'uploader': callsign})
                             else:
                                 raise Exception()
                         except Exception as exc:
@@ -179,8 +166,6 @@ class CfmRdaServer():
                             response['errors'].append(error)
                     logging.debug('filesLoaded: ' + str(response['filesLoaded']))
                     if response['filesLoaded']:
-                        logging.debug('adding hunter details')
-                        self.add_hunter_details(new_details)
                         logging.debug('running export_rankings')
                         yield from export_rankings(self.conf)
                     return web.json_response(response)
@@ -190,23 +175,6 @@ class CfmRdaServer():
                 return callsign
         else:
             return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
-
-    def add_hunter_details(self, new_details):
-        for hunter in new_details:
-            hunter_file_path = self.conf.get('web', 'root') +\
-                '/json/hunters/' + hunter + '.json'
-            hunter_details = load_json(hunter_file_path)
-            if not hunter_details:
-                hunter_details = {}
-            for rda in new_details[hunter]:
-                if rda not in hunter_details:
-                    hunter_details[rda] = {'hunter': {}}
-                for qso in new_details[hunter][rda]:
-                    if qso['band'] not in hunter_details[rda]:
-                        hunter_details[rda][qso['band']] = []
-                    hunter_details[rda][qso['band']].append(qso) 
-            save_json(hunter_details, hunter_file_path)
-
 
     @asyncio.coroutine
     def password_request(self, data):
