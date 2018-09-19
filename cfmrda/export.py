@@ -4,6 +4,8 @@
 import asyncio
 import logging
 import argparse
+import os
+import shutil
 
 from common import site_conf, start_logging
 from db import DBConn
@@ -114,7 +116,7 @@ def export_rankings(conf):
     rankings['activators']['total']['bands'] = activators_bands['bands']
     rankings['activators']['total']['bandsSum'] = activators_bands['bands_sum']
 
-    rankings['hunters']['total'] = yield from _db.execute("""
+    rankings['hunters']['total']['total'] = yield from _db.execute("""
          select callsign, rank() over (order by count(distinct rda) desc),
             count(distinct rda) from
         (select callsign, rda from qso
@@ -126,6 +128,61 @@ def export_rankings(conf):
                     having count(distinct callsign) > 99)) as rda_all
         group by callsign        
             """, None, True)
+
+    rankings['hunters']['modes'] = (yield from _db.execute("""
+        with bands_data as 
+        (select callsign, mode, band, count(distinct rda),
+            rank() over (partition by mode, band order by count(distinct rda) desc)
+        from
+            (select callsign, mode, band, rda 
+            from qso
+            union all
+            (select activator as callsign, mode, band, rda
+            from qso
+            group by activator, rda, mode, band
+            having count(distinct callsign) > 99)) as rda_all
+        group by callsign, mode, band)
+
+        select json_object_agg(mode, 
+            json_build_object('total', total, 'bands', bands, 
+            'bandsSum', bands_sum)) as data
+        from
+            (select mode, 
+                json_object_agg(band, data) as bands,
+
+                (select json_agg(json_build_object('callsign', callsign, 'rank', rank, 
+                    'count', count)) 
+                from
+                    (select callsign, rank() over (order by count(distinct rda) desc),
+                        count(distinct rda) 
+                    from
+                        (select callsign, rda 
+                        from qso
+                        where qso.mode=l_0.mode
+                        union all
+                        select activator as callsign, rda
+                        from qso
+                        where qso.mode=l_0.mode
+                        group by activator, rda
+                        having count(distinct callsign) > 99) as rda_all
+                    group by callsign) as total) as total,
+
+                (select json_agg(json_build_object('callsign', callsign, 'rank', rank, 
+                    'count', count)) 
+                from
+                    (select callsign, sum(count) as count, 
+                        rank() over (order by sum(count) desc)
+                    from bands_data as bd_bands_sum
+                    where bd_bands_sum.mode = l_0.mode
+                    group by callsign) as bands_sum) as bands_sum
+
+            from
+                (select mode, band, json_agg(json_build_object('callsign', callsign, 
+                    'rank', rank, 'count', count)) as data 
+                from bands_data 
+                group by mode, band) as l_0
+            group by mode) as l_1
+        """))['data']
 
     hunters_bands = yield from _db.execute("""
          with bands_data as (select callsign, band, count(distinct rda),
@@ -146,8 +203,8 @@ def export_rankings(conf):
         (select callsign, rank() over (order by sum(count) desc), sum(count) as count from bands_data
         group by callsign) as l0_1) as bands_sum        
             """)
-    rankings['hunters']['bands'] = hunters_bands['bands']
-    rankings['hunters']['bandsSum'] = hunters_bands['bands_sum']
+    rankings['hunters']['total']['bands'] = hunters_bands['bands']
+    rankings['hunters']['total']['bandsSum'] = hunters_bands['bands_sum']
 
     save_json(rankings, conf.get('web', 'root') + '/json/rankings.json')
 
@@ -163,6 +220,9 @@ def main():
     export_all = not args.r and not args.d
     if args.r or export_all:
         asyncio.get_event_loop().run_until_complete(export_rankings(conf))
+        if not os.getuid():
+            shutil.chown(conf.get('web', 'root') + '/json/rankings.json',\
+                user=conf.get('web', 'user'), group=conf.get('web', 'group'))
 
 if __name__ == "__main__":
     main()

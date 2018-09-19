@@ -15,7 +15,7 @@ from db import DBConn
 import send_email
 from secret import secret
 import recaptcha
-from json_utils import load_json, save_json, JSONvalidator
+from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException
 from export import export_rankings
@@ -308,17 +308,65 @@ class CfmRdaServer():
         if isinstance(callsign, str):
             yield from self._db.param_update('users', {'callsign': callsign},\
                 {'email_confirmed': True})
-            return web.Response(text='Ваш адрес электронной почты был подвержден.')
+            return web.Response(text='Ваш адрес электронной почты был подтвержден.')
         else:
             return callsign
+
+    @asyncio.coroutine
+    def hunter_hndlr(self, request):
+        callsign = request.match_info.get('callsign', None)
+        if callsign:
+            data = yield from self._db.execute("""
+                select json_build_object(
+                    'hunter',
+                    (select json_object_agg(rda, data) 
+                    from
+                        (select rda, json_agg(json_build_object('band', band, 
+                            'mode', mode, 
+                            'date', to_char(qso.tstamp, 'DD Month YYYY'), 
+                            'time', to_char(qso.tstamp, 'HH24:MI'), 
+                            'stationCallsign', activator, 
+                            'uploader', 
+                                (select user_cs 
+                                from uploads 
+                                where uploads.id = qso.upload_id))) as data 
+                        from qso
+                    where callsign = %(callsign)s
+                    group by rda) as l_0),
+                    'activator',
+                    (select json_object_agg(rda, data) 
+                    from
+                        (select rda, json_agg(json_build_object('mode', mode, 
+                            'band', band, 
+                            'date', to_char(dt, 'DD Month YYYY'), 
+                            'uploader', uploader, 'count', count)) as data 
+                        from
+                            (select rda, mode, band, dt, 
+                                count(distinct callsign), 
+                                (select user_cs 
+                                from uploads 
+                                where uploads.id = qso.upload_id) as uploader
+                            from qso
+                            where activator = %(callsign)s
+                            group by rda, mode, band, upload_id, dt) as l_0
+                        group by rda) as l_1)) as data
+            """, {'callsign': callsign}, False)
+            if data:
+                return web.json_response(data['data'])
+            else:
+                return web.json_response(False)
+        else:
+            return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
     def decode_token(self, data, check_time=False):
         callsign = None
         if 'token' in data:
             try:
-                payload = jwt.decode(data['token'], self._secret, algorithms=['HS256'])
+                payload = jwt.decode(data['token'], self._secret,\
+                    algorithms=['HS256'])
             except jwt.exceptions.DecodeError:
-                return web.HTTPBadRequest(text='Токен просрочен. Пожалуйста, повторите операцию.')
+                return web.HTTPBadRequest(\
+                    text='Токен просрочен. Пожалуйста, повторите операцию.')
             if 'callsign' in payload:
                 callsign = payload['callsign'].upper()
             if check_time:
@@ -347,4 +395,5 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/contact_support', SRV.contact_support_hndlr)
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
+    APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))

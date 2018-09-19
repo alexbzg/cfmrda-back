@@ -10,13 +10,13 @@ BANDS_WL = {'160M': '1.8', '80M': '3.5', '40M': '7', \
 
 BANDS = ("1.8", "3.5", "7", "10", "14", "18", "21", "24", "28")
 
-MODES = {'DATA': ('DIGI', 'HELL', 'MT63', 'THOR16', 'FAX', 'OPERA', 'PKT',\
+MODES = {'DIGI': ('DATA', 'HELL', 'MT63', 'THOR16', 'FAX', 'OPERA', 'PKT',\
                     'SIM31', 'CONTESTI', 'CONTESTIA', 'AMTOR', 'JT6M', 'ASCI',\
                     'FT8', 'MSK144', 'THOR', 'QRA64', 'DOMINO', 'JT4C', 'THROB',\
                     'DIG', 'ROS', 'SIM63', 'FSQ', 'THRB', 'J3E', 'WSPR', 'ISCAT',\
                     'JT65A', 'CONTESTIA8', 'ALE', 'JT10', 'TOR', 'PACKET', 'RTTY',\
                     'FSK63', 'MFSK63', 'QPSK63', 'PSK', 'JT65', 'FSK', 'OLIVIA',\
-                    'SSTV', 'PSK31', 'PSK63', 'PSK125', 'JT9', 'FT8'),
+                    'SSTV', 'PSK31', 'PSK63', 'PSK125', 'JT9', 'FT8', 'MFSK16'),
          'CW': ('A1A'),\
          'SSB': ('USB', 'LSB', 'FM', 'AM', 'PHONE')}
 
