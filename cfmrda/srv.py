@@ -317,39 +317,40 @@ class CfmRdaServer():
         callsign = request.match_info.get('callsign', None)
         if callsign:
             data = yield from self._db.execute("""
-                select json_build_object(
-                    'hunter',
-                    (select json_object_agg(rda, data) 
+                select json_object_agg(rda, data) as data 
+                from
+                    (select rda, json_object_agg(type, data) as data 
                     from
-                        (select rda, json_agg(json_build_object('band', band, 
-                            'mode', mode, 
-                            'date', to_char(qso.tstamp, 'DD Month YYYY'), 
-                            'time', to_char(qso.tstamp, 'HH24:MI'), 
-                            'stationCallsign', activator, 
-                            'uploader', 
-                                (select user_cs 
-                                from uploads 
-                                where uploads.id = qso.upload_id))) as data 
+                        (select rda, 'hunter' as type, 
+                            json_agg(json_build_object('band', band,
+                                'mode', mode,
+                                'date', to_char(qso.tstamp, 'DD Month YYYY'),
+                                'time', to_char(qso.tstamp, 'HH24:MI'),
+                                'stationCallsign', activator,
+                                'uploader',
+                                    (select user_cs
+                                    from uploads
+                                    where uploads.id = qso.upload_id))) as data
                         from qso
-                    where callsign = %(callsign)s
-                    group by rda) as l_0),
-                    'activator',
-                    (select json_object_agg(rda, data) 
-                    from
-                        (select rda, json_agg(json_build_object('mode', mode, 
-                            'band', band, 
-                            'date', to_char(dt, 'DD Month YYYY'), 
-                            'uploader', uploader, 'count', count)) as data 
+                        where callsign = %(callsign)s
+                        group by rda
+                        union all
+                        select rda, 'activator' as type, 
+                            json_agg(json_build_object('mode', mode,
+                                'band', band,
+                                'date', to_char(dt, 'DD Month YYYY'),
+                                'uploader', uploader, 'count', count)) as data
                         from
-                            (select rda, mode, band, dt, 
-                                count(distinct callsign), 
-                                (select user_cs 
-                                from uploads 
+                            (select rda, mode, band, dt,
+                                count(distinct callsign),
+                                (select user_cs
+                                from uploads
                                 where uploads.id = qso.upload_id) as uploader
                             from qso
                             where activator = %(callsign)s
-                            group by rda, mode, band, upload_id, dt) as l_0
-                        group by rda) as l_1)) as data
+                            group by rda, mode, band, upload_id, dt) as l_0 
+                        group by rda) as l_1
+                group by rda) as l_2            
             """, {'callsign': callsign}, False)
             if data:
                 return web.json_response(data['data'])
