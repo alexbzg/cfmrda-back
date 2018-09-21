@@ -58,7 +58,7 @@ def export_rankings(conf):
                     from bands_data as bd_1
                     where bd_1.mode = l_1.mode
                     group by activator) as l_0_0
-                where rank < 101) as bands_sum,
+                ) as bands_sum,
 
             (select json_agg(json_build_object('callsign', callsign, 
                 'count', count, 'rank', rank)) as data
@@ -72,7 +72,7 @@ def export_rankings(conf):
                     group by activator, rda
                     having count(distinct callsign) > 99) as rda_filter
                 group by activator) as l_0
-            where rank < 101) as total
+            ) as total
                     
             from
             (select mode, json_object_agg(band, data) as bands
@@ -81,7 +81,6 @@ def export_rankings(conf):
                     'callsign', activator, 'count', rda_count,
                     'rank', rank)) as data
                 from bands_data
-                where rank < 101
                 group by mode, band) l_0
             group by mode) as l_1) as l_2
         
@@ -104,12 +103,14 @@ def export_rankings(conf):
             from
                 (select band, 
                     json_agg(json_build_object('callsign', activator, 
-                        'rank', rank)) as data 
+                        'rank', rank, 'count', rda_count)) as data 
                 from bands_data 
                 group by band) as l_0) as bands,
-            (select json_agg(json_build_object('callsign', activator, 'rank', rank))
+            (select json_agg(json_build_object('callsign', activator, 'rank', rank,
+                'count', rda_count))
             from
-                (select activator, rank() over (order by sum(rda_count) desc) 
+                (select activator, sum(rda_count) as rda_count,
+                    rank() over (order by sum(rda_count) desc) 
                 from bands_data
                 group by activator limit 100) as l0_1) as bands_sum
         """)
