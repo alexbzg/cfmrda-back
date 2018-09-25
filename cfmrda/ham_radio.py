@@ -23,6 +23,7 @@ MODES = {'DIGI': ('DATA', 'HELL', 'MT63', 'THOR16', 'FAX', 'OPERA', 'PKT',\
 RE_STRIP_CALLSIGN = re.compile(r"\d*[A-Z]+\d+[A-Z]+")
 
 def strip_callsign(callsign):
+    """remove prefixes/suffixes from callsign"""
     cs_match = RE_STRIP_CALLSIGN.search(callsign)
     if cs_match:
         return cs_match.group(0)
@@ -30,6 +31,7 @@ def strip_callsign(callsign):
         return None
 
 def get_adif_field(line, field):
+    """ """
     i_head = line.find('<' + field + ':')
     if i_head < 0:
         return None
@@ -39,12 +41,17 @@ def get_adif_field(line, field):
     return line[i_beg:i_end]
 
 class ADIFParseException(Exception):
-    """currently only when station_callsign_field is absent or no qso in file"""
+    """station_callsign_field is absent
+    no qso in file
+    multiple activator callsigns
+    """
     pass
 
 def load_adif(adif, station_callsign_field=None):
+    """parse adif data"""
     adif = adif.upper().replace('\r', '').replace('\n', '')
-    data = {'qso': [], 'date_start': None, 'date_end': None}
+    data = {'qso': [], 'date_start': None, 'date_end': None,\
+            'activator': None}
     if '<EOH>' in adif:
         adif = adif.split('<EOH>')[1]
     lines = adif.split('<EOR>')
@@ -81,6 +88,16 @@ def load_adif(adif, station_callsign_field=None):
             if station_callsign_field:
                 qso['station_callsign'] = \
                     get_adif_field(line, station_callsign_field)
+                activator = strip_callsign(qso['station_callsign'])
+                if not activator:
+                    continue
+                if data['activator']:
+                    if data['activator'] != activator:
+                        raise ADIFParseException(\
+                            "Различные активаторы в одном файле: " +\
+                            data['activator'] + ', ' + activator)
+                else:
+                    data['activator'] = activator
                 if not qso['station_callsign']:
                     raise ADIFParseException(\
                         "Не найдено поле позывного активатора ('" + \

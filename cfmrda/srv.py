@@ -5,6 +5,7 @@ import asyncio
 import logging
 import time
 import base64
+import re
 
 from aiohttp import web
 import jwt
@@ -17,7 +18,7 @@ from secret import secret
 import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
-from ham_radio import load_adif, ADIFParseException
+from ham_radio import load_adif, ADIFParseException, strip_callsign
 from export import export_rankings
 
 start_logging('srv')
@@ -109,11 +110,18 @@ class CfmRdaServer():
                 if user_data['email_confirmed']:
                     station_callsign_field = None
                     station_callsign = None
+                    activators = set([])
                     response = {'filesLoaded': 0, 'errors': []}
                     if data['stationCallsignFieldEnable']:
                         station_callsign_field = data['stationCallsignField']
                     else:
                         station_callsign = data['stationCallsign']
+                    if data['additionalActivators']:
+                        for act_cs in re.split(r"(?:\s|,|;)",\
+                            data["additionalActivators"]):
+                            activator = strip_callsign(act_cs)
+                            if activator:
+                                activators.add(activator)
                     for file in data['files']:
                         error = {'filename': file['name'],\
                                 'rda': file['rda'],\
@@ -126,23 +134,37 @@ class CfmRdaServer():
                             adif = adif_bytes.decode(adif_enc['encoding'])
                             adif_data = load_adif(adif, \
                                 station_callsign_field=station_callsign_field)
-                            file_rec = yield from self._db.execute(\
-                                "insert into uploads " +\
-                                    "(user_cs, rda, date_start, date_end) " +\
-                                "values (%(callsign)s, %(rda)s, " +\
-                                    "%(date_start)s, %(date_end)s)" + \
-                                "returning id",\
+
+                            file_rec = yield from self._db.execute("""
+                                insert into uploads
+                                    (user_cs, rda, date_start, date_end)
+                                values (%(callsign)s, %(rda)s,
+                                    %(date_start)s, %(date_end)s)
+                                returning id""",\
                                 {'callsign': callsign,\
                                 'rda': file['rda'],\
                                 'date_start': adif_data['date_start'],\
                                 'date_end': adif_data['date_end']})
+                            if not file_rec:
+                                raise Exception()
                             logging.debug('Upload id: ' + str(file_rec['id']))
-                            qso_sql = "insert into qso " +\
-                                "(upload_id, callsign, station_callsign, rda, " +\
-                                    "band, mode, tstamp) " +\
-                                "values (%(upload_id)s, %(callsign)s, " +\
-                                    "%(station_callsign)s, %(rda)s, %(band)s, " +\
-                                    "%(mode)s, %(tstamp)s)"
+
+                            if station_callsign_field:
+                                activators.add(adif_data['activator'])
+                            act_sql = """insert into activators
+                                values (%(upload_id)s, %(activator)s)"""
+                            act_params = [(file_rec['id'], act)\
+                                for act in activators]
+                            res = yield from self._db.execute(act_sql, act_params)
+                            if not res:
+                                raise Exception()
+
+                            qso_sql = """insert into qso
+                                (upload_id, callsign, station_callsign, rda,
+                                    band, mode, tstamp)
+                                values (%(upload_id)s, %(callsign)s,
+                                    %(station_callsign)s, %(rda)s, %(band)s,
+                                    %(mode)s, %(tstamp)s)"""
                             qso_params = []
                             for qso in adif_data['qso']:
                                 qso_params.append({'upload_id': file_rec['id'],\
