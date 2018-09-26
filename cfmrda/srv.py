@@ -348,7 +348,7 @@ class CfmRdaServer():
                                 'mode', mode,
                                 'date', to_char(qso.tstamp, 'DD Month YYYY'),
                                 'time', to_char(qso.tstamp, 'HH24:MI'),
-                                'stationCallsign', activator,
+                                'stationCallsign', station_callsign,
                                 'uploader',
                                     (select user_cs
                                     from uploads
@@ -368,9 +368,10 @@ class CfmRdaServer():
                                 (select user_cs
                                 from uploads
                                 where uploads.id = qso.upload_id) as uploader
-                            from qso
-                            where activator = %(callsign)s
-                            group by rda, mode, band, upload_id, dt) as l_0 
+                            from qso, activators
+                            where activator = %(callsign)s 
+                                and qso.upload_id = activators.upload_id
+                            group by rda, mode, band, qso.upload_id, dt) as l_0 
                         group by rda) as l_1
                 group by rda) as l_2            
             """, {'callsign': callsign}, False)
