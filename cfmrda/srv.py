@@ -338,7 +338,7 @@ class CfmRdaServer():
     def hunter_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
-            data = yield from self._db.execute("""
+            qso = yield from self._db.execute("""
                 select json_object_agg(rda, data) as data 
                 from
                     (select rda, json_object_agg(type, data) as data 
@@ -375,8 +375,11 @@ class CfmRdaServer():
                         group by rda) as l_1
                 group by rda) as l_2            
             """, {'callsign': callsign}, False)
-            if data:
-                return web.json_response(data['data'])
+            if qso:
+                rank = yield from self._db.execute("""
+                select rankings_json('callsign = '%(callsign)s'') as data
+                """, {'callsign': callsign}, False)
+                return web.json_response({'qso': qso['data'], 'rank': rank['data']})
             else:
                 return web.json_response(False)
         else:
