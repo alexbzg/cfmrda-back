@@ -116,7 +116,8 @@ class CfmRdaServer():
                         station_callsign_field = data['stationCallsignField']
                     else:
                         station_callsign = data['stationCallsign']
-                    if data['additionalActivators']:
+                        activators.add(station_callsign)
+                    if 'additionalActivators' in data:
                         for act_cs in re.split(r"(?:\s|,|;)",\
                             data["additionalActivators"]):
                             activator = strip_callsign(act_cs)
@@ -134,6 +135,7 @@ class CfmRdaServer():
                             adif = adif_bytes.decode(adif_enc['encoding'])
                             adif_data = load_adif(adif, \
                                 station_callsign_field=station_callsign_field)
+                            logging.debug(adif_data)
 
                             file_rec = yield from self._db.execute("""
                                 insert into uploads
@@ -149,12 +151,14 @@ class CfmRdaServer():
                                 raise Exception()
                             logging.debug('Upload id: ' + str(file_rec['id']))
 
-                            if station_callsign_field:
-                                activators.add(adif_data['activator'])
                             act_sql = """insert into activators
                                 values (%(upload_id)s, %(activator)s)"""
-                            act_params = [(file_rec['id'], act)\
-                                for act in activators]
+                            act_params = [{'upload_id': file_rec['id'],\
+                                'activator': act} for act in activators]
+                            if adif_data['activator']:
+                                act_params.append({'upload_id': file_rec['id'],\
+                                    'activator': adif_data['activator']})
+                            logging.debug(act_params)
                             res = yield from self._db.execute(act_sql, act_params)
                             if not res:
                                 raise Exception()
@@ -187,7 +191,7 @@ class CfmRdaServer():
                             logging.exception('ADIF load error')
                             response['errors'].append(error)
                     logging.debug('filesLoaded: ' + str(response['filesLoaded']))
-                    if response['filesLoaded']:
+                    if response['filesLoaded'] and not 'skipRankings' in data:
                         logging.debug('running export_rankings')
                         yield from export_rankings(self.conf)
                     return web.json_response(response)

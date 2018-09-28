@@ -64,7 +64,7 @@ having count(distinct callsign) > 99),
 rda_act as (select activator, qso.rda, count(distinct callsign)
 from qso, uploads, activators
 where qso.upload_id = uploads.id and enabled and activators.upload_id = qso.upload_id
-group by activator, band, qso.rda
+group by activator, qso.rda
 having count(distinct callsign) > 99),
 
 rda_hnt_m_b as (select distinct callsign, qso.rda, mode, band 
@@ -216,7 +216,7 @@ begin
 	|| '(select role, mode, json_object_agg(band, data) as data from '
 	|| '(select role, mode, band, json_agg(json_build_object(''callsign'', callsign, '
 	|| '''count'', _count, ''rank'', _rank)) as data from '
-	|| '(select * from rankings where ' || condition || ') as l_0 '
+	|| '(select * from rankings where ' || condition || ' order by _rank) as l_0 '
 	|| 'group by role, mode, band) as l_1 '
 	|| 'group by role, mode) as l_2 '
 	|| 'group by role) as l_3'

@@ -259,15 +259,18 @@ def test_ADIF_upload():
             assert r_data['filesLoaded'] == files_loaded
 
     params = (\
-        ('station callsign specified',
+        ('station callsign specified & additional callsigns',
         {'token': user_data['token'],
         'stationCallsign': 'ACTIV0TEST',
         'stationCallsignFieldEnable': False,
+        'skipRankings': 1,
+        'additionalActivators': 'ACTIVE1TEST, ACTIVE2TEST ACTIVE3TEST',
         'files': [{'name': '0.adi', 'rda': 'HA-01'}]},
         200, 1),
         ('station callsign from field',
         {'token': user_data['token'],
         'stationCallsignField': 'STATION_CALLSIGN',
+        'skipRankings': 1,
         'stationCallsignFieldEnable': True,
         'files': [{'name': '0.adi', 'rda': 'HA-01'}]},
         200, 1),
@@ -276,18 +279,28 @@ def test_ADIF_upload():
         'stationCallsignField': 'STATION_CALLSIGN_',
         'stationCallsignFieldEnable': True,
         'files': [{'name': '0.adi', 'rda': 'HA-01'}]},
+        200, 0),
+        ('multiple station callsigns',
+        {'token': user_data['token'],
+        'stationCallsignField': 'STATION_CALLSIGN',
+        'stationCallsignFieldEnable': True,
+        'files': [{'name': '1.adi', 'rda': 'HA-01'}]},
         200, 0))
 
     for (title, data, expect_code, files_loaded) in params:
         do_test(title, data, expect_code, files_loaded)
 
-    check_hunter_file(CONF)
+    check_hunter_data(CONF, TEST_HUNTER)
+    check_hunter_data(CONF, 'ACTIVE1TEST', 'activator')
 
-def check_hunter_file(conf):
-    data = load_json(conf.get('web', 'root') + '/json/hunters/' +\
-        pytest.config.getoption('--test_hunter') + '.json')
+def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
+    rsp = requests.get(API_URI + '/hunter/' + callsign) 
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)            
+    logging.debug(data)
     assert data
-    assert 'HA-01' in data
-    assert 'hunter' in data['HA-01']
-    assert len(data['HA-01']['hunter']) == 2
+    assert 'qso' in data    
+    assert rda in data['qso']
+    assert role in data['qso'][rda]
+    assert data['qso'][rda][role]
 

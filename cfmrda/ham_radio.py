@@ -88,6 +88,10 @@ def load_adif(adif, station_callsign_field=None):
             if station_callsign_field:
                 qso['station_callsign'] = \
                     get_adif_field(line, station_callsign_field)
+                if not qso['station_callsign']:
+                    raise ADIFParseException(\
+                        "Не найдено поле позывного активатора ('" + \
+                        station_callsign_field + "').")
                 activator = strip_callsign(qso['station_callsign'])
                 if not activator:
                     continue
@@ -98,10 +102,6 @@ def load_adif(adif, station_callsign_field=None):
                             data['activator'] + ', ' + activator)
                 else:
                     data['activator'] = activator
-                if not qso['station_callsign']:
-                    raise ADIFParseException(\
-                        "Не найдено поле позывного активатора ('" + \
-                        station_callsign_field + "').")
 
             if not data['date_start'] or data['date_start'] > qso['tstamp']:
                 data['date_start'] = qso['tstamp']
