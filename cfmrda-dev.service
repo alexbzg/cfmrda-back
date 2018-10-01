@@ -1,0 +1,12 @@
+[Unit]
+Description=cfmrda-dev backend server
+After=network.target postgresql@9.4-main.service 
+
+[Service]
+ExecStart=/usr/local/cfmrda-dev/cfmrda/srv.py
+Restart=always
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target
