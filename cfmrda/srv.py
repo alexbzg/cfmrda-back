@@ -258,7 +258,7 @@ class CfmRdaServer():
 
 """ \
             + self.conf.get('web', 'address')\
-            + '/aiohttp/confirm_emai?token=' + token + """
+            + '/aiohttp/confirm_email?token=' + token + """
 
 Если вы не регистрировали учетную запись на CFMRDA.ru, просто игнорируйте это письмо.
 Ссылка будет действительна в течение 1 часа.
