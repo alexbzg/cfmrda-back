@@ -343,41 +343,39 @@ class CfmRdaServer():
         callsign = request.match_info.get('callsign', None)
         if callsign:
             qso = yield from self._db.execute("""
-                select json_object_agg(rda, data) as data 
+                select json_object_agg(rda, data) as data
                 from
-                    (select rda, json_object_agg(type, data) as data 
+                    (select rda, json_object_agg(type, data) as data
                     from
-                        (select rda, 'hunter' as type, 
+                        (select qso.rda, 'hunter' as type,
                             json_agg(json_build_object('band', band,
                                 'mode', mode,
                                 'date', to_char(qso.tstamp, 'DD Month YYYY'),
                                 'time', to_char(qso.tstamp, 'HH24:MI'),
                                 'stationCallsign', station_callsign,
-                                'uploader',
-                                    (select user_cs
-                                    from uploads
-                                    where uploads.id = qso.upload_id))) as data
-                        from qso
-                        where callsign = %(callsign)s
-                        group by rda
+                                'uploader', uploads.user_cs)) as data
+                        from qso, uploads
+                        where callsign = %(callsign)s and enabled 
+                            and qso.upload_id = uploads.id
+                        group by qso.rda
                         union all
-                        select rda, 'activator' as type, 
+                        select rda, 'activator' as type,
                             json_agg(json_build_object('mode', mode,
                                 'band', band,
                                 'date', to_char(dt, 'DD Month YYYY'),
                                 'uploader', uploader, 'count', count)) as data
                         from
-                            (select rda, mode, band, dt,
-                                count(distinct callsign),
-                                (select user_cs
-                                from uploads
-                                where uploads.id = qso.upload_id) as uploader
-                            from qso, activators
-                            where activator = %(callsign)s 
-                                and qso.upload_id = activators.upload_id
-                            group by rda, mode, band, qso.upload_id, dt) as l_0 
+                            (select mode, band, qso.rda, dt, count(distinct callsign), 
+                                (select user_cs 
+                                from uploads 
+                                where id = qso.upload_id) as uploader
+                            from qso, uploads, activators
+                            where uploads.id = qso.upload_id and enabled
+                                and activators.upload_id = qso.upload_id 
+                                and activator = %(callsign)s
+                            group by qso.upload_id, mode, band, qso.rda, dt) as l_0
                         group by rda) as l_1
-                group by rda) as l_2            
+                    group by rda) as l_2
             """, {'callsign': callsign}, False)
             if qso:
                 rank = yield from self._db.execute("""
