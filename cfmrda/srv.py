@@ -117,7 +117,8 @@ class CfmRdaServer():
                     else:
                         station_callsign = data['stationCallsign']
                         activators.add(station_callsign)
-                    if 'additionalActivators' in data:
+                    if 'additionalActivators' in data and\
+                        data['additionalActivators']:
                         for act_cs in re.split(r"(?:\s|,|;)",\
                             data["additionalActivators"]):
                             activator = strip_callsign(act_cs)
@@ -191,7 +192,7 @@ class CfmRdaServer():
                             logging.exception('ADIF load error')
                             response['errors'].append(error)
                     logging.debug('filesLoaded: ' + str(response['filesLoaded']))
-                    if response['filesLoaded'] and not 'skipRankings' in data:
+                    if response['filesLoaded'] and 'skipRankings' not in data:
                         logging.debug('running export_rankings')
                         yield from export_rankings(self.conf)
                     return web.json_response(response)
