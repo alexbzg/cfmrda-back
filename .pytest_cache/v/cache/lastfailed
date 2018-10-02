@@ -1,4 +1,5 @@
 {
+  "test/test__srv.py::test_login_not_confirmed_email": true,
   "test/test__srv.py::test_login_register[change password request-data5-200]": true,
   "test/test__srv.py::test_login_register[register user-data2-200]": true,
   "test/test_srv.py::test_register": true,

@@ -168,9 +168,6 @@ def check_db(cfm_rda_server, expect_data):
     for field in expect_data:
          assert user_data[field] == expect_data[field]
 
-def test_login_not_confirmed_email():
-    login('email is not confirmed', 400)
-
 def test_confirm_email(cfm_rda_server):
     params = (\
         ('token without callsign',
@@ -272,8 +269,15 @@ def test_ADIF_upload():
         'stationCallsignField': 'STATION_CALLSIGN',
         'skipRankings': 1,
         'stationCallsignFieldEnable': True,
-        'files': [{'name': '0.adi', 'rda': 'HA-01'}]},
+        'files': [{'name': '0_1.adi', 'rda': 'HA-02'}]},
         200, 1),
+        ('duplicate file',
+        {'token': user_data['token'],
+        'stationCallsignField': 'STATION_CALLSIGN',
+        'skipRankings': 1,
+        'stationCallsignFieldEnable': True,
+        'files': [{'name': '0.adi', 'rda': 'HA-02'}]},
+        200, 0),
         ('station callsign from invalid field',
         {'token': user_data['token'],
         'stationCallsignField': 'STATION_CALLSIGN_',

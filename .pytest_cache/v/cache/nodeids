@@ -1,7 +1,6 @@
 [
   "test/test__srv.py::test_login_register",
   "test/test__srv.py::test_contact_support",
-  "test/test__srv.py::test_login_not_confirmed_email",
   "test/test__srv.py::test_confirm_email",
   "test/test__srv.py::test_password_change",
   "test/test__srv.py::test_login",
