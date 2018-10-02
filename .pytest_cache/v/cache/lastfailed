@@ -1,0 +1,7 @@
+{
+  "test/test__srv.py::test_login_register[change password request-data5-200]": true,
+  "test/test__srv.py::test_login_register[register user-data2-200]": true,
+  "test/test_srv.py::test_register": true,
+  "test_export.py::test_export_rankings": true,
+  "test_export_rankings.py::test_export_rankings": true
+}
