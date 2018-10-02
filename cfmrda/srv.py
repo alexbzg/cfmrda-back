@@ -117,7 +117,8 @@ class CfmRdaServer():
                     else:
                         station_callsign = data['stationCallsign']
                         activators.add(station_callsign)
-                    if 'additionalActivators' in data:
+                    if 'additionalActivators' in data and 
+                        data['additionalActivators']:
                         for act_cs in re.split(r"(?:\s|,|;)",\
                             data["additionalActivators"]):
                             activator = strip_callsign(act_cs)
