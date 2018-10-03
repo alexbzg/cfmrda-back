@@ -20,7 +20,7 @@ import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
-from export import export_rankings
+from export import export_rankings, export_recent_uploads, export_msc
 
 start_logging('srv')
 logging.debug("restart")
@@ -213,6 +213,8 @@ class CfmRdaServer():
                     if response['filesLoaded'] and 'skipRankings' not in data:
                         logging.debug('running export_rankings')
                         yield from export_rankings(self.conf)
+                        yield from export_recent_uploads(self.conf)
+                        yield from export_msc(self.conf)
                     logging.debug(response)
                     return web.json_response(response)
                 else:

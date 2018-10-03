@@ -516,6 +516,13 @@ CREATE INDEX qso_upload_id_mode_band_rda_dt_callsign_idx ON qso USING btree (upl
 
 
 --
+-- Name: qso_upload_id_station_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_upload_id_station_callsign_idx ON qso USING btree (upload_id, station_callsign);
+
+
+--
 -- Name: rankings_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -534,13 +541,6 @@ CREATE INDEX rankings_top100 ON rankings USING btree (role, mode, band, callsign
 --
 
 CREATE INDEX uploads_id_enabled_idx ON uploads USING btree (id, enabled);
-
-
---
--- Name: uploads_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX uploads_id_idx ON uploads USING btree (id);
 
 
 --
