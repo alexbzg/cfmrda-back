@@ -375,6 +375,7 @@ class CfmRdaServer():
                                 'date', to_char(qso.tstamp, 'DD Month YYYY'),
                                 'time', to_char(qso.tstamp, 'HH24:MI'),
                                 'stationCallsign', station_callsign,
+                                'uploadId', uploads.id,
                                 'uploader', uploads.user_cs)) as data
                         from qso, uploads
                         where callsign = %(callsign)s and enabled 
@@ -385,9 +386,11 @@ class CfmRdaServer():
                             json_agg(json_build_object('mode', mode,
                                 'band', band,
                                 'date', to_char(dt, 'DD Month YYYY'),
+                                'uploadId', upload_id,
                                 'uploader', uploader, 'count', count)) as data
                         from
                             (select mode, band, qso.rda, dt, count(distinct callsign), 
+                                qso.upload_id,
                                 (select user_cs 
                                 from uploads 
                                 where id = qso.upload_id) as uploader
@@ -408,6 +411,26 @@ class CfmRdaServer():
                 return web.json_response(False)
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
+
+    @asyncio.coroutine
+    def view_upload_hndlr(self, request):
+        upload_id = request.match_info.get('id', None)
+        if upload_id:
+            qso = (yield from self._db.execute("""
+                select json_agg(json_build_object('callsign', callsign, 
+                    'stationCallsign', station_callsign, 'rda', rda, 
+                    'band', band, 'mode', mode, 
+                    'tstamp', to_char(tstamp, 'DD Month YYYY HH24:MI')))
+                    as data
+                from qso 
+                where upload_id = %(upload_id)s
+            """, {'upload_id': upload_id}, False))['data']
+            if qso:
+                return web.json_response(qso)
+            else:
+                return web.json_response(False)
+        else:
+            return web.HTTPBadRequest(text='Необходимо ввести id файла')
 
     def decode_token(self, data, check_time=False):
         callsign = None
@@ -435,8 +458,6 @@ def test_hndlr(request):
         return web.json_response(data)
     return web.Response(text='OK')
 
-
-
 if __name__ == '__main__':
     APP = web.Application(client_max_size=100 * 1024 ** 2)
     SRV = CfmRdaServer(APP.loop)
@@ -447,4 +468,5 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
+    APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))
