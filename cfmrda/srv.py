@@ -6,6 +6,7 @@ import logging
 import time
 import base64
 import re
+import hashlib
 
 from aiohttp import web
 import jwt
@@ -19,7 +20,7 @@ import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
-from export import export_rankings
+from export import export_rankings, export_recent_uploads, export_msc
 
 start_logging('srv')
 logging.debug("restart")
@@ -101,6 +102,82 @@ class CfmRdaServer():
             return callsign
 
     @asyncio.coroutine
+    def load_adif_file(self, file, callsign, activators=None,\
+            station_callsign=None, station_callsign_field=None):
+        error = {'filename': file['name'],\
+                'rda': file['rda'],\
+                'message': 'Ошибка загрузки'}
+        try:
+            adif_bytes = \
+                base64.b64decode(file['file'].split(',')[1])
+            adif_hash = hashlib.md5(adif_bytes).hexdigest()
+            hash_check = yield from self._db.execute("""
+                select id from uploads where hash = %(hash)s
+            """, {'hash': adif_hash})
+            if hash_check:
+                error['message'] = "Файл уже загружен"
+                return error
+            adif_enc = chardet.detect(adif_bytes)
+            adif = adif_bytes.decode(adif_enc['encoding'])
+            adif_data = load_adif(adif, \
+                station_callsign_field=station_callsign_field)
+            logging.debug(adif_data)
+
+            file_rec = yield from self._db.execute("""
+                insert into uploads
+                    (user_cs, rda, date_start, date_end, hash)
+                values (%(callsign)s, %(rda)s,
+                    %(date_start)s, %(date_end)s, %(hash)s)
+                returning id""",\
+                {'callsign': callsign,\
+                'rda': file['rda'],\
+                'date_start': adif_data['date_start'],\
+                'date_end': adif_data['date_end'],\
+                'hash': adif_hash})
+            if not file_rec:
+                raise Exception()
+            logging.debug('Upload id: ' + str(file_rec['id']))
+
+            act_sql = """insert into activators
+                values (%(upload_id)s, %(activator)s)"""
+            act_params = [{'upload_id': file_rec['id'],\
+                'activator': act} for act in activators]
+            if adif_data['activator']:
+                act_params.append({'upload_id': file_rec['id'],\
+                    'activator': adif_data['activator']})
+            res = yield from self._db.execute(act_sql, act_params)
+            if not res:
+                raise Exception()
+
+            qso_sql = """insert into qso
+                (upload_id, callsign, station_callsign, rda,
+                    band, mode, tstamp)
+                values (%(upload_id)s, %(callsign)s,
+                    %(station_callsign)s, %(rda)s, %(band)s,
+                    %(mode)s, %(tstamp)s)"""
+            qso_params = []
+            for qso in adif_data['qso']:
+                qso_params.append({'upload_id': file_rec['id'],\
+                    'callsign': qso['callsign'],\
+                    'station_callsign': station_callsign or \
+                        qso['station_callsign'],\
+                    'rda': file['rda'],\
+                    'band': qso['band'],\
+                    'mode': qso['mode'],\
+                    'tstamp': qso['tstamp']})
+            res = yield from self._db.execute(qso_sql, qso_params)
+            if res:
+                return None
+            else:
+                raise Exception()
+        except Exception as exc:
+            if isinstance(exc, ADIFParseException):
+                error['message'] = str(exc)
+            logging.exception('ADIF load error')
+            return error
+
+
+    @asyncio.coroutine
     def adif_hndlr(self, request):
         data = yield from request.json()
         if self._json_validator.validate('adif', data):
@@ -125,76 +202,20 @@ class CfmRdaServer():
                             if activator:
                                 activators.add(activator)
                     for file in data['files']:
-                        error = {'filename': file['name'],\
-                                'rda': file['rda'],\
-                                'message': 'Ошибка загрузки'}
-                        try:
-                            logging.debug('Adif file: ' + file['name'])
-                            adif_bytes = \
-                                base64.b64decode(file['file'].split(',')[1])
-                            adif_enc = chardet.detect(adif_bytes)
-                            adif = adif_bytes.decode(adif_enc['encoding'])
-                            adif_data = load_adif(adif, \
+                        error = yield from self.load_adif_file(file, callsign,\
+                                activators=activators,\
+                                station_callsign=station_callsign,\
                                 station_callsign_field=station_callsign_field)
-                            logging.debug(adif_data)
-
-                            file_rec = yield from self._db.execute("""
-                                insert into uploads
-                                    (user_cs, rda, date_start, date_end)
-                                values (%(callsign)s, %(rda)s,
-                                    %(date_start)s, %(date_end)s)
-                                returning id""",\
-                                {'callsign': callsign,\
-                                'rda': file['rda'],\
-                                'date_start': adif_data['date_start'],\
-                                'date_end': adif_data['date_end']})
-                            if not file_rec:
-                                raise Exception()
-                            logging.debug('Upload id: ' + str(file_rec['id']))
-
-                            act_sql = """insert into activators
-                                values (%(upload_id)s, %(activator)s)"""
-                            act_params = [{'upload_id': file_rec['id'],\
-                                'activator': act} for act in activators]
-                            if adif_data['activator']:
-                                act_params.append({'upload_id': file_rec['id'],\
-                                    'activator': adif_data['activator']})
-                            logging.debug(act_params)
-                            res = yield from self._db.execute(act_sql, act_params)
-                            if not res:
-                                raise Exception()
-
-                            qso_sql = """insert into qso
-                                (upload_id, callsign, station_callsign, rda,
-                                    band, mode, tstamp)
-                                values (%(upload_id)s, %(callsign)s,
-                                    %(station_callsign)s, %(rda)s, %(band)s,
-                                    %(mode)s, %(tstamp)s)"""
-                            qso_params = []
-                            for qso in adif_data['qso']:
-                                qso_params.append({'upload_id': file_rec['id'],\
-                                    'callsign': qso['callsign'],\
-                                    'station_callsign': station_callsign or \
-                                        qso['station_callsign'],\
-                                    'rda': file['rda'],\
-                                    'band': qso['band'],\
-                                    'mode': qso['mode'],\
-                                    'tstamp': qso['tstamp']})
-                            res = yield from self._db.execute(qso_sql, qso_params)
-                            if res:
-                                #file was uploaded to db successfully
-                                response['filesLoaded'] += 1
-                            else:
-                                raise Exception()
-                        except Exception as exc:
-                            if isinstance(exc, ADIFParseException):
-                                error['message'] = str(exc)
-                            logging.exception('ADIF load error')
+                        if error:
                             response['errors'].append(error)
-                    logging.debug('filesLoaded: ' + str(response['filesLoaded']))
+                        else:
+                            response['filesLoaded'] += 1
                     if response['filesLoaded'] and 'skipRankings' not in data:
                         logging.debug('running export_rankings')
                         yield from export_rankings(self.conf)
+                        yield from export_recent_uploads(self.conf)
+                        yield from export_msc(self.conf)
+                    logging.debug(response)
                     return web.json_response(response)
                 else:
                     return web.HTTPBadRequest(text='Ваш адрес электронной почты не подтвержден.')

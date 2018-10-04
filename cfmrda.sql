@@ -362,7 +362,8 @@ CREATE TABLE uploads (
     rda character(5) NOT NULL,
     date_start date NOT NULL,
     date_end date NOT NULL,
-    enabled boolean DEFAULT true NOT NULL
+    enabled boolean DEFAULT true NOT NULL,
+    hash character varying(64) DEFAULT ''::character varying NOT NULL
 );
 
 
@@ -442,6 +443,14 @@ ALTER TABLE ONLY rankings
 
 
 --
+-- Name: uploads_hash_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY uploads
+    ADD CONSTRAINT uploads_hash_key UNIQUE (hash);
+
+
+--
 -- Name: uploads_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -462,6 +471,13 @@ ALTER TABLE ONLY users
 --
 
 CREATE INDEX activators_activator_idx ON activators USING btree (activator);
+
+
+--
+-- Name: activators_activator_upload_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX activators_activator_upload_id_idx ON activators USING btree (activator, upload_id);
 
 
 --
@@ -500,6 +516,13 @@ CREATE INDEX qso_upload_id_mode_band_rda_dt_callsign_idx ON qso USING btree (upl
 
 
 --
+-- Name: qso_upload_id_station_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_upload_id_station_callsign_idx ON qso USING btree (upload_id, station_callsign);
+
+
+--
 -- Name: rankings_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -518,13 +541,6 @@ CREATE INDEX rankings_top100 ON rankings USING btree (role, mode, band, callsign
 --
 
 CREATE INDEX uploads_id_enabled_idx ON uploads USING btree (id, enabled);
-
-
---
--- Name: uploads_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX uploads_id_idx ON uploads USING btree (id);
 
 
 --
