@@ -42,7 +42,8 @@ def export_recent_uploads(conf):
             'dateEnd', to_char(date_end, 'DD Month YYYY'))) as data
         from
             (select json_agg(distinct activators) as activators, 
-                json_agg(distinct rda) as rda, max(tstamp) as tstamp, 
+                json_agg(json_build_object('rda', rda, 'id', id)) as rda, 
+                max(tstamp) as tstamp, 
                 min(date_start) as date_start, max(date_end) as date_end
             from uploads,
                 (select upload_id, unnest(activators) as activators 
