@@ -420,10 +420,15 @@ class CfmRdaServer():
                 select json_agg(json_build_object('callsign', callsign, 
                     'stationCallsign', station_callsign, 'rda', rda, 
                     'band', band, 'mode', mode, 
-                    'tstamp', to_char(tstamp, 'DD Month YYYY HH24:MI')))
+                    'date', to_char(tstamp, 'DD Month YYYY'),
+                    'time', to_char(tstamp, 'HH24:MI')))
                     as data
-                from qso 
-                where upload_id = %(upload_id)s
+                from 
+                    (select callsign, station_callsign, rda, 
+                        band, mode, tstamp
+                    from qso 
+                    where upload_id = %(upload_id)s
+                    order by tstamp) as l_0
             """, {'upload_id': upload_id}, False))['data']
             if qso:
                 return web.json_response(qso)
