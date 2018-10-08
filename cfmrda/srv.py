@@ -103,7 +103,7 @@ class CfmRdaServer():
 
     @asyncio.coroutine
     def load_adif_file(self, file, callsign, activators=None,\
-            station_callsign=None, station_callsign_field=None):
+            station_callsign=None, station_callsign_field=None, rda_field=None):
         error = {'filename': file['name'],\
                 'rda': file['rda'],\
                 'message': 'Ошибка загрузки'}
@@ -120,17 +120,17 @@ class CfmRdaServer():
             adif_enc = chardet.detect(adif_bytes)
             adif = adif_bytes.decode(adif_enc['encoding'])
             adif_data = load_adif(adif, \
-                station_callsign_field=station_callsign_field)
+                station_callsign_field=station_callsign_field,\
+                rda_field=rda_field)
             logging.debug(adif_data)
 
             file_rec = yield from self._db.execute("""
                 insert into uploads
-                    (user_cs, rda, date_start, date_end, hash)
-                values (%(callsign)s, %(rda)s,
+                    (user_cs, date_start, date_end, hash)
+                values (%(callsign)s, 
                     %(date_start)s, %(date_end)s, %(hash)s)
                 returning id""",\
                 {'callsign': callsign,\
-                'rda': file['rda'],\
                 'date_start': adif_data['date_start'],\
                 'date_end': adif_data['date_end'],\
                 'hash': adif_hash})
@@ -161,7 +161,7 @@ class CfmRdaServer():
                     'callsign': qso['callsign'],\
                     'station_callsign': station_callsign or \
                         qso['station_callsign'],\
-                    'rda': file['rda'],\
+                    'rda': file['rda'] or qso['rda'],\
                     'band': qso['band'],\
                     'mode': qso['mode'],\
                     'tstamp': qso['tstamp']})
@@ -187,6 +187,7 @@ class CfmRdaServer():
                 if user_data['email_confirmed']:
                     station_callsign_field = None
                     station_callsign = None
+                    rda_field = None
                     activators = set([])
                     response = {'filesLoaded': 0, 'errors': []}
                     if data['stationCallsignFieldEnable']:
@@ -194,6 +195,8 @@ class CfmRdaServer():
                     else:
                         station_callsign = data['stationCallsign']
                         activators.add(station_callsign)
+                    if data['rdaFieldEnable']:
+                        rda_field = data['rdaField']
                     if 'additionalActivators' in data and\
                         data['additionalActivators']:
                         for act_cs in re.split(r"(?:\s|,|;)",\
@@ -205,7 +208,8 @@ class CfmRdaServer():
                         error = yield from self.load_adif_file(file, callsign,\
                                 activators=activators,\
                                 station_callsign=station_callsign,\
-                                station_callsign_field=station_callsign_field)
+                                station_callsign_field=station_callsign_field,\
+                                rda_field=rda_field)
                         if error:
                             response['errors'].append(error)
                         else:
