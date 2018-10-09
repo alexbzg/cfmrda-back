@@ -12,7 +12,7 @@ from aiohttp import web
 import jwt
 import chardet
 
-from common import site_conf, start_logging
+from common import site_conf, start_logging, APP_ROOT
 from db import DBConn
 import send_email
 from secret import secret
@@ -37,7 +37,7 @@ class CfmRdaServer():
         asyncio.async(self._db.connect())
         self._secret = secret(self.conf.get('files', 'secret'))
         self._json_validator = JSONvalidator(\
-            load_json(self.conf.get('web', 'root') + '/json/schemas.json'))
+            load_json(APP_ROOT + '/schemas.json'))
 
     def create_token(self, data):
         return jwt.encode(data, self._secret, algorithm='HS256').decode('utf-8')
@@ -105,7 +105,7 @@ class CfmRdaServer():
     def load_adif_file(self, file, callsign, activators=None,\
             station_callsign=None, station_callsign_field=None, rda_field=None):
         error = {'filename': file['name'],\
-                'rda': file['rda'],\
+                'rda': file['rda'] if 'rda' in file else None,\
                 'message': 'Ошибка загрузки'}
         try:
             adif_bytes = \
@@ -161,7 +161,7 @@ class CfmRdaServer():
                     'callsign': qso['callsign'],\
                     'station_callsign': station_callsign or \
                         qso['station_callsign'],\
-                    'rda': file['rda'] or qso['rda'],\
+                    'rda': qso['rda'] if rda_field else file['rda'],\
                     'band': qso['band'],\
                     'mode': qso['mode'],\
                     'tstamp': qso['tstamp']})

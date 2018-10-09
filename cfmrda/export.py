@@ -35,28 +35,27 @@ def export_recent_uploads(conf):
     yield from _db.connect()
 
     data = (yield from _db.execute("""
-        select json_agg(json_build_object('activators', activators, 
-            'rda', rda, 
-            'tstamp', to_char(tstamp, 'DD Month YYYY HH24:MI'), 
-            'dateStart', to_char(date_start, 'DD Month YYYY'),
-            'dateEnd', to_char(date_end, 'DD Month YYYY'))) as data
+        select json_agg(json_build_object('activators', activators,
+            'rda', rda,
+            'tstamp', to_char(tstamp, 'DD Month YYYY HH24:MI'),
+            'uploader', uploader)) as data
         from
-            (select json_agg(distinct activators) as activators, 
-                json_agg(json_build_object('rda', rda, 'id', id)) as rda, 
-                max(tstamp) as tstamp, 
+            (select json_agg(distinct activators) as activators, user_cs as uploader,
+                json_agg(json_build_object('rda', rdas, 'id', id)) as rda,
+                max(tstamp) as tstamp,
                 min(date_start) as date_start, max(date_end) as date_end
             from uploads,
-                (select upload_id, unnest(activators) as activators 
+                (select upload_id, rdas, unnest(activators) as activators
                 from
-                    (select upload_id, 
-                        array_agg(distinct station_callsign) as activators 
+                    (select upload_id, array_agg(distinct rda) as rdas,
+                        array_agg(distinct station_callsign) as activators
                     from qso
                     group by upload_id) as act_l_0) as activators
             where uploads.id = activators.upload_id
             group by user_cs, date(tstamp)
             order by max(tstamp) desc
             limit 20) as data
-    """, None, False))['data']
+        """, None, False))['data']
     save_json(data, conf.get('web', 'root') + '/json/recent_uploads.json')
 
 @asyncio.coroutine

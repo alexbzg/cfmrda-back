@@ -48,5 +48,4 @@ class JSONvalidator:
         except jsonschema.exceptions.ValidationError:
             logging.exception('Error validating json data')
             logging.error(data)
-            logging.error('schema: ' + schema)
             return False

@@ -117,7 +117,9 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                     data['activator'] = activator
 
             if rda_field:
-                qso['rda'] = detect_rda(get_adif_field(line, rda_field))
+                qso['rda'] = get_adif_field(line, rda_field)
+                if qso['rda']:
+                    qso['rda'] = detect_rda(qso['rda'])
                 if not qso['rda']:
                     raise ADIFParseException(\
                         "Поле RDA (" + rda_field +\
