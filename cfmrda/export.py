@@ -37,7 +37,8 @@ def export_recent_uploads(conf):
     data = (yield from _db.execute("""
         select json_agg(json_build_object('activators', activators,
             'rda', rda,
-            'tstamp', to_char(tstamp, 'DD Month YYYY HH24:MI'),
+            'uploadDate', to_char(tstamp, 'DD mon YYYY'),
+            'uploadTime', to_char(tstamp, 'HH24:MI'),
             'uploader', uploader)) as data
         from
             (select json_agg(distinct activators) as activators, user_cs as uploader,
