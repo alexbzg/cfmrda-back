@@ -2,6 +2,7 @@
 #coding=utf-8
 """various constants and functions for working with ham radio data"""
 import re
+from rda import RDA_VALUES
 
 BANDS_WL = {'160M': '1.8', '80M': '3.5', '40M': '7', \
         '30M': '10', '20M': '14', '14M': '20', '17M': '18', '15M': '21', \
@@ -22,6 +23,17 @@ MODES = {'DIGI': ('DATA', 'HELL', 'MT63', 'THOR16', 'FAX', 'OPERA', 'PKT',\
 
 RE_STRIP_CALLSIGN = re.compile(r"\d*[A-Z]+\d+[A-Z]+")
 
+RE_RDA_VALUE = re.compile(r"([a-zA-Z][a-zA-Z])[\d-]*(\d\d)")
+
+def detect_rda(val):
+    """get valid rda value"""
+    rda_match = RE_RDA_VALUE.search(val)
+    if rda_match:
+        rda = (rda_match.group(1) + '-' + rda_match.group(2)).upper()
+        if rda in RDA_VALUES:
+            return rda
+    return None
+
 def strip_callsign(callsign):
     """remove prefixes/suffixes from callsign"""
     cs_match = RE_STRIP_CALLSIGN.search(callsign)
@@ -31,7 +43,7 @@ def strip_callsign(callsign):
         return None
 
 def get_adif_field(line, field):
-    """ """
+    """reads ADIF field"""
     i_head = line.find('<' + field + ':')
     if i_head < 0:
         return None
@@ -42,12 +54,13 @@ def get_adif_field(line, field):
 
 class ADIFParseException(Exception):
     """station_callsign_field is absent
+    rda_field is absent
     no qso in file
     multiple activator callsigns
     """
     pass
 
-def load_adif(adif, station_callsign_field=None):
+def load_adif(adif, station_callsign_field=None, rda_field=None):
     """parse adif data"""
     adif = adif.upper().replace('\r', '').replace('\n', '')
     data = {'qso': [], 'date_start': None, 'date_end': None,\
@@ -102,6 +115,15 @@ def load_adif(adif, station_callsign_field=None):
                             data['activator'] + ', ' + activator)
                 else:
                     data['activator'] = activator
+
+            if rda_field:
+                qso['rda'] = get_adif_field(line, rda_field)
+                if qso['rda']:
+                    qso['rda'] = detect_rda(qso['rda'])
+                if not qso['rda']:
+                    raise ADIFParseException(\
+                        "Поле RDA (" + rda_field +\
+                        ") не найдено или содержит некорректные данные.")
 
             if not data['date_start'] or data['date_start'] > qso['tstamp']:
                 data['date_start'] = qso['tstamp']

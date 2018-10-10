@@ -359,7 +359,6 @@ CREATE TABLE uploads (
     id integer NOT NULL,
     user_cs character varying(32) NOT NULL,
     tstamp timestamp without time zone DEFAULT now() NOT NULL,
-    rda character(5) NOT NULL,
     date_start date NOT NULL,
     date_end date NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
@@ -520,6 +519,20 @@ CREATE INDEX qso_upload_id_mode_band_rda_dt_callsign_idx ON qso USING btree (upl
 --
 
 CREATE INDEX qso_upload_id_station_callsign_idx ON qso USING btree (upload_id, station_callsign);
+
+
+--
+-- Name: qso_upload_id_station_callsign_idx1; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_upload_id_station_callsign_idx1 ON qso USING btree (upload_id, station_callsign);
+
+
+--
+-- Name: qso_upload_id_station_callsign_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_upload_id_station_callsign_rda_idx ON qso USING btree (upload_id, station_callsign, rda);
 
 
 --
