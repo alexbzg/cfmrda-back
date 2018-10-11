@@ -36,8 +36,10 @@ class CfmRdaServer():
         self._qrzcom = QRZComLink(loop)
         asyncio.async(self._db.connect())
         self._secret = secret(self.conf.get('files', 'secret'))
+        self._site_admins = str(self.conf.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(\
             load_json(APP_ROOT + '/schemas.json'))
+
 
     def create_token(self, data):
         return jwt.encode(data, self._secret, algorithm='HS256').decode('utf-8')
@@ -277,6 +279,41 @@ class CfmRdaServer():
         else:
             return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
 
+    @asyncio.coroutine
+    def user_uploads_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            sql_tmplt = """
+                select json_agg(json_build_object('id', id, 
+                    'dateStart', to_char(date_start, 'DD mon YYYY'),
+                    'dateEnd', to_char(date_end, 'DD mon YYYY'), 
+                    'tstamp', to_char(tstamp, 'DD mon YYYY'), 
+                    'uploader', user_cs,
+                    'rda', qsos->'rda', 'stations', qsos->'stations', 
+                    'qsoCount', qsos->'qsoCount', 'activators', activators)) as data
+                from
+                    (select id, date_start, date_end, tstamp, user_cs,
+                        (select json_build_object('rda', array_agg(distinct rda), 
+                            'stations', array_agg(distinct station_callsign), 
+                            'qsoCount', count(*)) 
+                        from qso 
+                        where upload_id = uploads.id) as qsos,
+                        (select array_agg(activator) 
+                        from activators 
+                        where upload_id = uploads.id) as activators
+                    from uploads 
+                    {}
+                    order by tstamp desc) as data
+            """
+            sql = sql_tmplt.format('' if callsign in self._site_admins else\
+                'where user_cs = %(callsign)s')
+            uploads = yield from self._db.execute(sql, {'callsign': callsign},\
+                False)
+            return web.json_response(uploads['data'] if uploads else [])
+        else:
+            return callsign
+
     def send_email_cfm(self, callsign, email):
         token = self.create_token(\
             {'callsign': callsign, 'time': time.time()})
@@ -351,6 +388,8 @@ class CfmRdaServer():
         user_data = yield from self.get_user_data(callsign)
         user_data['token'] = self.create_token({'callsign': callsign})
         del user_data['password']
+        if callsign in self._site_admins:
+            user_data['admin'] = True
         return web.json_response(user_data)
 
     @asyncio.coroutine
@@ -475,6 +514,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
     APP.router.add_post('/aiohttp/contact_support', SRV.contact_support_hndlr)
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
+    APP.router.add_post('/aiohttp/user_uploads', SRV.user_uploads_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)

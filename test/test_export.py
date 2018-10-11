@@ -32,7 +32,7 @@ def test_export_recent_uploads():
     
     rec_upl = load_json(WEB_ROOT + '/json/recent_uploads.json')
     assert rec_upl
-    assert rec_upl[0]['tstamp']
+    assert rec_upl[0]['uploadDate']
     assert rec_upl[0]['rda']
 
 def test_export_msc():

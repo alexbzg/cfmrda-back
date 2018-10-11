@@ -331,6 +331,27 @@ def test_ADIF_upload():
     check_hunter_data(CONF, TEST_HUNTER)
     check_hunter_data(CONF, 'ACTIVE1TEST', 'activator')
 
+def test_user_uploads(cfm_rda_server):
+    logging.debug('User uploads - regular user')
+    rsp = requests.post(API_URI + '/user_uploads',\
+        data=json.dumps({'token': user_data['token']}))
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)            
+    logging.debug(data)
+    assert data
+    assert len(data) == 3
+
+    logging.debug('User uploads - admin')
+    rsp = requests.post(API_URI + '/user_uploads',\
+        data=json.dumps({'token':\
+            cfm_rda_server.create_token({'callsign': 'TEST'})}))
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)            
+    logging.debug(data)
+    assert data
+    assert len(data) > 3
+
+
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
     assert rsp.status_code == 200
