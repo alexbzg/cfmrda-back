@@ -286,14 +286,17 @@ class CfmRdaServer():
         if isinstance(callsign, str):
             sql_tmplt = """
                 select json_agg(json_build_object('id', id, 
+                    'enabled', enabled,
                     'dateStart', to_char(date_start, 'DD mon YYYY'),
                     'dateEnd', to_char(date_end, 'DD mon YYYY'), 
-                    'tstamp', to_char(tstamp, 'DD mon YYYY'), 
+                    'uploadDate', to_char(tstamp, 'DD mon YYYY'), 
                     'uploader', user_cs,
-                    'rda', qsos->'rda', 'stations', qsos->'stations', 
-                    'qsoCount', qsos->'qsoCount', 'activators', activators)) as data
+                    'rda', qsos->'rda', 
+                    'stations', qsos->'stations', 
+                    'qsoCount', qsos->'qsoCount', 
+                    'activators', activators)) as data
                 from
-                    (select id, date_start, date_end, tstamp, user_cs,
+                    (select id, enabled, date_start, date_end, tstamp, user_cs,
                         (select json_build_object('rda', array_agg(distinct rda), 
                             'stations', array_agg(distinct station_callsign), 
                             'qsoCount', count(*)) 
