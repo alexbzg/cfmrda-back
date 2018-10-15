@@ -340,6 +340,7 @@ def test_user_uploads(cfm_rda_server):
     logging.debug(data)
     assert data
     assert len(data) == 3
+    user_data['uploads'] = data
 
     logging.debug('User uploads - admin')
     rsp = requests.post(API_URI + '/user_uploads',\
@@ -351,6 +352,51 @@ def test_user_uploads(cfm_rda_server):
     assert data
     assert len(data) > 3
 
+def test_manage_uploads(cfm_rda_server):
+    logging.debug('Delete file - user')
+    rsp = requests.post(API_URI + '/manage_uploads',\
+        data=json.dumps({\
+            'token': user_data['token'],\
+            'delete': 1,\
+            'skipRankings': 1,\
+            'id': user_data['uploads'][0]['id']}))
+    assert rsp.status_code == 200
+
+    logging.debug('Delete file - wrong user')
+    rsp = requests.post(API_URI + '/manage_uploads',\
+        data=json.dumps({\
+            'token': cfm_rda_server.create_token({'callsign': 'RD1A'}),\
+            'delete': 1,\
+            'skipRankings': 1,\
+            'id': user_data['uploads'][1]['id']}))
+    assert rsp.status_code == 400
+   
+    logging.debug('Delete file - admin')
+    rsp = requests.post(API_URI + '/manage_uploads',\
+        data=json.dumps({\
+            'token': cfm_rda_server.create_token({'callsign': 'TEST'}),\
+            'delete': 1,\
+            'skipRankings': 1,\
+            'id': user_data['uploads'][1]['id']}))
+    assert rsp.status_code == 200
+
+    logging.debug('Disable file - admin')
+    rsp = requests.post(API_URI + '/manage_uploads',\
+        data=json.dumps({\
+            'token': cfm_rda_server.create_token({'callsign': 'TEST'}),\
+            'enabled': False,\
+            'skipRankings': 1,\
+            'id': user_data['uploads'][1]['id']}))
+    assert rsp.status_code == 200
+
+    logging.debug('Delete file - admin')
+    rsp = requests.post(API_URI + '/manage_uploads',\
+        data=json.dumps({\
+            'token': cfm_rda_server.create_token({'callsign': 'TEST'}),\
+            'enabled': True,\
+            'skipRankings': 1,\
+            'id': user_data['uploads'][1]['id']}))
+    assert rsp.status_code == 200
 
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 

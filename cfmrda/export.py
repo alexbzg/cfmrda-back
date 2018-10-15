@@ -27,6 +27,12 @@ def export_rankings(conf):
     save_json(rankings, conf.get('web', 'root') + '/json/rankings.json')
 
 @asyncio.coroutine
+def export_all(conf):
+    yield from export_rankings(conf)
+    yield from export_recent_uploads(conf)
+    yield from export_msc(conf)
+
+@asyncio.coroutine
 def export_recent_uploads(conf):
     """export 20 recent uploaded file batches to json file for web"""
     logging.debug('export recent uploads')
@@ -92,7 +98,7 @@ def main():
     parser.add_argument('-u', action="store_true")
     parser.add_argument('-m', action="store_true")
     args = parser.parse_args()
-    export_all = not args.r and not args.u
+    export_all = not args.r and not args.u and not args.m
     if args.r or export_all:
         asyncio.get_event_loop().run_until_complete(export_rankings(conf))
         set_local_owner('/json/rankings.json')

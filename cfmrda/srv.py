@@ -20,7 +20,7 @@ import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
-from export import export_rankings, export_recent_uploads, export_msc
+from export import export_all
 
 start_logging('srv')
 logging.debug("restart")
@@ -218,9 +218,7 @@ class CfmRdaServer():
                             response['filesLoaded'] += 1
                     if response['filesLoaded'] and 'skipRankings' not in data:
                         logging.debug('running export_rankings')
-                        yield from export_rankings(self.conf)
-                        yield from export_recent_uploads(self.conf)
-                        yield from export_msc(self.conf)
+                        yield from export_all(self.conf)
                     logging.debug(response)
                     return web.json_response(response)
                 else:
@@ -278,6 +276,43 @@ class CfmRdaServer():
                 return callsign
         else:
             return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+
+    @asyncio.coroutine
+    def manage_uploads_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            if 'delete' in data:
+                if callsign not in self._site_admins:
+                    check_uploader = yield from self._db.execute("""
+                        select user_cs 
+                        from uploads 
+                        where id = %(id)s
+                        """, data, False)
+                    if check_uploader['user_cs'] != callsign:
+                        return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+                if not (yield from self._db.execute("""
+                    delete from qso where upload_id = %(id)s
+                    """, data)):
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+                if not (yield from self._db.execute("""
+                    delete from activators where upload_id = %(id)s
+                    """, data)):
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+                if not (yield from self._db.execute("""
+                    delete from uploads where id = %(id)s
+                    """, data)):
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+            elif 'enabled' in data:
+                if callsign not in self._site_admins:
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+                if not(yield from self._db.execute("""
+                    update uploads set enabled = %(enabled)s where id = %(id)s
+                    """, data)):
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+            if not 'skipRankings' in data:
+                yield from export_all(self.conf)
+            return web.Response(text='OK')
 
     @asyncio.coroutine
     def user_uploads_hndlr(self, request):
@@ -518,6 +553,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/contact_support', SRV.contact_support_hndlr)
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
     APP.router.add_post('/aiohttp/user_uploads', SRV.user_uploads_hndlr)
+    APP.router.add_post('/aiohttp/manage_uploads', SRV.manage_uploads_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
