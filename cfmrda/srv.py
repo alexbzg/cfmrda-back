@@ -20,7 +20,7 @@ import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
-from export import export_rankings, export_recent_uploads, export_msc
+from export import export_all
 
 start_logging('srv')
 logging.debug("restart")
@@ -36,8 +36,10 @@ class CfmRdaServer():
         self._qrzcom = QRZComLink(loop)
         asyncio.async(self._db.connect())
         self._secret = secret(self.conf.get('files', 'secret'))
+        self._site_admins = str(self.conf.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(\
             load_json(APP_ROOT + '/schemas.json'))
+
 
     def create_token(self, data):
         return jwt.encode(data, self._secret, algorithm='HS256').decode('utf-8')
@@ -216,9 +218,7 @@ class CfmRdaServer():
                             response['filesLoaded'] += 1
                     if response['filesLoaded'] and 'skipRankings' not in data:
                         logging.debug('running export_rankings')
-                        yield from export_rankings(self.conf)
-                        yield from export_recent_uploads(self.conf)
-                        yield from export_msc(self.conf)
+                        yield from export_all(self.conf)
                     logging.debug(response)
                     return web.json_response(response)
                 else:
@@ -276,6 +276,81 @@ class CfmRdaServer():
                 return callsign
         else:
             return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+
+    @asyncio.coroutine
+    def manage_uploads_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            if 'delete' in data:
+                if callsign not in self._site_admins:
+                    check_uploader = yield from self._db.execute("""
+                        select user_cs 
+                        from uploads 
+                        where id = %(id)s
+                        """, data, False)
+                    if check_uploader['user_cs'] != callsign:
+                        return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+                if not (yield from self._db.execute("""
+                    delete from qso where upload_id = %(id)s
+                    """, data)):
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+                if not (yield from self._db.execute("""
+                    delete from activators where upload_id = %(id)s
+                    """, data)):
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+                if not (yield from self._db.execute("""
+                    delete from uploads where id = %(id)s
+                    """, data)):
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+            elif 'enabled' in data:
+                if callsign not in self._site_admins:
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+                if not(yield from self._db.execute("""
+                    update uploads set enabled = %(enabled)s where id = %(id)s
+                    """, data)):
+                    return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+            if not 'skipRankings' in data:
+                yield from export_all(self.conf)
+            return web.Response(text='OK')
+
+    @asyncio.coroutine
+    def user_uploads_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            sql_tmplt = """
+                select json_agg(json_build_object('id', id, 
+                    'enabled', enabled,
+                    'dateStart', to_char(date_start, 'DD mon YYYY'),
+                    'dateEnd', to_char(date_end, 'DD mon YYYY'), 
+                    'uploadDate', to_char(tstamp, 'DD mon YYYY'), 
+                    'uploader', user_cs,
+                    'rda', qsos->'rda', 
+                    'stations', qsos->'stations', 
+                    'qsoCount', qsos->'qsoCount', 
+                    'activators', activators)) as data
+                from
+                    (select id, enabled, date_start, date_end, tstamp, user_cs,
+                        (select json_build_object('rda', array_agg(distinct rda), 
+                            'stations', array_agg(distinct station_callsign), 
+                            'qsoCount', count(*)) 
+                        from qso 
+                        where upload_id = uploads.id) as qsos,
+                        (select array_agg(activator) 
+                        from activators 
+                        where upload_id = uploads.id) as activators
+                    from uploads 
+                    {}
+                    order by tstamp desc) as data
+            """
+            sql = sql_tmplt.format('' if callsign in self._site_admins else\
+                'where user_cs = %(callsign)s')
+            uploads = yield from self._db.execute(sql, {'callsign': callsign},\
+                False)
+            return web.json_response(uploads['data'] if uploads else [])
+        else:
+            return callsign
 
     def send_email_cfm(self, callsign, email):
         token = self.create_token(\
@@ -351,6 +426,8 @@ class CfmRdaServer():
         user_data = yield from self.get_user_data(callsign)
         user_data['token'] = self.create_token({'callsign': callsign})
         del user_data['password']
+        if callsign in self._site_admins:
+            user_data['admin'] = True
         return web.json_response(user_data)
 
     @asyncio.coroutine
@@ -475,6 +552,8 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
     APP.router.add_post('/aiohttp/contact_support', SRV.contact_support_hndlr)
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
+    APP.router.add_post('/aiohttp/user_uploads', SRV.user_uploads_hndlr)
+    APP.router.add_post('/aiohttp/manage_uploads', SRV.manage_uploads_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
