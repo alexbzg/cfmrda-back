@@ -296,6 +296,57 @@ CREATE TABLE activators (
 ALTER TABLE activators OWNER TO postgres;
 
 --
+-- Name: cfm_request_blacklist; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE cfm_request_blacklist (
+    callsign character varying(32) NOT NULL
+);
+
+
+ALTER TABLE cfm_request_blacklist OWNER TO postgres;
+
+--
+-- Name: cfm_request_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE cfm_request_qso (
+    id integer NOT NULL,
+    correspondent_callsign character varying(32) NOT NULL,
+    callsign character varying(32) NOT NULL,
+    station_callsign character varying(32) NOT NULL,
+    rda character(5) NOT NULL,
+    band character varying(8) NOT NULL,
+    mode character varying(16) NOT NULL,
+    tstamp timestamp without time zone NOT NULL,
+    dt date DEFAULT date(now()) NOT NULL
+);
+
+
+ALTER TABLE cfm_request_qso OWNER TO postgres;
+
+--
+-- Name: cfm_request_qso_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE cfm_request_qso_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE cfm_request_qso_id_seq OWNER TO postgres;
+
+--
+-- Name: cfm_request_qso_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE cfm_request_qso_id_seq OWNED BY cfm_request_qso.id;
+
+
+--
 -- Name: qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -407,6 +458,13 @@ ALTER TABLE users OWNER TO postgres;
 -- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
+ALTER TABLE ONLY cfm_request_qso ALTER COLUMN id SET DEFAULT nextval('cfm_request_qso_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
 ALTER TABLE ONLY qso ALTER COLUMN id SET DEFAULT nextval('qso_id_seq'::regclass);
 
 
@@ -423,6 +481,22 @@ ALTER TABLE ONLY uploads ALTER COLUMN id SET DEFAULT nextval('uploads_id_seq'::r
 
 ALTER TABLE ONLY activators
     ADD CONSTRAINT activators_pkey PRIMARY KEY (upload_id, activator);
+
+
+--
+-- Name: cfm_request_blacklist_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY cfm_request_blacklist
+    ADD CONSTRAINT cfm_request_blacklist_pkey PRIMARY KEY (callsign);
+
+
+--
+-- Name: cfm_request_qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY cfm_request_qso
+    ADD CONSTRAINT cfm_request_qso_pkey PRIMARY KEY (id);
 
 
 --
@@ -515,20 +589,6 @@ CREATE INDEX qso_upload_id_mode_band_rda_dt_callsign_idx ON qso USING btree (upl
 
 
 --
--- Name: qso_upload_id_station_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_upload_id_station_callsign_idx ON qso USING btree (upload_id, station_callsign);
-
-
---
--- Name: qso_upload_id_station_callsign_idx1; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_upload_id_station_callsign_idx1 ON qso USING btree (upload_id, station_callsign);
-
-
---
 -- Name: qso_upload_id_station_callsign_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -554,6 +614,27 @@ CREATE INDEX rankings_top100 ON rankings USING btree (role, mode, band, callsign
 --
 
 CREATE INDEX uploads_id_enabled_idx ON uploads USING btree (id, enabled);
+
+
+--
+-- Name: uploads_id_user_cs_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX uploads_id_user_cs_idx ON uploads USING btree (id, user_cs);
+
+
+--
+-- Name: uploads_user_cs_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX uploads_user_cs_id_idx ON uploads USING btree (user_cs, id);
+
+
+--
+-- Name: uploads_user_cs_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX uploads_user_cs_idx ON uploads USING btree (user_cs);
 
 
 --
@@ -634,6 +715,36 @@ REVOKE ALL ON TABLE activators FROM PUBLIC;
 REVOKE ALL ON TABLE activators FROM postgres;
 GRANT ALL ON TABLE activators TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE activators TO "www-group";
+
+
+--
+-- Name: cfm_request_blacklist; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE cfm_request_blacklist FROM PUBLIC;
+REVOKE ALL ON TABLE cfm_request_blacklist FROM postgres;
+GRANT ALL ON TABLE cfm_request_blacklist TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_request_blacklist TO "www-group";
+
+
+--
+-- Name: cfm_request_qso; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE cfm_request_qso FROM PUBLIC;
+REVOKE ALL ON TABLE cfm_request_qso FROM postgres;
+GRANT ALL ON TABLE cfm_request_qso TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_request_qso TO "www-group";
+
+
+--
+-- Name: cfm_request_qso_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON SEQUENCE cfm_request_qso_id_seq FROM PUBLIC;
+REVOKE ALL ON SEQUENCE cfm_request_qso_id_seq FROM postgres;
+GRANT ALL ON SEQUENCE cfm_request_qso_id_seq TO postgres;
+GRANT ALL ON SEQUENCE cfm_request_qso_id_seq TO "www-group";
 
 
 --

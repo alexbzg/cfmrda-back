@@ -67,6 +67,41 @@ class CfmRdaServer():
         return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
 
     @asyncio.coroutine
+    def cfm_request_qso_hndlr(self, request):
+        data = yield from request.json()
+        error = None
+        if self._json_validator.validate('cfmRequestQso', data):
+            blacklist_check = yield from self._db.execute("""
+                select * from cfm_request_blacklist
+                where callsign = %(correspondent)s""", data, False)
+            if blacklist_check:
+                error = "Корреспондент запретил отправку сообщений с cfmrda.ru"
+            else:
+                qrz_data = self._qrzcom.get_data(data['correspondent'])
+                if qrz_data and 'email' in qrz_data and qrz_data['email']:
+                    for qso in data['qso']:
+                        qso.extend({k:data[k] for k in ('correspondent', 'email')})
+                    if not (yield from self._db.execute("""
+                        insert into cfm_request_qso 
+                        (correspondent, callsign, station_callsign, rda,
+                        band, mode, tstamp, email)
+                        values (%(correspondent)s, %(callsign)s, 
+                        %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
+                        %(tstamp)s, %(email)s)""",\
+                        data['qso'], False)):
+                        error = CfmRdaServer.DEF_ERROR_MSG
+                else:
+                    error =\
+                        'Позывной или адрес электронной почты корреспондента не зарегистрирован на QRZ.com'
+        else:
+            error = CfmRdaServer.DEF_ERROR_MSG
+        if error:
+            return web.HTTPBadRequest(text=error)
+        else:
+            return web.Response(text='OK')
+
+
+    @asyncio.coroutine
     def contact_support_hndlr(self, request):
         data = yield from request.json()
         if self._json_validator.validate('contactSupport', data):
@@ -310,7 +345,7 @@ class CfmRdaServer():
                     update uploads set enabled = %(enabled)s where id = %(id)s
                     """, data)):
                     return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
-            if not 'skipRankings' in data:
+            if 'skipRankings' not in data:
                 yield from export_all(self.conf)
             return web.Response(text='OK')
 
@@ -554,6 +589,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
     APP.router.add_post('/aiohttp/user_uploads', SRV.user_uploads_hndlr)
     APP.router.add_post('/aiohttp/manage_uploads', SRV.manage_uploads_hndlr)
+    APP.router.add_post('/aiohttp/cfm_request_qso', SRV.cfm_request_qso_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)

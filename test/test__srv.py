@@ -398,6 +398,9 @@ def test_manage_uploads(cfm_rda_server):
             'id': user_data['uploads'][1]['id']}))
     assert rsp.status_code == 200
 
+def test_cfm_request_qso():
+
+
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
     assert rsp.status_code == 200
