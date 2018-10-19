@@ -399,7 +399,23 @@ def test_manage_uploads(cfm_rda_server):
     assert rsp.status_code == 200
 
 def test_cfm_request_qso():
-
+    logging.debug('Cfm request qso')
+    rsp = requests.post(API_URI + '/cfm_request_qso',\
+        data=json.dumps({\
+            'email': '18@73.ru',
+            'correspondent': 'R7CL',\
+            'qso': [{\
+                'callsign': 'TE1ST',\
+                'stationCallsign': 'R7CL/M',\
+                'rda': 'HA-01',\
+                'band': '10', 
+                'mode': 'CW', 
+                'tstamp': '20180725 121749', 
+                'recRST': '-40', 
+                'sentRST': '+20'
+                }]
+            }))
+    assert rsp.status_code == 200
 
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 

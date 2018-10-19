@@ -312,14 +312,16 @@ ALTER TABLE cfm_request_blacklist OWNER TO postgres;
 
 CREATE TABLE cfm_request_qso (
     id integer NOT NULL,
-    correspondent_callsign character varying(32) NOT NULL,
+    correspondent character varying(32) NOT NULL,
     callsign character varying(32) NOT NULL,
     station_callsign character varying(32) NOT NULL,
     rda character(5) NOT NULL,
     band character varying(8) NOT NULL,
     mode character varying(16) NOT NULL,
     tstamp timestamp without time zone NOT NULL,
-    dt date DEFAULT date(now()) NOT NULL
+    hunter_email character varying(64),
+    rec_rst character varying(8) NOT NULL,
+    sent_rst character varying(8) NOT NULL
 );
 
 
@@ -551,6 +553,13 @@ CREATE INDEX activators_activator_idx ON activators USING btree (activator);
 --
 
 CREATE INDEX activators_activator_upload_id_idx ON activators USING btree (activator, upload_id);
+
+
+--
+-- Name: cfm_request_qso_correspondent_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX cfm_request_qso_correspondent_callsign_idx ON cfm_request_qso USING btree (correspondent);
 
 
 --

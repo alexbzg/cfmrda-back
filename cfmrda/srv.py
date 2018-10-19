@@ -80,14 +80,14 @@ class CfmRdaServer():
                 qrz_data = self._qrzcom.get_data(data['correspondent'])
                 if qrz_data and 'email' in qrz_data and qrz_data['email']:
                     for qso in data['qso']:
-                        qso.extend({k:data[k] for k in ('correspondent', 'email')})
+                        qso.update({k:data[k] for k in ('correspondent', 'email')})
                     if not (yield from self._db.execute("""
                         insert into cfm_request_qso 
                         (correspondent, callsign, station_callsign, rda,
-                        band, mode, tstamp, email)
+                        band, mode, tstamp, hunter_email, rec_rst, sent_rst)
                         values (%(correspondent)s, %(callsign)s, 
                         %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
-                        %(tstamp)s, %(email)s)""",\
+                        %(tstamp)s, %(email)s, %(recRST)s, %(sentRST)s)""",\
                         data['qso'], False)):
                         error = CfmRdaServer.DEF_ERROR_MSG
                 else:
