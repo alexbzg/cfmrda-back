@@ -321,7 +321,8 @@ CREATE TABLE cfm_request_qso (
     tstamp timestamp without time zone NOT NULL,
     hunter_email character varying(64),
     rec_rst character varying(8) NOT NULL,
-    sent_rst character varying(8) NOT NULL
+    sent_rst character varying(8) NOT NULL,
+    sent boolean DEFAULT false NOT NULL
 );
 
 
@@ -347,6 +348,18 @@ ALTER TABLE cfm_request_qso_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE cfm_request_qso_id_seq OWNED BY cfm_request_qso.id;
 
+
+--
+-- Name: cfm_requests; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE cfm_requests (
+    callsign character varying(32) NOT NULL,
+    tstamp timestamp without time zone
+);
+
+
+ALTER TABLE cfm_requests OWNER TO postgres;
 
 --
 -- Name: qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -510,6 +523,14 @@ ALTER TABLE ONLY qso
 
 
 --
+-- Name: qso_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY cfm_requests
+    ADD CONSTRAINT qso_requests_pkey PRIMARY KEY (callsign);
+
+
+--
 -- Name: rankings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -560,6 +581,13 @@ CREATE INDEX activators_activator_upload_id_idx ON activators USING btree (activ
 --
 
 CREATE INDEX cfm_request_qso_correspondent_callsign_idx ON cfm_request_qso USING btree (correspondent);
+
+
+--
+-- Name: cfm_request_qso_sent_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX cfm_request_qso_sent_idx ON cfm_request_qso USING btree (sent);
 
 
 --
@@ -754,6 +782,16 @@ REVOKE ALL ON SEQUENCE cfm_request_qso_id_seq FROM PUBLIC;
 REVOKE ALL ON SEQUENCE cfm_request_qso_id_seq FROM postgres;
 GRANT ALL ON SEQUENCE cfm_request_qso_id_seq TO postgres;
 GRANT ALL ON SEQUENCE cfm_request_qso_id_seq TO "www-group";
+
+
+--
+-- Name: cfm_requests; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE cfm_requests FROM PUBLIC;
+REVOKE ALL ON TABLE cfm_requests FROM postgres;
+GRANT ALL ON TABLE cfm_requests TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_requests TO "www-group";
 
 
 --

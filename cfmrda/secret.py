@@ -1,16 +1,22 @@
 #!/usr/bin/python3
 #coding=utf-8
 
-import os, base64
+import os
+import base64
+import jwt
 
-def secret( fp ):
-    secret = None
-    if ( os.path.isfile( fp ) ):
-        with open( fp, 'rb' ) as fSecret:
-            secret = fSecret.read()
-    if not secret:
-        secret = base64.b64encode( os.urandom( 64 ) )
-        with open( fp, 'wb' ) as fSecret:
-            fSecret.write( secret )
-    return secret
+def get_secret(fpath):
+    """read secret from filepath, in file not exists creates random and stores to filepath"""
+    res = None
+    if os.path.isfile(fpath):
+        with open(fpath, 'rb') as f_secret:
+            res = f_secret.read()
+    if not res:
+        res = base64.b64encode(os.urandom(64))
+        with open(fpath, 'wb') as f_secret:
+            f_secret.write(res)
+    return res
 
+def create_token(secret, data):
+    """creates web token"""
+    return jwt.encode(data, secret, algorithm='HS256').decode('utf-8')

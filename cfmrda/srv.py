@@ -15,7 +15,7 @@ import chardet
 from common import site_conf, start_logging, APP_ROOT
 from db import DBConn
 import send_email
-from secret import secret
+from secret import get_secret, create_token
 import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
@@ -35,14 +35,13 @@ class CfmRdaServer():
         self._db = DBConn(self.conf.items('db'))
         self._qrzcom = QRZComLink(loop)
         asyncio.async(self._db.connect())
-        self._secret = secret(self.conf.get('files', 'secret'))
+        self._secret = get_secret(self.conf.get('files', 'secret'))
         self._site_admins = str(self.conf.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(\
             load_json(APP_ROOT + '/schemas.json'))
 
-
     def create_token(self, data):
-        return jwt.encode(data, self._secret, algorithm='HS256').decode('utf-8')
+        return create_token(self._secret, data)
 
     @asyncio.coroutine
     def get_user_data(self, callsign):
