@@ -15,12 +15,15 @@ import requests
 
 import recaptcha
 import send_email
+import secret
 from common import site_conf
 from json_utils import load_json
 
 def setup_module():
     global CONF    
     CONF = site_conf()
+    global SECRET
+    SECRET = secret.get_secret(CONF.get('files', 'secret'))
     global WEB_ADDRESS
     WEB_ADDRESS = CONF.get('web', 'address')
     global API_URI
@@ -36,6 +39,9 @@ def setup_module():
     user_data = None
     global loop
     loop = asyncio.get_event_loop()
+
+def create_token(data):
+    return secret.create_token(SECRET, data)
 
 @pytest.fixture(autouse=True)
 def replace_recaptcha(monkeypatch):
@@ -345,7 +351,7 @@ def test_user_uploads(cfm_rda_server):
     logging.debug('User uploads - admin')
     rsp = requests.post(API_URI + '/user_uploads',\
         data=json.dumps({'token':\
-            cfm_rda_server.create_token({'callsign': 'TEST'})}))
+            cfm_rda_server.create_token({'callsign': 'TE1ST'})}))
     assert rsp.status_code == 200
     data = json.loads(rsp.text)            
     logging.debug(data)
@@ -374,7 +380,7 @@ def test_manage_uploads(cfm_rda_server):
     logging.debug('Delete file - admin')
     rsp = requests.post(API_URI + '/manage_uploads',\
         data=json.dumps({\
-            'token': cfm_rda_server.create_token({'callsign': 'TEST'}),\
+            'token': cfm_rda_server.create_token({'callsign': 'TE1ST'}),\
             'delete': 1,\
             'skipRankings': 1,\
             'id': user_data['uploads'][1]['id']}))
@@ -383,7 +389,7 @@ def test_manage_uploads(cfm_rda_server):
     logging.debug('Disable file - admin')
     rsp = requests.post(API_URI + '/manage_uploads',\
         data=json.dumps({\
-            'token': cfm_rda_server.create_token({'callsign': 'TEST'}),\
+            'token': cfm_rda_server.create_token({'callsign': 'TE1ST'}),\
             'enabled': False,\
             'skipRankings': 1,\
             'id': user_data['uploads'][1]['id']}))
@@ -392,7 +398,7 @@ def test_manage_uploads(cfm_rda_server):
     logging.debug('Delete file - admin')
     rsp = requests.post(API_URI + '/manage_uploads',\
         data=json.dumps({\
-            'token': cfm_rda_server.create_token({'callsign': 'TEST'}),\
+            'token': cfm_rda_server.create_token({'callsign': 'TE1ST'}),\
             'enabled': True,\
             'skipRankings': 1,\
             'id': user_data['uploads'][1]['id']}))
@@ -401,20 +407,21 @@ def test_manage_uploads(cfm_rda_server):
 def test_cfm_request_qso():
     logging.debug('Cfm request qso')
     rsp = requests.post(API_URI + '/cfm_request_qso',\
-        data=json.dumps({\
-            'email': '18@73.ru',
-            'correspondent': 'R7CL',\
+        data=json.dumps({
+            'token': create_token({'callsign': 'TE1ST'}),
             'qso': [{\
                 'callsign': 'TE1ST',\
                 'stationCallsign': 'R7CL/M',\
                 'rda': 'HA-01',\
                 'band': '10', 
                 'mode': 'CW', 
-                'tstamp': '20180725 121749', 
+                'date': '20180725',
+                'time': '1217', 
                 'recRST': '-40', 
                 'sentRST': '+20'
                 }]
-            }))
+            }))    
+    logging.debug(rsp.text)
     assert rsp.status_code == 200
 
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):

@@ -69,36 +69,60 @@ class CfmRdaServer():
     def cfm_request_qso_hndlr(self, request):
         data = yield from request.json()
         error = None
+        response = {}
         if self._json_validator.validate('cfmRequestQso', data):
-            blacklist_check = yield from self._db.execute("""
-                select * from cfm_request_blacklist
-                where callsign = %(correspondent)s""", data, False)
-            if blacklist_check:
-                error = "Корреспондент запретил отправку сообщений с cfmrda.ru"
-            else:
-                qrz_data = self._qrzcom.get_data(data['correspondent'])
-                if qrz_data and 'email' in qrz_data and qrz_data['email']:
-                    for qso in data['qso']:
-                        qso.update({k:data[k] for k in ('correspondent', 'email')})
-                    if not (yield from self._db.execute("""
-                        insert into cfm_request_qso 
-                        (correspondent, callsign, station_callsign, rda,
-                        band, mode, tstamp, hunter_email, rec_rst, sent_rst)
-                        values (%(correspondent)s, %(callsign)s, 
-                        %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
-                        %(tstamp)s, %(email)s, %(recRST)s, %(sentRST)s)""",\
-                        data['qso'], False)):
-                        error = CfmRdaServer.DEF_ERROR_MSG
+            email = None
+            if 'token' in data:
+                callsign = self.decode_token(data)
+                if isinstance(callsign, str):
+                    user_data = yield from self.get_user_data(callsign)
+                    email = user_data['email']
                 else:
-                    error =\
-                        'Позывной или адрес электронной почты корреспондента не зарегистрирован на QRZ.com'
+                    return callsign
+            else:
+                rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+                if rc_test:
+                    email = data['email']
+                else:
+                    error = CfmRdaServer.RECAPTCHA_ERROR_MSG
+            if email:
+                for qso in data['qso']:
+                    qso['correspondent'] = strip_callsign(qso['stationCallsign'])
+                    if qso['correspondent'] in response and\
+                        response[qso['correspondent']] != 'OK':
+                        continue
+                    blacklist_check = yield from self._db.execute("""
+                        select * from cfm_request_blacklist
+                        where callsign = %(correspondent)s""", qso, False)
+                    if blacklist_check:
+                        response[qso['correspondent']] =\
+                            "Корреспондент запретил отправку сообщений с cfmrda.ru"
+                        continue
+                    qrz_data = self._qrzcom.get_data(qso['correspondent'])
+                    if qrz_data and 'email' in qrz_data and qrz_data['email']:
+                        qso['email'] = email
+                        qso['tstamp'] = qso['date'] + ' ' + qso['time']
+                        if (yield from self._db.execute("""
+                            insert into cfm_request_qso 
+                            (correspondent, callsign, station_callsign, rda,
+                            band, mode, tstamp, hunter_email, rec_rst, sent_rst)
+                            values (%(correspondent)s, %(callsign)s, 
+                            %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
+                            %(tstamp)s, %(email)s, %(recRST)s, %(sentRST)s)""",\
+                            qso, False)):
+                            response[qso['correspondent']] = 'OK'
+                        else:
+                            error = CfmRdaServer.DEF_ERROR_MSG
+                            break
+                    else:
+                        response[qso['correspondent']] =\
+                            'Позывной или адрес электронной почты корреспондента не зарегистрирован на QRZ.com'
         else:
             error = CfmRdaServer.DEF_ERROR_MSG
         if error:
             return web.HTTPBadRequest(text=error)
         else:
-            return web.Response(text='OK')
-
+            return web.json_response(response)
 
     @asyncio.coroutine
     def contact_support_hndlr(self, request):
