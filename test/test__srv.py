@@ -424,6 +424,47 @@ def test_cfm_request_qso():
     logging.debug(rsp.text)
     assert rsp.status_code == 200
 
+    logging.debug('Cfm request qso - blisted correspondent')
+    rsp = requests.post(API_URI + '/cfm_request_qso',\
+        data=json.dumps({
+            'token': create_token({'callsign': 'TE1ST'}),
+            'qso': [{\
+                'callsign': 'TE1ST',\
+                'stationCallsign': 'BL1ST/M',\
+                'rda': 'HA-01',\
+                'band': '10', 
+                'mode': 'CW', 
+                'date': '20180725',
+                'time': '1217', 
+                'recRST': '-40', 
+                'sentRST': '+20'
+                }]
+            }))    
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+
+    logging.debug('Cfm request qso - bad recaptcha')
+    rsp = requests.post(API_URI + '/cfm_request_qso',\
+        data=json.dumps({
+            'email': '18@63.ru',
+            'recaptcha': 'd,gafbdsjagf,la',
+            'qso': [{\
+                'callsign': 'TE1ST',\
+                'stationCallsign': 'BL1ST/M',\
+                'rda': 'HA-01',\
+                'band': '10', 
+                'mode': 'CW', 
+                'date': '20180725',
+                'time': '1217', 
+                'recRST': '-40', 
+                'sentRST': '+20'
+                }]
+            }))    
+    logging.debug(rsp.text)
+    assert rsp.status_code == 400
+   
+   
+
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
     assert rsp.status_code == 200

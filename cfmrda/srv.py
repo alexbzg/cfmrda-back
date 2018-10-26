@@ -66,6 +66,24 @@ class CfmRdaServer():
         return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
 
     @asyncio.coroutine
+    def correspondent_email_hndlr(self, request):
+        callsign = request.match_info.get('callsign', None)
+        response = {'email': None, 'reason': None}
+        blacklist_check = yield from self._db.execute("""
+            select * from cfm_request_blacklist
+            where callsign = %(callsign)s""",\
+            {'callsign': callsign}, False)
+        if blacklist_check:
+            response['reason'] = 'blacklist'
+        else:
+            qrz_data = self._qrzcom.get_data(callsign)
+            if qrz_data and 'email' in qrz_data and qrz_data['email']:
+                response['email'] = qrz_data['email']
+            else:
+                response['reason'] = 'not found'
+        return web.json_response(response)
+
+    @asyncio.coroutine
     def cfm_request_qso_hndlr(self, request):
         data = yield from request.json()
         error = None
@@ -101,7 +119,8 @@ class CfmRdaServer():
                     qrz_data = self._qrzcom.get_data(qso['correspondent'])
                     if qrz_data and 'email' in qrz_data and qrz_data['email']:
                         qso['email'] = email
-                        qso['tstamp'] = qso['date'] + ' ' + qso['time']
+                        qso['tstamp'] = (qso['date'].split('T'))[0] + ' ' +\
+                            qso['time']
                         if (yield from self._db.execute("""
                             insert into cfm_request_qso 
                             (correspondent, callsign, station_callsign, rda,
@@ -615,5 +634,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/cfm_request_qso', SRV.cfm_request_qso_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
+    APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
+            SRV.correspondent_email_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))
