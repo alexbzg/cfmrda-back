@@ -322,7 +322,8 @@ CREATE TABLE cfm_request_qso (
     hunter_email character varying(64),
     rec_rst character varying(8) NOT NULL,
     sent_rst character varying(8) NOT NULL,
-    sent boolean DEFAULT false NOT NULL
+    sent boolean DEFAULT false NOT NULL,
+    correspondent_email character varying(64) NOT NULL
 );
 
 
