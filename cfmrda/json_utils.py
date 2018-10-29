@@ -45,7 +45,8 @@ class JSONvalidator:
         try:
             jsonschema.validate(data, self._schemas[schema])
             return True
-        except jsonschema.exceptions.ValidationError:
+        except jsonschema.exceptions.ValidationError as exc:
             logging.error('Error validating json data. Schema: ' + schema)
             logging.error(data)
+            logging.error(exc.message)
             return False
