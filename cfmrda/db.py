@@ -22,7 +22,10 @@ def to_dict(cur, keys=None):
                 return {row[id_idx]: dict(zip(columns_names, row)) \
                         for row in data}
             else:
-                return [dict(zip(columns_names, row)) for
+                if len(columns_names) == 1:
+                    return [row[0] for row in data]
+                else:
+                    return [dict(zip(columns_names, row)) for\
                         row in data]
     else:
         return False

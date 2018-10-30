@@ -9,6 +9,14 @@ from db import DBConn
 from secret import get_secret, create_token
 from send_email import send_email
 
+def format_qsos(qsos):
+    """format qso data fro email"""
+    qso_tmplt = "{callsign}\t{stationCallsign}\t{tstamp}z\t{band}MHz\t{mode}\t{rcvRST}/{sntRST}\n"
+    qso_txt = ""
+    for qso in qsos:
+        qso_txt += qso_tmplt.format_map(qso)
+    return qso_txt
+
 @asyncio.coroutine
 def main():
     """sends cfm requests"""
@@ -28,12 +36,7 @@ def main():
         from
             (select * 
             from cfm_request_qso 
-            where not sent and not exists 
-                (select callsign 
-                from cfm_requests 
-                where callsign = correspondent 
-                    and tstamp > now() - interval '1 week')
-            ) as data
+            where not sent) as data
         group by correspondent, correspondent_email""", None, True)
     if not data:
         return
@@ -42,10 +45,7 @@ def main():
         link_cfm = conf.get('web', 'address') + '/#/cfm_qso/?token=' + token
         link_blacklist = conf.get('web', 'address') +\
             '/#/cfm_request_blacklist/?token=' + token
-        qso_tmplt = "{callsign}\t{stationCallsign}\t{tstamp}z\t{band}MHz\t{mode}\t{rcvRST}/{sntRST}\n"
-        qso_txt = ""
-        for qso in row['qso']:
-            qso_txt += qso_tmplt.format_map(qso)
+        qso_txt = format_qsos(row['qso'])
         text = ("""
 Здравствуйте, {correspondent}.
 

@@ -21,6 +21,8 @@ from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
 from export import export_all
+from send_cfm_requests import format_qsos
+
 
 start_logging('srv')
 logging.debug("restart")
@@ -374,6 +376,70 @@ class CfmRdaServer():
             return web.Response(text='OK')
 
     @asyncio.coroutine
+    def cfm_qso_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            if 'qso' in data:
+                if 'cfm' in data['qso'] and data['qso']['cfm']:
+                    logging.debug(data)
+                    logging.debug(bytes(data['qso']['cfm']))
+                    upl_hash = hashlib.md5(bytes(data['qso']['cfm'])).hexdigest()
+                    date_start = yield from self._db.execute("""
+                        select min(tstamp)
+                        from cfm_request_qso
+                        where id in %(ids)s
+                        """, {'ids': data['qso']['cfm']}, False)
+                    date_end = yield from self._db.execute("""
+                        select min(tstamp)
+                        from cfm_request_qso
+                        where id in %(ids)s
+                        """, {'ids': data['qso']['cfm']}, False)
+                    file_id = yield from self._db.execute("""
+                        insert into uploads
+                            (user_cs, date_start, date_end, hash)
+                        values (%(callsign)s, 
+                            %(date_start)s, %(date_end)s, %(hash)s)
+                        returning id""",\
+                        {'user_cs': callsign,\
+                        'date_start': date_start,\
+                        'date_end': date_end,\
+                        'hash': upl_hash}, False)
+                    if file_id:
+                        if (yield from self._db.execute("""
+                            insert into qso (upload_id, callsign, station_callsign,
+                                rda, band, mode, tstamp, dt)
+                            select %(file_id)s, callsign, station_callsign, rda,
+                                band, mode, tstamp 
+                            from cfm_request_qso
+                            where id in %(ids)s""",\
+                            {'file_id': file_id, 'ids': data['qso']['cfm']})):
+                            return web.Response(text='OK')
+                        else:
+                            return web.HTTPBadRequest(\
+                                text=CfmRdaServer.DEF_ERROR_MSG)
+                    else:
+                        return web.HTTPBadRequest(\
+                            text=CfmRdaServer.DEF_ERROR_MSG)
+            else:
+                qso = yield from self._db.execute("""
+                    select json_build_object(
+                    'id', id,
+                    'callsign', callsign, 
+                    'stationCallsign', station_callsign, 'rda', rda, 
+                    'band', band, 'mode', mode, 
+                    'date', to_char(tstamp, 'DD Month YYYY'),
+                    'time', to_char(tstamp, 'HH24:MI'),
+                    'rcvRST', rec_rst, 'sntRST', sent_rst)
+                        from cfm_request_qso
+                        where correspondent = %(callsign)s
+                    """, {'callsign': callsign}, False)
+            return web.json_response(qso)
+        else:
+            return callsign
+
+
+    @asyncio.coroutine
     def user_uploads_hndlr(self, request):
         data = yield from request.json()
         callsign = self.decode_token(data)
@@ -614,6 +680,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/user_uploads', SRV.user_uploads_hndlr)
     APP.router.add_post('/aiohttp/manage_uploads', SRV.manage_uploads_hndlr)
     APP.router.add_post('/aiohttp/cfm_request_qso', SRV.cfm_request_qso_hndlr)
+    APP.router.add_post('/aiohttp/cfm_qso', SRV.cfm_qso_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\

@@ -447,7 +447,26 @@ def test_cfm_request_qso():
             }))    
     logging.debug(rsp.text)
     assert rsp.status_code == 400
-   
+
+def test_cfm_qso():
+    logging.debug('Cfm qso list')
+    rsp = requests.post(API_URI + '/cfm_qso',\
+        data=json.dumps({
+            'token': create_token({'callsign': 'R7CL'})
+                }))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)
+
+    logging.debug('Cfm qso changes')
+    rsp = requests.post(API_URI + '/cfm_qso',\
+        data=json.dumps({
+            'token': create_token({'callsign': 'R7CL'}),
+            'qso': {'cfm':[data[0]['id']]}
+                }))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+  
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
     assert rsp.status_code == 200
