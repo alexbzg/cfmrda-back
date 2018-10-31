@@ -11,6 +11,7 @@ from datetime import datetime, date
 import jsonschema
 
 def json_encode_extra(obj):
+    """encoder for json.dump(s) with extra types support"""
     if isinstance(obj, decimal.Decimal):
         return float(obj)
     elif isinstance(obj, datetime):

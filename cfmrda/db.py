@@ -14,7 +14,10 @@ def to_dict(cur, keys=None):
         columns_names = [col.name for col in cur.description]
         if cur.rowcount == 1 and not keys:
             data = yield from cur.fetchone()
-            return dict(zip(columns_names, data))
+            if len(columns_names) == 1:
+                return data[0]
+            else:
+                return dict(zip(columns_names, data))
         else:
             data = yield from cur.fetchall()
             if ('id' in columns_names) and keys:
@@ -29,6 +32,12 @@ def to_dict(cur, keys=None):
                         row in data]
     else:
         return False
+
+def typed_values_list(_list, _type=None):
+    """convert list to values string, skips values not of specified type if
+    type is specified"""
+    return '(' + ', '.join((str(x) for x in _list\
+        if not _type or isinstance(x, _type))) + ')'
 
 def params_str(params, str_delim):
     return str_delim.join([x + " = %(" + x + ")s" for x in params.keys()])

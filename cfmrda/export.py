@@ -21,9 +21,9 @@ def export_rankings(conf):
 
     yield from _db.execute("select from build_rankings()")
 
-    rankings = (yield from _db.execute("""
+    rankings = yield from _db.execute("""
                 select rankings_json('_rank < 101') as data
-                """, None, False))['data']
+                """, None, False)
     save_json(rankings, conf.get('web', 'root') + '/json/rankings.json')
 
 @asyncio.coroutine
@@ -40,7 +40,7 @@ def export_recent_uploads(conf):
     _db = DBConn(conf.items('db'))
     yield from _db.connect()
 
-    data = (yield from _db.execute("""
+    data = yield from _db.execute("""
         select json_agg(json_build_object('activators', activators,
             'rda', rda,
             'uploadDate', to_char(tstamp, 'DD mon YYYY'),
@@ -62,7 +62,7 @@ def export_recent_uploads(conf):
             group by user_cs, date(tstamp)
             order by max(tstamp) desc
             limit 20) as data
-        """, None, False))['data']
+        """, None, False)
     save_json(data, conf.get('web', 'root') + '/json/recent_uploads.json')
 
 @asyncio.coroutine
@@ -78,7 +78,7 @@ def export_msc(conf):
         select n_live_tup AS qso_count
         from pg_stat_user_tables 
         where relname = 'qso' and schemaname = 'public';    
-    """, None, False))['qso_count']
+    """, None, False))
     save_json(data, conf.get('web', 'root') + '/json/msc.json')
 
 def main():

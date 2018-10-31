@@ -260,6 +260,34 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
 ALTER FUNCTION public.tf_activators_bi() OWNER TO postgres;
 
 --
+-- Name: tf_cfm_request_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$begin
+  if exists (select 1 from qso, uploads 
+	where upload_id = uploads.id and enabled
+	and callsign = new.callsign and rda = new.rda
+	and station_callsign = new.station_callsign
+	and band = new.band and mode = new.mode 
+	and tstamp = new.tstamp) then
+    return null;
+   end if;
+  if exists (select 1 from cfm_request_qso
+	where callsign = new.callsign and rda = new.rda
+	and station_callsign = new.station_callsign
+	and band = new.band and mode = new.mode 
+	and tstamp = new.tstamp) then
+    return null;
+   end if;   
+   return new;
+ end$$;
+
+
+ALTER FUNCTION public.tf_cfm_request_qso_bi() OWNER TO postgres;
+
+--
 -- Name: tf_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
