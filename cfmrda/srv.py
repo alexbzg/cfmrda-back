@@ -395,9 +395,11 @@ class CfmRdaServer():
                         where id in """ + ids, None, False)
                     file_id = yield from self._db.execute("""
                         insert into uploads
-                            (user_cs, date_start, date_end, hash)
+                            (user_cs, date_start, date_end, hash,
+                            upload_type)
                         values (%(callsign)s, 
-                            %(date_start)s, %(date_end)s, %(hash)s)
+                            %(date_start)s, %(date_end)s, %(hash)s,
+                            'email CFM')
                         returning id""",\
                         {'callsign': callsign,\
                         'date_start': date_start,\
