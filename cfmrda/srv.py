@@ -187,28 +187,14 @@ class CfmRdaServer():
                 rda_field=rda_field)
             logging.debug(adif_data)
 
-            upl_id = yield from self._db.execute("""
-                insert into uploads
-                    (user_cs, date_start, date_end, hash)
-                values (%(callsign)s, 
-                    %(date_start)s, %(date_end)s, %(hash)s)
-                returning id""",\
-                {'callsign': callsign,\
-                'date_start': adif_data['date_start'],\
-                'date_end': adif_data['date_end'],\
-                'hash': adif_hash})
+            upl_id = yield from self._db.insert_upload(\
+                callsign=callsign,\
+                date_start=adif_data['date_start'],\
+                date_end=adif_data['date_end'],\
+                file_hash=adif_hash,\
+                activators=activators +\
+                    ([adif_data['activator']] if adif_data['activator'] else []))
             if not upl_id:
-                raise Exception()
-
-            act_sql = """insert into activators
-                values (%(upload_id)s, %(activator)s)"""
-            act_params = [{'upload_id': upl_id,\
-                'activator': act} for act in activators]
-            if adif_data['activator']:
-                act_params.append({'upload_id': upl_id,\
-                    'activator': adif_data['activator']})
-            res = yield from self._db.execute(act_sql, act_params)
-            if not res:
                 raise Exception()
 
             qso_sql = """insert into qso
@@ -393,18 +379,13 @@ class CfmRdaServer():
                         select max(tstamp)
                         from cfm_request_qso
                         where id in """ + ids, None, False)
-                    file_id = yield from self._db.execute("""
-                        insert into uploads
-                            (user_cs, date_start, date_end, hash,
-                            upload_type)
-                        values (%(callsign)s, 
-                            %(date_start)s, %(date_end)s, %(hash)s,
-                            'email CFM')
-                        returning id""",\
-                        {'callsign': callsign,\
-                        'date_start': date_start,\
-                        'date_end': date_end,\
-                        'hash': upl_hash}, False)
+                    file_id = yield from self._db.insert_upload(\
+                        callsign=callsign,\
+                        date_start=date_start,\
+                        date_end=date_end,\
+                        file_hash=upl_hash,\
+                        upload_type='email CFM',\
+                        activators=[callsign])
                     if file_id:
                         if not (yield from self._db.execute("""
                             insert into qso (upload_id, callsign, station_callsign,
@@ -434,8 +415,10 @@ class CfmRdaServer():
                 group by hunter_email"""
                 qsos = {}
                 for _type in data['qso']:
-                    qsos_type = yield from self._db.execute(qso_sql.format(\
-                        ids=typed_values_list(data['qso'][_type], int)), None, True)
+                    if data['qso'][_type]:
+                        qsos_type = yield from self._db.execute(qso_sql.format(\
+                            ids=typed_values_list(data['qso'][_type], int)),\
+                            None, True)
                     for row in qsos_type:
                         if row['email'] not in qsos:
                             qsos[row['email']] = {}
@@ -476,7 +459,7 @@ class CfmRdaServer():
                     'rcvRST', rec_rst, 'sntRST', sent_rst)
                         from cfm_request_qso
                         where correspondent = %(callsign)s
-                    """, {'callsign': callsign}, False)
+                    """, {'callsign': callsign}, True)
             return web.json_response(qso)
         else:
             return callsign
@@ -494,12 +477,14 @@ class CfmRdaServer():
                     'dateEnd', to_char(date_end, 'DD mon YYYY'), 
                     'uploadDate', to_char(tstamp, 'DD mon YYYY'), 
                     'uploader', user_cs,
+                    'uploadType', upload_type,
                     'rda', qsos->'rda', 
                     'stations', qsos->'stations', 
                     'qsoCount', qsos->'qsoCount', 
                     'activators', activators)) as data
                 from
                     (select id, enabled, date_start, date_end, tstamp, user_cs,
+                        upload_type,
                         (select json_build_object('rda', array_agg(distinct rda), 
                             'stations', array_agg(distinct station_callsign), 
                             'qsoCount', count(*)) 
@@ -625,6 +610,7 @@ class CfmRdaServer():
                                 'time', to_char(qso.tstamp, 'HH24:MI'),
                                 'stationCallsign', station_callsign,
                                 'uploadId', uploads.id,
+                                'uploadType', upload_type,
                                 'uploader', uploads.user_cs)) as data
                         from qso, uploads
                         where callsign = %(callsign)s and enabled 
@@ -636,19 +622,18 @@ class CfmRdaServer():
                                 'band', band,
                                 'date', to_char(dt, 'DD Month YYYY'),
                                 'uploadId', upload_id,
-                                'uploader', uploader, 'count', count)) as data
+                                'uploadType', upload_type,
+                                'uploader', user_cs, 'count', count)) as data
                         from
                             (select mode, band, qso.rda, dt, 
                                 count(distinct callsign), 
-                                qso.upload_id,
-                                (select user_cs 
-                                from uploads 
-                                where id = qso.upload_id) as uploader
+                                qso.upload_id, user_cs, upload_type
                             from qso, uploads, activators
                             where uploads.id = qso.upload_id and enabled
                                 and activators.upload_id = qso.upload_id 
                                 and activator = %(callsign)s
-                            group by qso.upload_id, mode, band, qso.rda, dt) as l_0
+                            group by qso.upload_id, user_cs, upload_type, 
+                                mode, band, qso.rda, dt) as l_0
                         group by rda) as l_1
                     group by rda) as l_2
             """, {'callsign': callsign}, False)
@@ -679,7 +664,7 @@ class CfmRdaServer():
                     from qso 
                     where upload_id = %(upload_id)s
                     order by tstamp) as l_0
-            """, {'upload_id': upload_id}, False))['data']
+            """, {'upload_id': upload_id}, False))
             if qso:
                 return web.json_response(qso)
             else:

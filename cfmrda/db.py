@@ -155,3 +155,32 @@ class DBConn:
             res = yield from self.execute(sql, params)
         return res
 
+    @asyncio.coroutine
+    def insert_upload(self, callsign=None, date_start=None, date_end=None,\
+        file_hash=None, upload_type='adif', activators=None):
+        upl_id = yield from self.execute("""
+            insert into uploads
+                (user_cs, date_start, date_end, hash,
+                upload_type)
+            values (%(callsign)s, 
+                %(date_start)s, %(date_end)s, %(hash)s,
+                %(upload_type)s)
+            returning id""",\
+            {'callsign': callsign,\
+            'date_start': date_start,\
+            'date_end': date_end,\
+            'hash': file_hash,\
+            'upload_type': upload_type})
+        if not upl_id:
+            raise Exception()
+
+        act_sql = """insert into activators
+            values (%(upload_id)s, %(activator)s)"""
+        act_params = [{'upload_id': upl_id,\
+            'activator': act} for act in activators]
+        res = yield from self.execute(act_sql, act_params)
+        if not res:
+            raise Exception()
+        return upl_id
+
+

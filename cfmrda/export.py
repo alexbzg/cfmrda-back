@@ -45,9 +45,11 @@ def export_recent_uploads(conf):
             'rda', rda,
             'uploadDate', to_char(tstamp, 'DD mon YYYY'),
             'uploadTime', to_char(tstamp, 'HH24:MI'),
+            'uploadType', upload_type,
             'uploader', uploader)) as data
         from
-            (select json_agg(distinct activators) as activators, user_cs as uploader,
+            (select json_agg(distinct activators) as activators, 
+                user_cs as uploader, upload_type,
                 json_agg(json_build_object('rda', rdas, 'id', id)) as rda,
                 max(tstamp) as tstamp,
                 min(date_start) as date_start, max(date_end) as date_end
@@ -59,7 +61,7 @@ def export_recent_uploads(conf):
                     from qso
                     group by upload_id) as act_l_0) as activators
             where uploads.id = activators.upload_id
-            group by user_cs, date(tstamp)
+            group by user_cs, date(tstamp), upload_type
             order by max(tstamp) desc
             limit 20) as data
         """, None, False)
