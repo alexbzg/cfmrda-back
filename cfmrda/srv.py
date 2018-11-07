@@ -361,6 +361,21 @@ class CfmRdaServer():
             return web.Response(text='OK')
 
     @asyncio.coroutine
+    def cfm_blacklist_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            if (yield from self._db.execute("""
+                insert into cfm_request_blacklist
+                values (%(callsign)s)""",\
+                {'callsign': callsign}, False)):
+                return web.Response(text='OK')
+            else:
+                return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+        else:
+            return callsign
+
+    @asyncio.coroutine
     def cfm_qso_hndlr(self, request):
         data = yield from request.json()
         callsign = self.decode_token(data)
@@ -419,10 +434,10 @@ class CfmRdaServer():
                         qsos_type = yield from self._db.execute(qso_sql.format(\
                             ids=typed_values_list(data['qso'][_type], int)),\
                             None, True)
-                    for row in qsos_type:
-                        if row['email'] not in qsos:
-                            qsos[row['email']] = {}
-                        qsos[row['email']][_type] = row['qsos']
+                        for row in qsos_type:
+                            if row['email'] not in qsos:
+                                qsos[row['email']] = {}
+                            qsos[row['email']][_type] = row['qsos']
                 for email in qsos:
                     text = """Здравствуйте.
 
@@ -710,6 +725,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/manage_uploads', SRV.manage_uploads_hndlr)
     APP.router.add_post('/aiohttp/cfm_request_qso', SRV.cfm_request_qso_hndlr)
     APP.router.add_post('/aiohttp/cfm_qso', SRV.cfm_qso_hndlr)
+    APP.router.add_post('/aiohttp/cfm_blacklist', SRV.cfm_blacklist_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
