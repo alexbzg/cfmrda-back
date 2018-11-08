@@ -13,14 +13,16 @@ import jwt
 import chardet
 
 from common import site_conf, start_logging, APP_ROOT
-from db import DBConn
+from db import DBConn, typed_values_list
 import send_email
-from secret import secret
+from secret import get_secret, create_token
 import recaptcha
 from json_utils import load_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
 from export import export_all
+from send_cfm_requests import format_qsos
+
 
 start_logging('srv')
 logging.debug("restart")
@@ -35,14 +37,13 @@ class CfmRdaServer():
         self._db = DBConn(self.conf.items('db'))
         self._qrzcom = QRZComLink(loop)
         asyncio.async(self._db.connect())
-        self._secret = secret(self.conf.get('files', 'secret'))
+        self._secret = get_secret(self.conf.get('files', 'secret'))
         self._site_admins = str(self.conf.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(\
             load_json(APP_ROOT + '/schemas.json'))
 
-
     def create_token(self, data):
-        return jwt.encode(data, self._secret, algorithm='HS256').decode('utf-8')
+        return create_token(self._secret, data)
 
     @asyncio.coroutine
     def get_user_data(self, callsign):
@@ -65,6 +66,66 @@ class CfmRdaServer():
                 return (yield from self.email_request(data))
         logging.debug(data)
         return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+
+    @asyncio.coroutine
+    def correspondent_email_hndlr(self, request):
+        callsign = request.match_info.get('callsign', None)
+        response = {'email': None, 'reason': None}
+        blacklist_check = yield from self._db.execute("""
+            select * from cfm_request_blacklist
+            where callsign = %(callsign)s""",\
+            {'callsign': callsign}, False)
+        if blacklist_check:
+            response['reason'] = 'blacklist'
+        else:
+            qrz_data = self._qrzcom.get_data(callsign)
+            if qrz_data and 'email' in qrz_data and qrz_data['email']:
+                response['email'] = qrz_data['email']
+            else:
+                response['reason'] = 'not found'
+        return web.json_response(response)
+
+    @asyncio.coroutine
+    def cfm_request_qso_hndlr(self, request):
+        data = yield from request.json()
+        error = None
+        if self._json_validator.validate('cfmRequestQso', data):
+            email = None
+            if 'token' in data:
+                callsign = self.decode_token(data)
+                if isinstance(callsign, str):
+                    user_data = yield from self.get_user_data(callsign)
+                    email = user_data['email']
+                else:
+                    return callsign
+            else:
+                rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+                if rc_test:
+                    email = data['email']
+                else:
+                    error = CfmRdaServer.RECAPTCHA_ERROR_MSG
+            if email:
+                for qso in data['qso']:
+                    qso['hunterEmail'] = email
+                    qso['tstamp'] = (qso['date'].split('T'))[0] + ' ' +\
+                        qso['time']
+                if not (yield from self._db.execute("""
+                    insert into cfm_request_qso 
+                    (correspondent, callsign, station_callsign, rda,
+                    band, mode, tstamp, hunter_email, 
+                    correspondent_email, rec_rst, sent_rst)
+                    values (%(correspondent)s, %(callsign)s, 
+                    %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
+                    %(tstamp)s, %(hunterEmail)s, %(email)s,
+                    %(recRST)s, %(sentRST)s)""",\
+                    data['qso'], False)):
+                    error = CfmRdaServer.DEF_ERROR_MSG
+        else:
+            error = CfmRdaServer.DEF_ERROR_MSG
+        if error:
+            return web.HTTPBadRequest(text=error)
+        else:
+            return web.Response(text="OK")
 
     @asyncio.coroutine
     def contact_support_hndlr(self, request):
@@ -126,29 +187,14 @@ class CfmRdaServer():
                 rda_field=rda_field)
             logging.debug(adif_data)
 
-            file_rec = yield from self._db.execute("""
-                insert into uploads
-                    (user_cs, date_start, date_end, hash)
-                values (%(callsign)s, 
-                    %(date_start)s, %(date_end)s, %(hash)s)
-                returning id""",\
-                {'callsign': callsign,\
-                'date_start': adif_data['date_start'],\
-                'date_end': adif_data['date_end'],\
-                'hash': adif_hash})
-            if not file_rec:
-                raise Exception()
-            logging.debug('Upload id: ' + str(file_rec['id']))
-
-            act_sql = """insert into activators
-                values (%(upload_id)s, %(activator)s)"""
-            act_params = [{'upload_id': file_rec['id'],\
-                'activator': act} for act in activators]
-            if adif_data['activator']:
-                act_params.append({'upload_id': file_rec['id'],\
-                    'activator': adif_data['activator']})
-            res = yield from self._db.execute(act_sql, act_params)
-            if not res:
+            upl_id = yield from self._db.insert_upload(\
+                callsign=callsign,\
+                date_start=adif_data['date_start'],\
+                date_end=adif_data['date_end'],\
+                file_hash=adif_hash,\
+                activators=activators +\
+                    ([adif_data['activator']] if adif_data['activator'] else []))
+            if not upl_id:
                 raise Exception()
 
             qso_sql = """insert into qso
@@ -159,7 +205,7 @@ class CfmRdaServer():
                     %(mode)s, %(tstamp)s)"""
             qso_params = []
             for qso in adif_data['qso']:
-                qso_params.append({'upload_id': file_rec['id'],\
+                qso_params.append({'upload_id': upl_id,\
                     'callsign': qso['callsign'],\
                     'station_callsign': station_callsign or \
                         qso['station_callsign'],\
@@ -289,7 +335,7 @@ class CfmRdaServer():
                         from uploads 
                         where id = %(id)s
                         """, data, False)
-                    if check_uploader['user_cs'] != callsign:
+                    if check_uploader != callsign:
                         return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
                 if not (yield from self._db.execute("""
                     delete from qso where upload_id = %(id)s
@@ -310,9 +356,129 @@ class CfmRdaServer():
                     update uploads set enabled = %(enabled)s where id = %(id)s
                     """, data)):
                     return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
-            if not 'skipRankings' in data:
+            if 'skipRankings' not in data:
                 yield from export_all(self.conf)
             return web.Response(text='OK')
+
+    @asyncio.coroutine
+    def cfm_blacklist_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            if (yield from self._db.execute("""
+                insert into cfm_request_blacklist
+                values (%(callsign)s)""",\
+                {'callsign': callsign}, False)):
+                return web.Response(text='OK')
+            else:
+                return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+        else:
+            return callsign
+
+    @asyncio.coroutine
+    def cfm_qso_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            if 'qso' in data:
+                if 'cfm' in data['qso'] and data['qso']['cfm']:
+                    logging.debug(data)
+                    logging.debug(bytes(data['qso']['cfm']))
+                    upl_hash = hashlib.md5(bytes(data['qso']['cfm'])).hexdigest()
+                    ids = typed_values_list(data['qso']['cfm'], int)
+                    date_start = yield from self._db.execute("""
+                        select min(tstamp)
+                        from cfm_request_qso
+                         where id in """ + ids, None, False)
+                    date_end = yield from self._db.execute("""
+                        select max(tstamp)
+                        from cfm_request_qso
+                        where id in """ + ids, None, False)
+                    file_id = yield from self._db.insert_upload(\
+                        callsign=callsign,\
+                        date_start=date_start,\
+                        date_end=date_end,\
+                        file_hash=upl_hash,\
+                        upload_type='email CFM',\
+                        activators=[callsign])
+                    if file_id:
+                        if not (yield from self._db.execute("""
+                            insert into qso (upload_id, callsign, station_callsign,
+                                rda, band, mode, tstamp)
+                            select %(file_id)s, callsign, station_callsign, rda,
+                                band, mode, tstamp 
+                            from cfm_request_qso
+                            where id in """ + ids,\
+                            {'file_id': file_id})):
+                            return web.HTTPBadRequest(\
+                                text=CfmRdaServer.DEF_ERROR_MSG)
+                    else:
+                        return web.HTTPBadRequest(\
+                            text=CfmRdaServer.DEF_ERROR_MSG)
+                qso_sql = """
+                select hunter_email as email, 
+                    json_agg(json_build_object(
+                        'id', id,
+                        'callsign', callsign, 
+                        'stationCallsign', station_callsign, 'rda', rda, 
+                        'band', band, 'mode', mode, 
+                        'tstamp', to_char(tstamp, 'DD mon YYYY HH24:MI'),
+                        'rcvRST', rec_rst, 'sntRST', sent_rst)
+                    ) as qsos
+                from cfm_request_qso
+                where id in {ids} 
+                group by hunter_email"""
+                qsos = {}
+                for _type in data['qso']:
+                    if data['qso'][_type]:
+                        qsos_type = yield from self._db.execute(qso_sql.format(\
+                            ids=typed_values_list(data['qso'][_type], int)),\
+                            None, True)
+                        for row in qsos_type:
+                            if row['email'] not in qsos:
+                                qsos[row['email']] = {}
+                            qsos[row['email']][_type] = row['qsos']
+                for email in qsos:
+                    text = """Здравствуйте.
+
+По вашему email-запросу на сайте CFMRDA.ru """
+                    if 'cfm' in qsos[email]:
+                        text += "были подтверждены следующие QSO:\n" +\
+                            format_qsos(qsos[email]['cfm'])
+                    if 'reject' in qsos[email]:
+                        text += "В подтверждении следующих QSO корреспондент отказал:\n" +\
+                            format_qsos(qsos[email]['reject'])
+                    text += """
+
+Спасибо. 73!
+Команда CFMRDA.ru"""
+                    send_email.send_email(text=text,\
+                        fr=self.conf.get('email', 'address'),\
+                        to=email,\
+                        subject="Подтверждение QSO на CFMRDA.ru")
+                all_ids = []
+                for _type in data['qso']:
+                    all_ids += data['qso'][_type]
+                yield from self._db.execute("""delete from cfm_request_qso
+                    where id in """ + typed_values_list(all_ids, int))
+                return web.Response(text="OK")
+            else:
+                qso = yield from self._db.execute("""
+                    select json_build_object(
+                    'id', id,
+                    'callsign', callsign, 
+                    'stationCallsign', station_callsign, 'rda', rda, 
+                    'band', band, 'mode', mode, 
+                    'date', to_char(tstamp, 'DD Month YYYY'),
+                    'time', to_char(tstamp, 'HH24:MI'),
+                    'rcvRST', rec_rst, 'sntRST', sent_rst)
+                        from cfm_request_qso
+                        where correspondent = %(callsign)s
+                    """, {'callsign': callsign}, True)
+            return web.json_response(qso)
+        else:
+            return callsign
+
 
     @asyncio.coroutine
     def user_uploads_hndlr(self, request):
@@ -326,12 +492,14 @@ class CfmRdaServer():
                     'dateEnd', to_char(date_end, 'DD mon YYYY'), 
                     'uploadDate', to_char(tstamp, 'DD mon YYYY'), 
                     'uploader', user_cs,
+                    'uploadType', upload_type,
                     'rda', qsos->'rda', 
                     'stations', qsos->'stations', 
                     'qsoCount', qsos->'qsoCount', 
                     'activators', activators)) as data
                 from
                     (select id, enabled, date_start, date_end, tstamp, user_cs,
+                        upload_type,
                         (select json_build_object('rda', array_agg(distinct rda), 
                             'stations', array_agg(distinct station_callsign), 
                             'qsoCount', count(*)) 
@@ -348,7 +516,7 @@ class CfmRdaServer():
                 'where user_cs = %(callsign)s')
             uploads = yield from self._db.execute(sql, {'callsign': callsign},\
                 False)
-            return web.json_response(uploads['data'] if uploads else [])
+            return web.json_response(uploads if uploads else [])
         else:
             return callsign
 
@@ -457,6 +625,7 @@ class CfmRdaServer():
                                 'time', to_char(qso.tstamp, 'HH24:MI'),
                                 'stationCallsign', station_callsign,
                                 'uploadId', uploads.id,
+                                'uploadType', upload_type,
                                 'uploader', uploads.user_cs)) as data
                         from qso, uploads
                         where callsign = %(callsign)s and enabled 
@@ -468,18 +637,18 @@ class CfmRdaServer():
                                 'band', band,
                                 'date', to_char(dt, 'DD Month YYYY'),
                                 'uploadId', upload_id,
-                                'uploader', uploader, 'count', count)) as data
+                                'uploadType', upload_type,
+                                'uploader', user_cs, 'count', count)) as data
                         from
-                            (select mode, band, qso.rda, dt, count(distinct callsign), 
-                                qso.upload_id,
-                                (select user_cs 
-                                from uploads 
-                                where id = qso.upload_id) as uploader
+                            (select mode, band, qso.rda, dt, 
+                                count(distinct callsign), 
+                                qso.upload_id, user_cs, upload_type
                             from qso, uploads, activators
                             where uploads.id = qso.upload_id and enabled
                                 and activators.upload_id = qso.upload_id 
                                 and activator = %(callsign)s
-                            group by qso.upload_id, mode, band, qso.rda, dt) as l_0
+                            group by qso.upload_id, user_cs, upload_type, 
+                                mode, band, qso.rda, dt) as l_0
                         group by rda) as l_1
                     group by rda) as l_2
             """, {'callsign': callsign}, False)
@@ -487,7 +656,7 @@ class CfmRdaServer():
                 rank = yield from self._db.execute("""
                 select rankings_json('callsign = '%(callsign)s'') as data
                 """, {'callsign': callsign}, False)
-                return web.json_response({'qso': qso['data'], 'rank': rank['data']})
+                return web.json_response({'qso': qso, 'rank': rank})
             else:
                 return web.json_response(False)
         else:
@@ -510,7 +679,7 @@ class CfmRdaServer():
                     from qso 
                     where upload_id = %(upload_id)s
                     order by tstamp) as l_0
-            """, {'upload_id': upload_id}, False))['data']
+            """, {'upload_id': upload_id}, False))
             if qso:
                 return web.json_response(qso)
             else:
@@ -554,7 +723,12 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
     APP.router.add_post('/aiohttp/user_uploads', SRV.user_uploads_hndlr)
     APP.router.add_post('/aiohttp/manage_uploads', SRV.manage_uploads_hndlr)
+    APP.router.add_post('/aiohttp/cfm_request_qso', SRV.cfm_request_qso_hndlr)
+    APP.router.add_post('/aiohttp/cfm_qso', SRV.cfm_qso_hndlr)
+    APP.router.add_post('/aiohttp/cfm_blacklist', SRV.cfm_blacklist_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
+    APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
+            SRV.correspondent_email_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
     web.run_app(APP, path=SRV.conf.get('files', 'server_socket'))

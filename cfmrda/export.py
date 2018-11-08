@@ -21,9 +21,9 @@ def export_rankings(conf):
 
     yield from _db.execute("select from build_rankings()")
 
-    rankings = (yield from _db.execute("""
+    rankings = yield from _db.execute("""
                 select rankings_json('_rank < 101') as data
-                """, None, False))['data']
+                """, None, False)
     save_json(rankings, conf.get('web', 'root') + '/json/rankings.json')
 
 @asyncio.coroutine
@@ -40,14 +40,16 @@ def export_recent_uploads(conf):
     _db = DBConn(conf.items('db'))
     yield from _db.connect()
 
-    data = (yield from _db.execute("""
+    data = yield from _db.execute("""
         select json_agg(json_build_object('activators', activators,
             'rda', rda,
             'uploadDate', to_char(tstamp, 'DD mon YYYY'),
             'uploadTime', to_char(tstamp, 'HH24:MI'),
+            'uploadType', upload_type,
             'uploader', uploader)) as data
         from
-            (select json_agg(distinct activators) as activators, user_cs as uploader,
+            (select json_agg(distinct activators) as activators, 
+                user_cs as uploader, upload_type,
                 json_agg(json_build_object('rda', rdas, 'id', id)) as rda,
                 max(tstamp) as tstamp,
                 min(date_start) as date_start, max(date_end) as date_end
@@ -59,10 +61,10 @@ def export_recent_uploads(conf):
                     from qso
                     group by upload_id) as act_l_0) as activators
             where uploads.id = activators.upload_id
-            group by user_cs, date(tstamp)
+            group by user_cs, date(tstamp), upload_type
             order by max(tstamp) desc
             limit 20) as data
-        """, None, False))['data']
+        """, None, False)
     save_json(data, conf.get('web', 'root') + '/json/recent_uploads.json')
 
 @asyncio.coroutine
@@ -78,7 +80,7 @@ def export_msc(conf):
         select n_live_tup AS qso_count
         from pg_stat_user_tables 
         where relname = 'qso' and schemaname = 'public';    
-    """, None, False))['qso_count']
+    """, None, False))
     save_json(data, conf.get('web', 'root') + '/json/msc.json')
 
 def main():
