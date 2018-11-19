@@ -192,8 +192,9 @@ class CfmRdaServer():
                 date_start=adif_data['date_start'],\
                 date_end=adif_data['date_end'],\
                 file_hash=adif_hash,\
-                activators=activators +\
-                    ([adif_data['activator']] if adif_data['activator'] else []))
+                activators=activators |\
+                    (set([adif_data['activator']]) if adif_data['activator']\
+                    else set([])))
             if not upl_id:
                 raise Exception()
 
