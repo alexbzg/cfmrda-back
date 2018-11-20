@@ -7,17 +7,18 @@ import time
 import base64
 import re
 import hashlib
+from datetime import datetime
 
 from aiohttp import web
 import jwt
 import chardet
 
-from common import site_conf, start_logging, APP_ROOT
+from common import site_conf, start_logging, APP_ROOT, datetime_format
 from db import DBConn, typed_values_list
 import send_email
 from secret import get_secret, create_token
 import recaptcha
-from json_utils import load_json, JSONvalidator
+from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
 from export import export_all
@@ -153,6 +154,60 @@ class CfmRdaServer():
             return web.Response(text='OK')
 
         return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+
+    @asyncio.coroutine
+    def chat_hndlr(self, request):
+        data = yield from request.json()
+        if self._json_validator.validate('chat', data):
+            callsign = None
+            admin = False
+            site_root = self.conf.get('web', 'root')
+            if 'token' in data:
+                callsign = self.decode_token(data)
+                if isinstance(callsign, str):
+                    admin = callsign in self._site_admins
+                else:
+                    return callsign
+            else:
+                callsign = data['callsign']
+            if 'message' or 'delete' in data:
+                chat_path = site_root + '/json/chat.json'
+                chat = load_json(chat_path)
+                if not chat:
+                    chat = []
+                if 'delete' in data:
+                    if not admin:
+                        return web.HTTPBadRequest(\
+                            text='Только адмнистраторы могут удалять сообщения')
+                    chat = [x for x in chat if x['ts'] != data['delete']]
+                if 'message' in data:
+                    msg = {'callsign': callsign,\
+                        'text': data['message'],\
+                        'admin': admin,\
+                        'ts': time.time()}
+                    msg['date'], msg['time'] = datetime_format(datetime.utcnow())
+                    if 'name' in data:
+                        msg['name'] = data['name']
+                    chat.insert(0, msg)
+                    if len(chat) > 100:
+                        chat = chat[:100]
+                save_json(chat, chat_path)
+            active_users_path = site_root + '/json/active_users.json'
+            active_users = load_json(active_users_path)
+            if not active_users:
+                active_users = {}
+            now = int(time.time()) 
+            active_users = {k : v for k, v in active_users.items()\
+                if now - v['ts'] < 120}
+            if 'exit' in data:
+                del active_users[callsign]
+            else:
+                active_users[callsign] = {'ts': now}
+            save_json(active_users, active_users_path)
+            return web.Response(text='OK')
+
+        return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
+
 
     @asyncio.coroutine
     def email_request(self, data):
@@ -727,6 +782,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/cfm_request_qso', SRV.cfm_request_qso_hndlr)
     APP.router.add_post('/aiohttp/cfm_qso', SRV.cfm_qso_hndlr)
     APP.router.add_post('/aiohttp/cfm_blacklist', SRV.cfm_blacklist_hndlr)
+    APP.router.add_post('/aiohttp/chat', SRV.chat_hndlr)
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\

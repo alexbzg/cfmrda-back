@@ -26,6 +26,8 @@ def setup_module():
     SECRET = secret.get_secret(CONF.get('files', 'secret'))
     global WEB_ADDRESS
     WEB_ADDRESS = CONF.get('web', 'address')
+    global WEB_ROOT
+    WEB_ROOT = CONF.get('web', 'root')
     global API_URI
     API_URI = WEB_ADDRESS + '/aiohttp'
     global TEST_USER 
@@ -466,7 +468,60 @@ def test_cfm_qso():
                 }))
     logging.debug(rsp.text)
     assert rsp.status_code == 200
-  
+
+def test_chat():
+
+    chat_path = WEB_ROOT + '/json/chat.json'
+    active_users_path = WEB_ROOT + '/json/active_users.json'
+
+    logging.debug('chat -- post from logged user')
+    data = {\
+        'token': create_token({'callsign': 'R7CL'}),\
+        'message': 'blah 0',\
+        'name': 'Name 0'}
+    rsp = requests.post(API_URI + '/chat',\
+        data=json.dumps(data))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    chat = load_json(chat_path)
+    assert chat
+    assert chat[0]
+    assert chat[0]['callsign'] == 'R7CL'
+    assert chat[0]['admin']
+    assert chat[0]['text'] == data['message']
+    assert chat[0]['name'] == data['name']
+    assert chat[0]['ts']
+    assert chat[0]['date']
+    assert chat[0]['time']
+    au = load_json(active_users_path)
+    assert au
+    assert au['R7CL']
+    assert int(au['R7CL']['ts']) - int(chat[0]['ts']) < 2
+
+    logging.debug('chat -- post from not logged user')
+    data = {\
+        'callsign': 'B1AH',\
+        'message': 'blah 0',\
+        'name': 'Name 1'}
+    rsp = requests.post(API_URI + '/chat',\
+        data=json.dumps(data))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    chat = load_json(chat_path)
+    assert chat
+    assert chat[0]
+    assert chat[0]['callsign'] == data['callsign']
+    assert not chat[0]['admin']
+    assert chat[0]['name'] == data['name']
+    assert chat[0]['text'] == data['message']
+    assert chat[0]['ts']
+    assert chat[0]['date']
+    assert chat[0]['time']
+    au = load_json(active_users_path)
+    assert au
+    assert au[data['callsign']]
+    assert int(au[data['callsign']]['ts']) - int(chat[0]['ts']) < 2
+ 
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
     assert rsp.status_code == 200
