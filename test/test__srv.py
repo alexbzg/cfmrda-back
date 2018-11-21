@@ -521,6 +521,43 @@ def test_chat():
     assert au
     assert au[data['callsign']]
     assert int(au[data['callsign']]['ts']) - int(chat[0]['ts']) < 2
+
+    del_ts = chat[0]['ts']
+    logging.debug('chat -- admin deletes post')
+    data = {\
+        'token': create_token({'callsign': 'R7CL'}),\
+        'delete': del_ts,}
+    rsp = requests.post(API_URI + '/chat',\
+        data=json.dumps(data))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    chat = load_json(chat_path)
+    assert chat
+    assert chat[0]['ts'] != del_ts
+
+    logging.debug('chat -- user leaves chat')
+    data = {\
+        'callsign': 'B1AH',\
+        'exit': True}
+    rsp = requests.post(API_URI + '/chat',\
+        data=json.dumps(data))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    au = load_json(active_users_path)
+    assert au
+    assert data['callsign'] not in au
+
+    logging.debug('chat -- user status update')
+    data = {\
+        'callsign': 'B1AH',\
+        'typing': True}
+    rsp = requests.post(API_URI + '/chat',\
+        data=json.dumps(data))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    au = load_json(active_users_path)
+    assert au
+    assert au[data['callsign']]['typing']
  
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
