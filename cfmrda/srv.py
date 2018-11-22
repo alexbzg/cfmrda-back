@@ -202,7 +202,7 @@ class CfmRdaServer():
             if 'exit' in data and data['exit']:
                 del active_users[callsign]
             else:
-                active_users[callsign] = {'ts': now}
+                active_users[callsign] = {'ts': now, 'admin': admin}
                 if 'typing' in data and data['typing']:
                     active_users[callsign]['typing'] = True
             save_json(active_users, active_users_path)
