@@ -299,6 +299,10 @@ CREATE FUNCTION tf_qso_bi() RETURNS trigger
   if new.callsign is null
   then
     return null;
+  end if;
+  if (new.tstamp < '06-12-1991') 
+  then
+    return null;
   else
     return new;
   end if;
@@ -457,7 +461,8 @@ CREATE TABLE uploads (
     date_start date NOT NULL,
     date_end date NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
-    hash character varying(64) DEFAULT ''::character varying NOT NULL
+    hash character varying(64) DEFAULT ''::character varying NOT NULL,
+    upload_type character varying(32) DEFAULT 'adif'::character varying
 );
 
 
@@ -690,6 +695,13 @@ CREATE INDEX uploads_id_user_cs_idx ON uploads USING btree (id, user_cs);
 
 
 --
+-- Name: uploads_id_user_cs_upload_type_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX uploads_id_user_cs_upload_type_idx ON uploads USING btree (id, user_cs, upload_type);
+
+
+--
 -- Name: uploads_user_cs_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -708,6 +720,13 @@ CREATE INDEX uploads_user_cs_idx ON uploads USING btree (user_cs);
 --
 
 CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE PROCEDURE tf_activators_bi();
+
+
+--
+-- Name: tr_cfm_requests_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON cfm_request_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_request_qso_bi();
 
 
 --
