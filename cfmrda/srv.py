@@ -21,7 +21,7 @@ import recaptcha
 from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
-from export import export_all
+from export import export_msc, export_recent_uploads
 from send_cfm_requests import format_qsos
 
 
@@ -322,7 +322,8 @@ class CfmRdaServer():
                             response['filesLoaded'] += 1
                     if response['filesLoaded'] and 'skipRankings' not in data:
                         logging.debug('running export_rankings')
-                        yield from export_all(self.conf)
+                        yield from export_msc(self.conf)
+                        yield from export_recent_uploads(self.conf)
                     logging.debug(response)
                     return web.json_response(response)
                 else:
@@ -415,7 +416,8 @@ class CfmRdaServer():
                     """, data)):
                     return web.HTTPBadRequest(text=CfmRdaServer.DEF_ERROR_MSG)
             if 'skipRankings' not in data:
-                yield from export_all(self.conf)
+                yield from export_msc(self.conf)
+                yield from export_recent_uploads(self.conf)
             return web.Response(text='OK')
 
     @asyncio.coroutine
