@@ -24,8 +24,8 @@ from ham_radio import load_adif, ADIFParseException, strip_callsign
 from export import export_msc, export_recent_uploads
 from send_cfm_requests import format_qsos
 
-
-start_logging('srv')
+conf = site_conf()
+start_logging('srv', level=conf.get('logs', 'srv_level'))
 logging.debug("restart")
 
 class CfmRdaServer():
