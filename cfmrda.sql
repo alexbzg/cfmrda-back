@@ -68,8 +68,8 @@ group by activator, qso.rda
 having count(distinct callsign) > 99),
 
 rda_hnt_m_b as (select distinct callsign, qso.rda, mode, band 
-from qso, uploads 
-where qso.upload_id = uploads.id and enabled
+from qso
+where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
 union
 select activator as callsign, rda, mode, band from rda_act_m_b),
 
@@ -78,14 +78,14 @@ from rda_hnt_m_b
 group by callsign, mode, band),
 
 rda_hnt_m as (select distinct callsign, qso.rda, mode
-from qso, uploads 
-where qso.upload_id = uploads.id and enabled
+from qso
+where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
 union
 select activator as callsign, rda, mode from rda_act_m),
 
 rda_hnt_b as (select distinct callsign, qso.rda, band 
-from qso, uploads 
-where qso.upload_id = uploads.id and enabled
+from qso
+where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
 union
 select activator as callsign, rda, band from rda_act_b),
 
@@ -271,7 +271,7 @@ CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
 	and callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
 	and band = new.band and mode = new.mode 
-	and tstamp = new.tstamp) then
+	and qso.tstamp = new.tstamp) then
     return null;
    end if;
   if exists (select 1 from cfm_request_qso
@@ -400,7 +400,7 @@ ALTER TABLE cfm_requests OWNER TO postgres;
 
 CREATE TABLE qso (
     id integer NOT NULL,
-    upload_id integer NOT NULL,
+    upload_id integer,
     callsign character varying(32) NOT NULL,
     station_callsign character varying(32) NOT NULL,
     rda character(5) NOT NULL,
@@ -750,14 +750,6 @@ ALTER TABLE ONLY activators
 
 ALTER TABLE ONLY qso
     ADD CONSTRAINT qso_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES uploads(id);
-
-
---
--- Name: uploads_user_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY uploads
-    ADD CONSTRAINT uploads_user_fkey FOREIGN KEY (user_cs) REFERENCES users(callsign);
 
 
 --
