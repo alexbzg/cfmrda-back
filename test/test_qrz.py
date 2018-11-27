@@ -13,8 +13,9 @@ def qrz_com_link():
 
 def test_qcl_get_data(qrz_com_link):
     logging.warning('test qrz.com query')
-    data = qrz_com_link.get_data('R7CL')
+    data = qrz_com_link.get_data('R9LM')
     logging.debug( data )
-    assert data['email'] == 'welcome@masterslav.ru'
+    assert data['email']
+    logging.debug(data['email'])
 
 

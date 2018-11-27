@@ -328,6 +328,47 @@ CREATE TABLE activators (
 ALTER TABLE activators OWNER TO postgres;
 
 --
+-- Name: cfm_qsl_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE cfm_qsl_qso (
+    id integer NOT NULL,
+    station_callsign character varying(32),
+    rda character(5) NOT NULL,
+    band character varying(16) NOT NULL,
+    mode character varying(16) NOT NULL,
+    callsign character varying(32) NOT NULL,
+    new_callsign character varying(32),
+    tstamp timestamp without time zone NOT NULL,
+    image character varying(128) NOT NULL,
+    user_cs character varying(32) NOT NULL
+);
+
+
+ALTER TABLE cfm_qsl_qso OWNER TO postgres;
+
+--
+-- Name: cfm_qsl_qso_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE cfm_qsl_qso_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE cfm_qsl_qso_id_seq OWNER TO postgres;
+
+--
+-- Name: cfm_qsl_qso_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE cfm_qsl_qso_id_seq OWNED BY cfm_qsl_qso.id;
+
+
+--
 -- Name: cfm_request_blacklist; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -507,6 +548,13 @@ ALTER TABLE users OWNER TO postgres;
 -- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
+ALTER TABLE ONLY cfm_qsl_qso ALTER COLUMN id SET DEFAULT nextval('cfm_qsl_qso_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
 ALTER TABLE ONLY cfm_request_qso ALTER COLUMN id SET DEFAULT nextval('cfm_request_qso_id_seq'::regclass);
 
 
@@ -530,6 +578,14 @@ ALTER TABLE ONLY uploads ALTER COLUMN id SET DEFAULT nextval('uploads_id_seq'::r
 
 ALTER TABLE ONLY activators
     ADD CONSTRAINT activators_pkey PRIMARY KEY (upload_id, activator);
+
+
+--
+-- Name: cfm_qsl_qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY cfm_qsl_qso
+    ADD CONSTRAINT cfm_qsl_qso_pkey PRIMARY KEY (id);
 
 
 --
@@ -608,6 +664,13 @@ CREATE INDEX activators_activator_idx ON activators USING btree (activator);
 --
 
 CREATE INDEX activators_activator_upload_id_idx ON activators USING btree (activator, upload_id);
+
+
+--
+-- Name: cfm_qsl_qso_user_cs_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX cfm_qsl_qso_user_cs_fkey ON cfm_qsl_qso USING btree (user_cs);
 
 
 --
@@ -745,6 +808,14 @@ ALTER TABLE ONLY activators
 
 
 --
+-- Name: cfm_qsl_qso_user_cs_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY cfm_qsl_qso
+    ADD CONSTRAINT cfm_qsl_qso_user_cs_fkey FOREIGN KEY (user_cs) REFERENCES users(callsign);
+
+
+--
 -- Name: qso_upload_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -792,6 +863,26 @@ REVOKE ALL ON TABLE activators FROM PUBLIC;
 REVOKE ALL ON TABLE activators FROM postgres;
 GRANT ALL ON TABLE activators TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE activators TO "www-group";
+
+
+--
+-- Name: cfm_qsl_qso; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE cfm_qsl_qso FROM PUBLIC;
+REVOKE ALL ON TABLE cfm_qsl_qso FROM postgres;
+GRANT ALL ON TABLE cfm_qsl_qso TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_qsl_qso TO "www-group";
+
+
+--
+-- Name: cfm_qsl_qso_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON SEQUENCE cfm_qsl_qso_id_seq FROM PUBLIC;
+REVOKE ALL ON SEQUENCE cfm_qsl_qso_id_seq FROM postgres;
+GRANT ALL ON SEQUENCE cfm_qsl_qso_id_seq TO postgres;
+GRANT ALL ON SEQUENCE cfm_qsl_qso_id_seq TO "www-group";
 
 
 --
