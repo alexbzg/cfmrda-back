@@ -546,7 +546,6 @@ def test_chat():
     au = load_json(active_users_path)
     assert au
     assert data['callsign'] not in au
-
     logging.debug('chat -- user status update')
     data = {\
         'callsign': 'B1AH',\
@@ -558,7 +557,34 @@ def test_chat():
     au = load_json(active_users_path)
     assert au
     assert au[data['callsign']]['typing']
- 
+
+def test_cfm_qsl_qso():
+    logging.debug('Cfm qsl qso')
+    qsl_image = None
+    with open(path.dirname(path.abspath(__file__)) + '/qsl.jpg', 'rb') as _tf:
+        qsl_image = _tf.read()
+        qsl_image = ',' + base64.b64encode(qsl_image).decode()
+
+    rsp = requests.post(API_URI + '/cfm_qsl_qso',\
+        data=json.dumps({
+            'token': create_token({'callsign': 'TE1ST'}),
+            'qso': {\
+                'callsign': 'TE1ST',\
+                'stationCallsign': 'R7CL/M',\
+                'rda': 'HA-01',\
+                'band': '10',\
+                'mode': 'CW',\
+                'date': '20180725',\
+                'time': '1218',\
+                'image': {\
+                    'name': 'qsl.jpg',\
+                    'file': qsl_image
+                    }
+                }
+            }))    
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
     assert rsp.status_code == 200

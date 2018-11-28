@@ -54,16 +54,21 @@ def cfm_rda_server():
         yield from asyncio.sleep(0.1)
         logging.debug('cleaning user ' + TEST_USER)
         yield from srv._db.execute( 
+                """delete from qso e 
+                    where callsign = 'TE1ST' and station_callsign = 'R7CL/M'""")
+        yield from srv._db.execute( 
                 """delete from qso 
                     where exists 
                         (select user_cs from uploads
-                        where uploads.id = qso.upload_id and user_cs = %(callsign)s)""", 
+                        where uploads.id = qso.upload_id and 
+                            user_cs = %(callsign)s)""", 
                         {'callsign': TEST_USER})
         yield from srv._db.execute( 
                 """delete from activators 
                     where exists 
                         (select user_cs from uploads
-                        where uploads.id = activators.upload_id and user_cs = %(callsign)s)""", 
+                        where uploads.id = activators.upload_id and 
+                            user_cs = %(callsign)s)""", 
                         {'callsign': TEST_USER})
         yield from srv._db.param_delete('uploads', {'user_cs': TEST_USER})
         yield from srv._db.param_delete('users', {'callsign': TEST_USER})
