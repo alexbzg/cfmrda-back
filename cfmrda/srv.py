@@ -7,6 +7,7 @@ import time
 import base64
 import re
 import hashlib
+import os
 from datetime import datetime
 
 from aiohttp import web
@@ -31,19 +32,22 @@ logging.debug("restart")
 class CfmRdaServer():
 
     @staticmethod
-    def SERVER_ERROR():
+    def response_error_default():
         return web.HTTPBadRequest(\
             text='Ошибка сайта. Пожалуйста, попробуйте позднее.')
 
     @staticmethod
-    def RECAPTCHA_ERROR():
+    def response_error_recaptcha():
         return web.HTTPBadRequest(text='Проверка на робота не пройдена ' +\
             'или данные устарели. Попробуйте еще раз.')
 
     @staticmethod
-    def OK():
+    def response_ok():
         return web.Response(text='OK')
 
+    @staticmethod
+    def response_error_email_cfm():
+        return web.HTTPBadRequest(text='Ваш адрес электронной почты не подтвержден.')
 
     def __init__(self, loop):
         self._loop = loop
@@ -78,7 +82,7 @@ class CfmRdaServer():
             elif data['mode'] == 'emailRequest':
                 return (yield from self.email_request(data))
         logging.debug(data)
-        return CfmRdaServer.SERVER_ERROR()
+        return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
     def correspondent_email_hndlr(self, request):
@@ -116,7 +120,7 @@ class CfmRdaServer():
                 if rc_test:
                     email = data['email']
                 else:
-                    return CfmRdaServer.RECAPTCHA_ERROR()
+                    return CfmRdaServer.response_error_recaptcha()
             if email:
                 for qso in data['qso']:
                     qso['hunterEmail'] = email
@@ -132,9 +136,9 @@ class CfmRdaServer():
                     %(tstamp)s, %(hunterEmail)s, %(email)s,
                     %(recRST)s, %(sentRST)s)""",\
                     data['qso'], False)):
-                    return CfmRdaServer.SERVER_ERROR()
+                    return CfmRdaServer.response_error_default()
         else:
-            return CfmRdaServer.SERVER_ERROR()
+            return CfmRdaServer.response_error_default()
         if error:
             return web.HTTPBadRequest(text=error)
         else:
@@ -156,16 +160,16 @@ class CfmRdaServer():
             else:
                 rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
                 if not rc_test:
-                    return CfmRdaServer.RECAPTCHA_ERROR()
+                    return CfmRdaServer.response_error_recaptcha()
                 email = data['email']
             send_email.send_email(text=data['text'],\
                 to=CONF.get('email', 'address'),\
                 fr=email,\
                 subject="CFMRDA.ru support" + \
                     (' (' + callsign + ')' if callsign else ''))
-            return web.Response(text='OK')
+            return CfmRdaServer.response_ok()
 
-        return CfmRdaServer.SERVER_ERROR()
+        return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
     def chat_hndlr(self, request):
@@ -218,9 +222,9 @@ class CfmRdaServer():
                 if 'typing' in data and data['typing']:
                     active_users[callsign]['typing'] = True
             save_json(active_users, active_users_path)
-            return web.Response(text='OK')
+            return CfmRdaServer.response_ok()
 
-        return CfmRdaServer.SERVER_ERROR()
+        return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
     def email_request(self, data):
@@ -294,51 +298,82 @@ class CfmRdaServer():
             return error
 
     @asyncio.coroutine
+    def _cfm_qsl_qso_new(self, callsign, data):
+        if self._json_validator.validate('cfmQslQso', data['qso']):
+            res = yield from self._db.get_object('cfm_qsl_qso',\
+                {'user_cs': callsign,\
+                'station_callsign': data['qso']['stationCallsign'],\
+                'rda': data['qso']['rda'],\
+                'tstamp': data['qso']['date'].split('T')[0] + ' ' +\
+                    data['qso']['time'],\
+                'band': data['qso']['band'],\
+                'mode': data['qso']['mode'],\
+                'callsign': data['qso']['callsign'],\
+                'new_callsign': data['qso']['newCallsign']\
+                    if 'newCallsign' in data['qso'] else None,\
+                'image': data['qso']['image']['name']}, True)
+            if res:
+                image_bytes = \
+                    base64.b64decode(\
+                        data['qso']['image']['file'].split(',')[1])
+                with open(CONF.get('web', 'root') +\
+                    '/qsl_images/' + str(res['id']) + '_' +\
+                    data['qso']['image']['name'], 'wb') as image_file:
+                    image_file.write(image_bytes)
+            else:
+                return CfmRdaServer.response_error_default()
+            return CfmRdaServer.response_ok()
+        else:
+            return CfmRdaServer.response_error_default()
+
+    @asyncio.coroutine
+    def _cfm_qsl_qso_delete(self, callsign, data):
+        res = yield from self._db.param_delete('cfm_qsl_qso',\
+            {'id': data['delete'], 'user_cs': callsign})
+        if res:
+            image_filename = CONF.get('web', 'root') +\
+                '/qsl_images/' + str(res['id']) + '_' +\
+                res['image']
+            if os.path.isfile(image_filename):
+                os.remove(image_filename)
+            return CfmRdaServer.response_ok()
+        else:
+            return CfmRdaServer.response_error_default()
+
+    @asyncio.coroutine
     def cfm_qsl_qso_hndlr(self, request):
         data = yield from request.json()
-        if self._json_validator.validate('cfmQslQso', data):
-            callsign = self.decode_token(data)
-            if isinstance(callsign, str):
-                user_data = yield from self.get_user_data(callsign)
-                if user_data['email_confirmed']:
-                    if 'qso' in data:
-                        res = yield from self._db.get_object('cfm_qsl_qso',\
-                            {'user_cs': callsign,\
-                            'station_callsign': data['qso']['stationCallsign'],\
-                            'rda': data['qso']['rda'],\
-                            'tstamp': data['qso']['date'].split('T')[0] + ' ' +\
-                                data['qso']['time'],\
-                            'band': data['qso']['band'],\
-                            'mode': data['qso']['mode'],\
-                            'callsign': data['qso']['callsign'],\
-                            'new_callsign': data['qso']['newCallsign']\
-                                if 'newCallsign' in data['qso'] else None,\
-                            'image': data['qso']['image']['name']}, True)
-                        if res:
-                            image_bytes = \
-                                base64.b64decode(\
-                                    data['qso']['image']['file'].split(',')[1])
-                            with open(CONF.get('web', 'root') +\
-                                '/qsl_images/' + str(res['id']) + '_' +\
-                                data['qso']['image']['name'], 'wb') as image_file:
-                                image_file.write(image_bytes)
-                        else:
-                            return CfmRdaServer.SERVER_ERROR()
-                        return CfmRdaServer.OK()
-                    elif 'delete' in data:
-                        res = yield from self._db.param_delete('cfm_qsl_qso',\
-                            {'id': data['delete'], 'user_cs': callsign})
-                        if res:
-                            return CfmRdaServer.OK()
-                        else:
-                            return CfmRdaServer.SERVER_ERROR()
-                    else:
-                        qso = yield from self._db.execute("""
-                            select * from cfm_qsl_qso where user_cs = %(callsign)s
-                            """, {'callsign': callsign})
-                        if not qso:
-                            qso = []
-                        return web.json_response(qso)
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            user_data = yield from self.get_user_data(callsign)
+            if user_data['email_confirmed']:
+                if 'qso' in data:
+                    return (yield from self._cfm_qsl_qso_new(callsign, data))
+                elif 'delete' in data:
+                    return (yield from self._cfm_qsl_qso_delete(callsign, data))
+                else:
+                    qso = yield from self._db.execute("""
+                        select json_agg(json_build_object(
+                            'id', id,
+                            'callsign', callsign,
+                            'stationCallsign', station_callsign,
+                            'rda', rda,
+                            'band', band,
+                            'mode', mode,
+                            'newCallsign', new_callsign,
+                            'date', to_char(tstamp, 'DD mon YYYY'),
+                            'time', to_char(tstamp, 'HH24:MI'),
+                            'image', image))
+                           from cfm_qsl_qso 
+                           where user_cs = %(callsign)s
+                        """, {'callsign': callsign})
+                    if not qso:
+                        qso = []
+                    return web.json_response(qso)
+            else:
+                return CfmRdaServer.response_error_email_cfm()
+        else:
+            return callsign
 
     @asyncio.coroutine
     def adif_hndlr(self, request):
@@ -388,7 +423,7 @@ class CfmRdaServer():
             else:
                 return callsign
         else:
-            return CfmRdaServer.SERVER_ERROR()
+            return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
     def password_request(self, data):
@@ -420,11 +455,11 @@ class CfmRdaServer():
             else:
                 error = 'Проверка на робота не пройдена или данные устарели. Попробуйте еще раз.'
         else:
-            return CfmRdaServer.SERVER_ERROR()
+            return CfmRdaServer.response_error_default()
         if error:
             return web.HTTPBadRequest(text=error)
         else:
-            return web.Response(text='OK')
+            return CfmRdaServer.response_ok()
 
     @asyncio.coroutine
     def password_change(self, data):
@@ -433,11 +468,11 @@ class CfmRdaServer():
             if isinstance(callsign, str):
                 yield from self._db.param_update('users', {'callsign': callsign},\
                     {'email_confirmed': True, 'password': data['password']})
-                return web.Response(text='OK')
+                return CfmRdaServer.response_ok()
             else:
                 return callsign
         else:
-            return CfmRdaServer.SERVER_ERROR()
+            return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
     def manage_uploads_hndlr(self, request):
@@ -452,30 +487,30 @@ class CfmRdaServer():
                         where id = %(id)s
                         """, data, False)
                     if check_uploader != callsign:
-                        return CfmRdaServer.SERVER_ERROR()
+                        return CfmRdaServer.response_error_default()
                 if not (yield from self._db.execute("""
                     delete from qso where upload_id = %(id)s
                     """, data)):
-                    return CfmRdaServer.SERVER_ERROR()
+                    return CfmRdaServer.response_error_default()
                 if not (yield from self._db.execute("""
                     delete from activators where upload_id = %(id)s
                     """, data)):
-                    return CfmRdaServer.SERVER_ERROR()
+                    return CfmRdaServer.response_error_default()
                 if not (yield from self._db.execute("""
                     delete from uploads where id = %(id)s
                     """, data)):
-                    return CfmRdaServer.SERVER_ERROR()
+                    return CfmRdaServer.response_error_default()
             elif 'enabled' in data:
                 if callsign not in self._site_admins:
-                    return CfmRdaServer.SERVER_ERROR()
+                    return CfmRdaServer.response_error_default()
                 if not(yield from self._db.execute("""
                     update uploads set enabled = %(enabled)s where id = %(id)s
                     """, data)):
-                    return CfmRdaServer.SERVER_ERROR()
+                    return CfmRdaServer.response_error_default()
             if 'skipRankings' not in data:
                 yield from export_msc(CONF)
                 yield from export_recent_uploads(CONF)
-            return web.Response(text='OK')
+            return CfmRdaServer.response_ok()
 
     @asyncio.coroutine
     def cfm_blacklist_hndlr(self, request):
@@ -486,9 +521,9 @@ class CfmRdaServer():
                 insert into cfm_request_blacklist
                 values (%(callsign)s)""",\
                 {'callsign': callsign}, False)):
-                return web.Response(text='OK')
+                return CfmRdaServer.response_ok()
             else:
-                return CfmRdaServer.SERVER_ERROR()
+                return CfmRdaServer.response_error_default()
         else:
             return callsign
 
@@ -526,7 +561,7 @@ class CfmRdaServer():
                         from cfm_request_qso
                         where id in """ + ids,\
                         {'file_id': file_id})):
-                        return CfmRdaServer.SERVER_ERROR()
+                        return CfmRdaServer.response_error_default()
                 qso_sql = """
                     select hunter_email as email, 
                         json_agg(json_build_object(
@@ -676,13 +711,13 @@ class CfmRdaServer():
                         error =\
                             'Позывной или адрес электронной почты не зарегистрирован на QRZ.com'
             else:
-                return CfmRdaServer.SERVER_ERROR()
+                return CfmRdaServer.response_error_default()
         else:
-            return CfmRdaServer.SERVER_ERROR()
+            return CfmRdaServer.response_error_default()
         if error:
             return web.HTTPBadRequest(text=error)
         else:
-            return web.Response(text='OK')
+            return CfmRdaServer.response_ok()
 
     @asyncio.coroutine
     def login(self, data):
@@ -699,7 +734,7 @@ class CfmRdaServer():
             else:
                 error = 'Неверный позывной или пароль.'
         else:
-            return CfmRdaServer.SERVER_ERROR()
+            return CfmRdaServer.response_error_default()
         if error:
             return web.HTTPBadRequest(text=error)
 
@@ -825,7 +860,7 @@ def test_hndlr(request):
     if request.method == 'POST':
         data = yield from request.json()
         return web.json_response(data)
-    return web.Response(text='OK')
+    return CfmRdaServer.response_ok()
 
 if __name__ == '__main__':
     APP = web.Application(client_max_size=100 * 1024 ** 2)

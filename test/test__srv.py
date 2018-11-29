@@ -559,31 +559,52 @@ def test_chat():
     assert au[data['callsign']]['typing']
 
 def test_cfm_qsl_qso():
-    logging.debug('Cfm qsl qso')
     qsl_image = None
     with open(path.dirname(path.abspath(__file__)) + '/qsl.jpg', 'rb') as _tf:
         qsl_image = _tf.read()
         qsl_image = ',' + base64.b64encode(qsl_image).decode()
+    qso = {\
+        'callsign': 'TE1ST',\
+        'stationCallsign': 'R7CL/M',\
+        'rda': 'HA-01',\
+        'band': '10',\
+        'mode': 'CW',\
+        'date': '20180725',\
+        'time': '1218',\
+        'image': {\
+            'name': 'qsl.jpg',\
+            'file': qsl_image
+            }
+        }
+    token = create_token({'callsign': 'TE1ST'})
+    qsl_path = CONF.get('web', 'root') + '/qsl_images/'
 
-    rsp = requests.post(API_URI + '/cfm_qsl_qso',\
-        data=json.dumps({
-            'token': create_token({'callsign': 'TE1ST'}),
-            'qso': {\
-                'callsign': 'TE1ST',\
-                'stationCallsign': 'R7CL/M',\
-                'rda': 'HA-01',\
-                'band': '10',\
-                'mode': 'CW',\
-                'date': '20180725',\
-                'time': '1218',\
-                'image': {\
-                    'name': 'qsl.jpg',\
-                    'file': qsl_image
-                    }
-                }
-            }))    
+    def cfm_qsl_qso(data):
+        data['token'] = token
+        return requests.post(API_URI + '/cfm_qsl_qso', data=json.dumps(data))
+
+    logging.debug('Cfm qsl qso -- new')
+    rsp = cfm_qsl_qso({'qso': qso})    
     logging.debug(rsp.text)
     assert rsp.status_code == 200
+
+    logging.debug('Cfm qsl qso -- list')
+    rsp = cfm_qsl_qso({})
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)
+    assert data
+    assert data[0]
+    assert data[0]['callsign'] == qso['callsign']
+    assert data[0]['image'] == qso['image']['name']
+    qsl_file_path = qsl_path + str(data[0]['id']) + '_' + qso['image']['name']
+    assert path.isfile(qsl_file_path)
+
+    logging.debug('Cfm qsl qso -- delete')
+    rsp = cfm_qsl_qso({'delete': data[0]['id']})
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    assert not path.isfile(qsl_file_path)
 
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
