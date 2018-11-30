@@ -363,6 +363,7 @@ class CfmRdaServer():
                             'newCallsign', new_callsign,
                             'date', to_char(tstamp, 'DD mon YYYY'),
                             'time', to_char(tstamp, 'HH24:MI'),
+                            'state', state,
                             'image', image))
                            from cfm_qsl_qso 
                            where user_cs = %(callsign)s
@@ -609,6 +610,8 @@ class CfmRdaServer():
                 if all_ids:
                     yield from self._db.execute("""delete from cfm_request_qso
                         where id in """ + typed_values_list(all_ids, int))
+                yield from export_msc(CONF)
+                yield from export_recent_uploads(CONF)
                 return web.Response(text="OK")
             else:
                 qso = yield from self._db.execute("""

@@ -341,7 +341,8 @@ CREATE TABLE cfm_qsl_qso (
     new_callsign character varying(32),
     tstamp timestamp without time zone NOT NULL,
     image character varying(128) NOT NULL,
-    user_cs character varying(32) NOT NULL
+    user_cs character varying(32) NOT NULL,
+    state boolean
 );
 
 
