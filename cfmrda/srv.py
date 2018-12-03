@@ -364,6 +364,7 @@ class CfmRdaServer():
                             'date', to_char(tstamp, 'DD mon YYYY'),
                             'time', to_char(tstamp, 'HH24:MI'),
                             'state', state,
+                            'comment', comment,
                             'image', image))
                            from cfm_qsl_qso 
                            where user_cs = %(callsign)s
@@ -375,6 +376,43 @@ class CfmRdaServer():
                 return CfmRdaServer.response_error_email_cfm()
         else:
             return callsign
+
+    @asyncio.coroutine
+    def qsl_admin_hndlr(self, request):
+        data = yield from request.json()
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            user_data = yield from self.get_user_data(callsign)
+            if user_data['email_confirmed']:
+                if 'qso' in data:
+                    return (yield from self._cfm_qsl_qso_new(callsign, data))
+                elif 'delete' in data:
+                    return (yield from self._cfm_qsl_qso_delete(callsign, data))
+                else:
+                    qso = yield from self._db.execute("""
+                        select json_agg(json_build_object(
+                            'id', id,
+                            'callsign', callsign,
+                            'stationCallsign', station_callsign,
+                            'rda', rda,
+                            'band', band,
+                            'mode', mode,
+                            'newCallsign', new_callsign,
+                            'date', to_char(tstamp, 'DD mon YYYY'),
+                            'time', to_char(tstamp, 'HH24:MI'),
+                            'state', state,
+                            'image', image))
+                           from cfm_qsl_qso 
+                           where user_cs = %(callsign)s
+                        """, {'callsign': callsign})
+                    if not qso:
+                        qso = []
+                    return web.json_response(qso)
+            else:
+                return CfmRdaServer.response_error_email_cfm()
+        else:
+            return callsign
+
 
     @asyncio.coroutine
     def adif_hndlr(self, request):
@@ -536,8 +574,8 @@ class CfmRdaServer():
             if 'qso' in data:
                 if 'cfm' in data['qso'] and data['qso']['cfm']:
                     logging.debug(data)
-                    logging.debug(bytes(data['qso']['cfm']))
-                    upl_hash = hashlib.md5(bytes(data['qso']['cfm'])).hexdigest()
+                    upl_hash = hashlib.md5(bytearray(repr(data['qso']['cfm']),\
+                        'utf8')).hexdigest()
                     ids = typed_values_list(data['qso']['cfm'], int)
                     date_start = yield from self._db.execute("""
                         select min(tstamp)
