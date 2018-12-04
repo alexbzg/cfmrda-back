@@ -54,7 +54,10 @@ def cfm_rda_server():
         yield from asyncio.sleep(0.1)
         logging.debug('cleaning user ' + TEST_USER)
         yield from srv._db.execute( 
-                """delete from qso e 
+                """delete from qso
+                    where callsign = 'TE1ST' and station_callsign = 'R7CL/M'""")
+        yield from srv._db.execute( 
+                """delete from cfm_qsl_qso
                     where callsign = 'TE1ST' and station_callsign = 'R7CL/M'""")
         yield from srv._db.execute( 
                 """delete from qso 

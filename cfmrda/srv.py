@@ -29,6 +29,14 @@ CONF = site_conf()
 start_logging('srv', level=CONF.get('logs', 'srv_level'))
 logging.debug("restart")
 
+def _del_qsl_image(qsl_id):
+    qsl_dir = CONF.get('web', 'root') + '/qsl_images/' 
+    pattern = '^' + str(qsl_id) + '_.*$'
+    for file in os.listdir(qsl_dir):
+        if re.search(pattern, file):
+            os.remove(os.path.join(qsl_dir, file))
+
+
 class CfmRdaServer():
 
     @staticmethod
@@ -49,6 +57,10 @@ class CfmRdaServer():
     def response_error_email_cfm():
         return web.HTTPBadRequest(text='Ваш адрес электронной почты не подтвержден.')
 
+    @staticmethod
+    def response_error_admin_required():
+        return web.HTTPBadRequest(text='Необходимы права администратора сайта.')
+
     def __init__(self, loop):
         self._loop = loop
         self._db = DBConn(CONF.items('db'))
@@ -58,6 +70,9 @@ class CfmRdaServer():
         self._site_admins = str(CONF.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(\
             load_json(APP_ROOT + '/schemas.json'))
+
+    def is_admin(self, callsign):
+        return callsign in self._site_admins
 
     def create_token(self, data):
         return create_token(self._secret, data)
@@ -181,7 +196,7 @@ class CfmRdaServer():
             if 'token' in data:
                 callsign = self.decode_token(data)
                 if isinstance(callsign, str):
-                    admin = callsign in self._site_admins
+                    admin = self.is_admin(callsign)
                 else:
                     return callsign
             else:
@@ -215,7 +230,7 @@ class CfmRdaServer():
             now = int(time.time())
             active_users = {k : v for k, v in active_users.items()\
                 if now - v['ts'] < 120}
-            if 'exit' in data and data['exit']:
+            if 'exit' in data and data['exit'] and callsign in active_users:
                 del active_users[callsign]
             else:
                 active_users[callsign] = {'ts': now, 'admin': admin}
@@ -326,19 +341,40 @@ class CfmRdaServer():
         else:
             return CfmRdaServer.response_error_default()
 
+
     @asyncio.coroutine
     def _cfm_qsl_qso_delete(self, callsign, data):
         res = yield from self._db.param_delete('cfm_qsl_qso',\
             {'id': data['delete'], 'user_cs': callsign})
         if res:
-            image_filename = CONF.get('web', 'root') +\
-                '/qsl_images/' + str(res['id']) + '_' +\
-                res['image']
-            if os.path.isfile(image_filename):
-                os.remove(image_filename)
+            _del_qsl_image(res['id'])
             return CfmRdaServer.response_ok()
         else:
             return CfmRdaServer.response_error_default()
+
+    @asyncio.coroutine
+    def _get_qsl_list(self, callsign=None):
+        sql = """
+            select json_agg(json_build_object(
+                'id', id,
+                'callsign', callsign,
+                'stationCallsign', station_callsign,
+                'rda', rda,
+                'band', band,
+                'mode', mode,
+                'newCallsign', new_callsign,
+                'date', to_char(tstamp, 'DD mon YYYY'),
+                'time', to_char(tstamp, 'HH24:MI'),
+                'state', state,
+                'comment', comment,
+                'image', image))
+                from cfm_qsl_qso """
+        if callsign:
+            sql += "where user_cs = %(callsign)s"
+        qsl_list = yield from self._db.execute(sql, {'callsign': callsign})        
+        if not qsl_list:
+            qsl_list = []
+        return qsl_list
 
     @asyncio.coroutine
     def cfm_qsl_qso_hndlr(self, request):
@@ -352,26 +388,8 @@ class CfmRdaServer():
                 elif 'delete' in data:
                     return (yield from self._cfm_qsl_qso_delete(callsign, data))
                 else:
-                    qso = yield from self._db.execute("""
-                        select json_agg(json_build_object(
-                            'id', id,
-                            'callsign', callsign,
-                            'stationCallsign', station_callsign,
-                            'rda', rda,
-                            'band', band,
-                            'mode', mode,
-                            'newCallsign', new_callsign,
-                            'date', to_char(tstamp, 'DD mon YYYY'),
-                            'time', to_char(tstamp, 'HH24:MI'),
-                            'state', state,
-                            'comment', comment,
-                            'image', image))
-                           from cfm_qsl_qso 
-                           where user_cs = %(callsign)s
-                        """, {'callsign': callsign})
-                    if not qso:
-                        qso = []
-                    return web.json_response(qso)
+                    qsl_list = yield from self._get_qsl_list(callsign)
+                    return web.json_response(qsl_list)
             else:
                 return CfmRdaServer.response_error_email_cfm()
         else:
@@ -382,34 +400,25 @@ class CfmRdaServer():
         data = yield from request.json()
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
-            user_data = yield from self.get_user_data(callsign)
-            if user_data['email_confirmed']:
-                if 'qso' in data:
-                    return (yield from self._cfm_qsl_qso_new(callsign, data))
-                elif 'delete' in data:
-                    return (yield from self._cfm_qsl_qso_delete(callsign, data))
+            if self.is_admin(callsign):
+                if 'qsl' in data:
+                    if self._json_validator.validate('qslAdmin', data['qsl']):
+                        if (yield from self._db.execute("""
+                            update cfm_qsl_qso 
+                            set state = %(state)s, comment = %(comment)s
+                            where id = %(id)s""", data['qsl'])):
+                            for qsl in data['qsl']:
+                                _del_qsl_image(qsl['id'])
+                            return CfmRdaServer.response_ok()
+                        else:
+                            return CfmRdaServer.response_error_default()
+                    else:
+                        return CfmRdaServer.response_error_default()
                 else:
-                    qso = yield from self._db.execute("""
-                        select json_agg(json_build_object(
-                            'id', id,
-                            'callsign', callsign,
-                            'stationCallsign', station_callsign,
-                            'rda', rda,
-                            'band', band,
-                            'mode', mode,
-                            'newCallsign', new_callsign,
-                            'date', to_char(tstamp, 'DD mon YYYY'),
-                            'time', to_char(tstamp, 'HH24:MI'),
-                            'state', state,
-                            'image', image))
-                           from cfm_qsl_qso 
-                           where user_cs = %(callsign)s
-                        """, {'callsign': callsign})
-                    if not qso:
-                        qso = []
-                    return web.json_response(qso)
+                    qsl_list = yield from self._get_qsl_list()
+                    return web.json_response(qsl_list)
             else:
-                return CfmRdaServer.response_error_email_cfm()
+                return CfmRdaServer.response_error_admin_required()
         else:
             return callsign
 
@@ -915,6 +924,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/manage_uploads', SRV.manage_uploads_hndlr)
     APP.router.add_post('/aiohttp/cfm_request_qso', SRV.cfm_request_qso_hndlr)
     APP.router.add_post('/aiohttp/cfm_qsl_qso', SRV.cfm_qsl_qso_hndlr)
+    APP.router.add_post('/aiohttp/qsl_admin', SRV.qsl_admin_hndlr)
     APP.router.add_post('/aiohttp/cfm_qso', SRV.cfm_qso_hndlr)
     APP.router.add_post('/aiohttp/cfm_blacklist', SRV.cfm_blacklist_hndlr)
     APP.router.add_post('/aiohttp/chat', SRV.chat_hndlr)
