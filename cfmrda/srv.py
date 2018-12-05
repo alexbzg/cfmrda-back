@@ -368,9 +368,12 @@ class CfmRdaServer():
                 'state', state,
                 'comment', comment,
                 'image', image))
-                from cfm_qsl_qso """
+            from cfm_qsl_qso 
+            where """
         if callsign:
-            sql += "where user_cs = %(callsign)s"
+            sql += "user_cs = %(callsign)s"
+        else:
+            sql += "state is null"
         qsl_list = yield from self._db.execute(sql, {'callsign': callsign})        
         if not qsl_list:
             qsl_list = []
