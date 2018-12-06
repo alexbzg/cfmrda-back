@@ -87,6 +87,8 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
             if not qso['callsign']:
                 continue
 
+            if not qso['mode']:
+                continue
             if qso['mode'] not in MODES:
                 for mode in MODES:
                     if qso['mode'] in MODES[mode]:

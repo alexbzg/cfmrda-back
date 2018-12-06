@@ -30,7 +30,7 @@ start_logging('srv', level=CONF.get('logs', 'srv_level'))
 logging.debug("restart")
 
 def _del_qsl_image(qsl_id):
-    qsl_dir = CONF.get('web', 'root') + '/qsl_images/' 
+    qsl_dir = CONF.get('web', 'root') + '/qsl_images/'
     pattern = '^' + str(qsl_id) + '_.*$'
     for file in os.listdir(qsl_dir):
         if re.search(pattern, file):
@@ -374,7 +374,7 @@ class CfmRdaServer():
             sql += "user_cs = %(callsign)s"
         else:
             sql += "state is null"
-        qsl_list = yield from self._db.execute(sql, {'callsign': callsign})        
+        qsl_list = yield from self._db.execute(sql, {'callsign': callsign})
         if not qsl_list:
             qsl_list = []
         return qsl_list
@@ -526,42 +526,38 @@ class CfmRdaServer():
             return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
-    def manage_uploads_hndlr(self, request):
-        data = yield from request.json()
-        callsign = self.decode_token(data)
-        if isinstance(callsign, str):
-            if 'delete' in data:
-                if callsign not in self._site_admins:
-                    check_uploader = yield from self._db.execute("""
-                        select user_cs 
-                        from uploads 
-                        where id = %(id)s
-                        """, data, False)
-                    if check_uploader != callsign:
-                        return CfmRdaServer.response_error_default()
-                if not (yield from self._db.execute("""
-                    delete from qso where upload_id = %(id)s
-                    """, data)):
+    def _edit_uploads(self, data, callsign):
+        if 'delete' in data:
+            if not self.is_admin(callsign):
+                check_uploader = yield from self._db.execute("""
+                    select user_cs 
+                    from uploads 
+                    where id = %(id)s
+                    """, data, False)
+                if check_uploader != callsign:
                     return CfmRdaServer.response_error_default()
-                if not (yield from self._db.execute("""
-                    delete from activators where upload_id = %(id)s
-                    """, data)):
-                    return CfmRdaServer.response_error_default()
-                if not (yield from self._db.execute("""
-                    delete from uploads where id = %(id)s
-                    """, data)):
-                    return CfmRdaServer.response_error_default()
-            elif 'enabled' in data:
-                if callsign not in self._site_admins:
-                    return CfmRdaServer.response_error_default()
-                if not(yield from self._db.execute("""
-                    update uploads set enabled = %(enabled)s where id = %(id)s
-                    """, data)):
-                    return CfmRdaServer.response_error_default()
-            if 'skipRankings' not in data:
-                yield from export_msc(CONF)
-                yield from export_recent_uploads(CONF)
-            return CfmRdaServer.response_ok()
+            if not (yield from self._db.execute("""
+                delete from qso where upload_id = %(id)s
+                """, data)):
+                return CfmRdaServer.response_error_default()
+            if not (yield from self._db.execute("""
+                delete from activators where upload_id = %(id)s
+                """, data)):
+                return CfmRdaServer.response_error_default()
+            if not (yield from self._db.execute("""
+                delete from uploads where id = %(id)s
+                """, data)):
+                return CfmRdaServer.response_error_default()
+        elif 'enabled' in data:
+            if callsign not in self._site_admins:
+                return CfmRdaServer.response_error_default()
+            if not(yield from self._db.execute("""
+                update uploads set enabled = %(enabled)s where id = %(id)s
+                """, data)):
+                return CfmRdaServer.response_error_default()
+        yield from export_msc(CONF)
+        yield from export_recent_uploads(CONF)
+        return CfmRdaServer.response_ok()
 
     @asyncio.coroutine
     def cfm_blacklist_hndlr(self, request):
@@ -682,10 +678,12 @@ class CfmRdaServer():
 
 
     @asyncio.coroutine
-    def user_uploads_hndlr(self, request):
+    def uploads_hndlr(self, request):
         data = yield from request.json()
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
+            if 'delete' in data or 'enable' in data:
+                return (yield from self._edit_uploads(data, callsign))
             sql_tmplt = """
                 select json_agg(json_build_object('id', id, 
                     'enabled', enabled,
@@ -713,8 +711,8 @@ class CfmRdaServer():
                     {}
                     order by tstamp desc) as data
             """
-            sql = sql_tmplt.format('' if callsign in self._site_admins else\
-                'where user_cs = %(callsign)s')
+            admin = self.is_admin(callsign) and 'admin' in data and data['admin']
+            sql = sql_tmplt.format('' if admin else 'where user_cs = %(callsign)s')
             uploads = yield from self._db.execute(sql, {'callsign': callsign},\
                 False)
             return web.json_response(uploads if uploads else [])
@@ -923,8 +921,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)
     APP.router.add_post('/aiohttp/contact_support', SRV.contact_support_hndlr)
     APP.router.add_post('/aiohttp/adif', SRV.adif_hndlr)
-    APP.router.add_post('/aiohttp/user_uploads', SRV.user_uploads_hndlr)
-    APP.router.add_post('/aiohttp/manage_uploads', SRV.manage_uploads_hndlr)
+    APP.router.add_post('/aiohttp/uploads', SRV.uploads_hndlr)
     APP.router.add_post('/aiohttp/cfm_request_qso', SRV.cfm_request_qso_hndlr)
     APP.router.add_post('/aiohttp/cfm_qsl_qso', SRV.cfm_qsl_qso_hndlr)
     APP.router.add_post('/aiohttp/qsl_admin', SRV.qsl_admin_hndlr)
