@@ -546,7 +546,6 @@ def test_chat():
     au = load_json(active_users_path)
     assert au
     assert data['callsign'] not in au
-
     logging.debug('chat -- user status update')
     data = {\
         'callsign': 'B1AH',\
@@ -558,7 +557,92 @@ def test_chat():
     au = load_json(active_users_path)
     assert au
     assert au[data['callsign']]['typing']
- 
+
+def test_cfm_qsl_qso():
+    qsl_image = None
+    with open(path.dirname(path.abspath(__file__)) + '/qsl.jpg', 'rb') as _tf:
+        qsl_image = _tf.read()
+        qsl_image = ',' + base64.b64encode(qsl_image).decode()
+    qso = {\
+        'callsign': 'TE1ST',\
+        'stationCallsign': 'R7CL/M',\
+        'rda': 'HA-01',\
+        'band': '10',\
+        'mode': 'CW',\
+        'date': '20180725',\
+        'time': '1218',\
+        'image': {\
+            'name': 'qsl.jpg',\
+            'file': qsl_image
+            }
+        }
+    token = create_token({'callsign': 'TE1ST'})
+    qsl_path = CONF.get('web', 'root') + '/qsl_images/'
+
+    def cfm_qsl_qso(data):
+        data['token'] = token
+        return requests.post(API_URI + '/cfm_qsl_qso', data=json.dumps(data))
+
+    def new_qsl():
+        rsp = cfm_qsl_qso({'qso': qso})    
+        logging.debug(rsp.text)
+        assert rsp.status_code == 200
+
+    data = None
+    def qsl_file_path(index): 
+        return qsl_path + str(data[index]['id']) + '_' + data[index]['image']
+
+    logging.debug('Cfm qsl qso -- new')
+    new_qsl()
+    qso['time'] = '1219'
+    new_qsl()
+    qso['time'] = '1220'
+    new_qsl()
+    
+    logging.debug('Cfm qsl qso -- list')
+    rsp = cfm_qsl_qso({})
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)
+    assert data
+    assert data[0]
+    assert data[0]['callsign'] == qso['callsign']
+    assert data[0]['image'] == qso['image']['name']
+    assert path.isfile(qsl_file_path(0))
+
+
+    def qsl_admin(data):
+        return requests.post(API_URI + '/qsl_admin', data=json.dumps(data))
+
+    logging.debug('qsl admin -- list')
+    rsp = qsl_admin({'token': token})
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)
+    assert data
+    assert data[0]
+    assert data[0]['callsign'] == qso['callsign']
+    assert data[0]['image'] == qso['image']['name']
+
+    logging.debug('qsl admin -- not authorized')
+    rsp = qsl_admin({'token':  create_token({'callsign': 'TE1STA'})})
+    logging.debug(rsp.text)
+    assert rsp.status_code == 400
+
+    logging.debug('qsl admin -- manage')
+    rsp = qsl_admin({'token': token,\
+            'qsl': [{'id': data[0]['id'], 'state': True, 'comment': None},\
+            {'id': data[1]['id'], 'state': False, 'comment': 'blah blah'}]})
+    assert rsp.status_code == 200
+    assert not path.isfile(qsl_file_path(0))
+    assert not path.isfile(qsl_file_path(1))
+
+    logging.debug('Cfm qsl qso -- delete')
+    rsp = cfm_qsl_qso({'delete': data[2]['id']})
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    assert not path.isfile(qsl_file_path(2))
+
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
     assert rsp.status_code == 200

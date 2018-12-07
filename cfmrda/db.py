@@ -91,8 +91,8 @@ class DBConn:
     @asyncio.coroutine
     def param_delete(self, table, id_params):
         return (yield from self.execute('delete from ' + table + \
-                " where " + params_str(id_params, ' and '), \
-                id_params))
+                " where " + params_str(id_params, ' and ') +\
+                " returning *", id_params))
 
     @asyncio.coroutine
     def param_update_insert(self, table, id_params, upd_params):

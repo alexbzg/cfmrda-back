@@ -24,13 +24,13 @@ def load_json(path_json):
     """loads json data from path, returns data or None when fails"""
     if not os.path.isfile(path_json):
         logging.exception(path_json + " not found")
-        return False
+        return None
     try:
         data = json.load(open(path_json))
         return data
     except Exception:
         logging.exception("Error loading " + path_json)
-        return False
+        return None
 
 def save_json(data, path_json):
     """saves data to json file"""

@@ -68,8 +68,8 @@ group by activator, qso.rda
 having count(distinct callsign) > 99),
 
 rda_hnt_m_b as (select distinct callsign, qso.rda, mode, band 
-from qso, uploads 
-where qso.upload_id = uploads.id and enabled
+from qso
+where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
 union
 select activator as callsign, rda, mode, band from rda_act_m_b),
 
@@ -78,14 +78,14 @@ from rda_hnt_m_b
 group by callsign, mode, band),
 
 rda_hnt_m as (select distinct callsign, qso.rda, mode
-from qso, uploads 
-where qso.upload_id = uploads.id and enabled
+from qso
+where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
 union
 select activator as callsign, rda, mode from rda_act_m),
 
 rda_hnt_b as (select distinct callsign, qso.rda, band 
-from qso, uploads 
-where qso.upload_id = uploads.id and enabled
+from qso
+where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
 union
 select activator as callsign, rda, band from rda_act_b),
 
@@ -271,7 +271,7 @@ CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
 	and callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
 	and band = new.band and mode = new.mode 
-	and tstamp = new.tstamp) then
+	and qso.tstamp = new.tstamp) then
     return null;
    end if;
   if exists (select 1 from cfm_request_qso
@@ -299,6 +299,10 @@ CREATE FUNCTION tf_qso_bi() RETURNS trigger
   if new.callsign is null
   then
     return null;
+  end if;
+  if (new.tstamp < '06-12-1991') 
+  then
+    return null;
   else
     return new;
   end if;
@@ -322,6 +326,48 @@ CREATE TABLE activators (
 
 
 ALTER TABLE activators OWNER TO postgres;
+
+--
+-- Name: cfm_qsl_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE cfm_qsl_qso (
+    id integer NOT NULL,
+    station_callsign character varying(32),
+    rda character(5) NOT NULL,
+    band character varying(16) NOT NULL,
+    mode character varying(16) NOT NULL,
+    callsign character varying(32) NOT NULL,
+    new_callsign character varying(32),
+    tstamp timestamp without time zone NOT NULL,
+    image character varying(128) NOT NULL,
+    user_cs character varying(32) NOT NULL,
+    state boolean
+);
+
+
+ALTER TABLE cfm_qsl_qso OWNER TO postgres;
+
+--
+-- Name: cfm_qsl_qso_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE cfm_qsl_qso_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE cfm_qsl_qso_id_seq OWNER TO postgres;
+
+--
+-- Name: cfm_qsl_qso_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE cfm_qsl_qso_id_seq OWNED BY cfm_qsl_qso.id;
+
 
 --
 -- Name: cfm_request_blacklist; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -396,7 +442,7 @@ ALTER TABLE cfm_requests OWNER TO postgres;
 
 CREATE TABLE qso (
     id integer NOT NULL,
-    upload_id integer NOT NULL,
+    upload_id integer,
     callsign character varying(32) NOT NULL,
     station_callsign character varying(32) NOT NULL,
     rda character(5) NOT NULL,
@@ -457,7 +503,8 @@ CREATE TABLE uploads (
     date_start date NOT NULL,
     date_end date NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
-    hash character varying(64) DEFAULT ''::character varying NOT NULL
+    hash character varying(64) DEFAULT ''::character varying NOT NULL,
+    upload_type character varying(32) DEFAULT 'adif'::character varying
 );
 
 
@@ -502,6 +549,13 @@ ALTER TABLE users OWNER TO postgres;
 -- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
+ALTER TABLE ONLY cfm_qsl_qso ALTER COLUMN id SET DEFAULT nextval('cfm_qsl_qso_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
 ALTER TABLE ONLY cfm_request_qso ALTER COLUMN id SET DEFAULT nextval('cfm_request_qso_id_seq'::regclass);
 
 
@@ -525,6 +579,14 @@ ALTER TABLE ONLY uploads ALTER COLUMN id SET DEFAULT nextval('uploads_id_seq'::r
 
 ALTER TABLE ONLY activators
     ADD CONSTRAINT activators_pkey PRIMARY KEY (upload_id, activator);
+
+
+--
+-- Name: cfm_qsl_qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY cfm_qsl_qso
+    ADD CONSTRAINT cfm_qsl_qso_pkey PRIMARY KEY (id);
 
 
 --
@@ -603,6 +665,13 @@ CREATE INDEX activators_activator_idx ON activators USING btree (activator);
 --
 
 CREATE INDEX activators_activator_upload_id_idx ON activators USING btree (activator, upload_id);
+
+
+--
+-- Name: cfm_qsl_qso_user_cs_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX cfm_qsl_qso_user_cs_fkey ON cfm_qsl_qso USING btree (user_cs);
 
 
 --
@@ -690,6 +759,13 @@ CREATE INDEX uploads_id_user_cs_idx ON uploads USING btree (id, user_cs);
 
 
 --
+-- Name: uploads_id_user_cs_upload_type_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX uploads_id_user_cs_upload_type_idx ON uploads USING btree (id, user_cs, upload_type);
+
+
+--
 -- Name: uploads_user_cs_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -711,6 +787,13 @@ CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE
 
 
 --
+-- Name: tr_cfm_requests_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON cfm_request_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_request_qso_bi();
+
+
+--
 -- Name: tr_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -726,19 +809,19 @@ ALTER TABLE ONLY activators
 
 
 --
+-- Name: cfm_qsl_qso_user_cs_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY cfm_qsl_qso
+    ADD CONSTRAINT cfm_qsl_qso_user_cs_fkey FOREIGN KEY (user_cs) REFERENCES users(callsign);
+
+
+--
 -- Name: qso_upload_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY qso
     ADD CONSTRAINT qso_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES uploads(id);
-
-
---
--- Name: uploads_user_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY uploads
-    ADD CONSTRAINT uploads_user_fkey FOREIGN KEY (user_cs) REFERENCES users(callsign);
 
 
 --
@@ -781,6 +864,26 @@ REVOKE ALL ON TABLE activators FROM PUBLIC;
 REVOKE ALL ON TABLE activators FROM postgres;
 GRANT ALL ON TABLE activators TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE activators TO "www-group";
+
+
+--
+-- Name: cfm_qsl_qso; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE cfm_qsl_qso FROM PUBLIC;
+REVOKE ALL ON TABLE cfm_qsl_qso FROM postgres;
+GRANT ALL ON TABLE cfm_qsl_qso TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_qsl_qso TO "www-group";
+
+
+--
+-- Name: cfm_qsl_qso_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON SEQUENCE cfm_qsl_qso_id_seq FROM PUBLIC;
+REVOKE ALL ON SEQUENCE cfm_qsl_qso_id_seq FROM postgres;
+GRANT ALL ON SEQUENCE cfm_qsl_qso_id_seq TO postgres;
+GRANT ALL ON SEQUENCE cfm_qsl_qso_id_seq TO "www-group";
 
 
 --
