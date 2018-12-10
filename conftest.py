@@ -47,6 +47,26 @@ def cfm_rda_server():
             '/json/hunters/' + TEST_HUNTER + '.json'
 
     @asyncio.coroutine
+    def clear_callsign(callsign):
+        yield from srv._db.execute( 
+                """delete from qso 
+                    where exists 
+                        (select user_cs from uploads
+                        where uploads.id = qso.upload_id and 
+                            user_cs = %(callsign)s)""", 
+                        {'callsign': callsign})
+        yield from srv._db.execute( 
+                """delete from activators 
+                    where exists 
+                        (select user_cs from uploads
+                        where uploads.id = activators.upload_id and 
+                            user_cs = %(callsign)s)""", 
+                        {'callsign': callsign})
+        yield from srv._db.param_delete('uploads', {'user_cs': callsign})
+        yield from srv._db.param_delete('users', {'callsign': callsign})
+
+
+    @asyncio.coroutine
     def teardown():
         
         if os.path.isfile(hunter_file):
@@ -59,23 +79,8 @@ def cfm_rda_server():
         yield from srv._db.execute( 
                 """delete from cfm_qsl_qso
                     where callsign = 'TE1ST' and station_callsign = 'R7CL/M'""")
-        yield from srv._db.execute( 
-                """delete from qso 
-                    where exists 
-                        (select user_cs from uploads
-                        where uploads.id = qso.upload_id and 
-                            user_cs = %(callsign)s)""", 
-                        {'callsign': TEST_USER})
-        yield from srv._db.execute( 
-                """delete from activators 
-                    where exists 
-                        (select user_cs from uploads
-                        where uploads.id = activators.upload_id and 
-                            user_cs = %(callsign)s)""", 
-                        {'callsign': TEST_USER})
-        yield from srv._db.param_delete('uploads', {'user_cs': TEST_USER})
-        yield from srv._db.param_delete('users', {'callsign': TEST_USER})
- 
+        yield from clear_callsign('RN6BN')
+
     loop.run_until_complete(teardown())
     yield srv
     loop.run_until_complete(teardown())

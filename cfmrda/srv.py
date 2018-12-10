@@ -8,6 +8,8 @@ import base64
 import re
 import hashlib
 import os
+import string
+import random
 from datetime import datetime
 
 from aiohttp import web
@@ -660,7 +662,8 @@ class CfmRdaServer():
                 yield from export_recent_uploads(CONF)
                 return web.Response(text="OK")
             else:
-                qso = yield from self._db.execute("""
+                response = {}
+                response['qso'] = yield from self._db.execute("""
                     select json_build_object(
                     'id', id,
                     'callsign', callsign, 
@@ -672,7 +675,20 @@ class CfmRdaServer():
                         from cfm_request_qso
                         where correspondent = %(callsign)s
                     """, {'callsign': callsign}, True)
-            return web.json_response(qso)
+                test_callsign = yield from self.get_user_data(callsign)
+                if not test_callsign:
+                    qrz_data = self._qrzcom.get_data(callsign)
+                    if qrz_data and 'email' in qrz_data and qrz_data['email']:
+                        email = qrz_data['email'].lower()
+                        password = ''.join([\
+                            random.choice(string.printable) for _ in range(8)]) 
+                        response['user'] = yield from self._db.get_object('users',\
+                            {'callsign': callsign,\
+                            'password': password,\
+                            'email': email,\
+                            'email_confirmed': True},\
+                            True)
+                return web.json_response(response)
         else:
             return callsign
 
@@ -750,7 +766,7 @@ class CfmRdaServer():
                     data['email'] = data['email'].lower()
                     qrz_data = self._qrzcom.get_data(data['callsign'])
                     if qrz_data and 'email' in qrz_data and \
-                        qrz_data['email'] == data['email']:
+                        qrz_data['email'].lower() == data['email']:
                         yield from self._db.get_object('users',\
                             {'callsign': data['callsign'],\
                             'password': data['password'],\
