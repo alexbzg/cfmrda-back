@@ -97,8 +97,11 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
             if qso['mode'] not in MODES:
                 continue
 
-            qso['tstamp'] = get_adif_field(line, 'QSO_DATE') + ' ' + \
-                    get_adif_field(line, 'TIME_ON')
+            qso_date = get_adif_field(line, 'QSO_DATE')
+            qso_time = get_adif_field(line, 'TIME_ON')
+            if not qso_date or not qso_time:
+                continue
+            qso['tstamp'] = qso_date + ' ' + qso_time
 
             if station_callsign_field:
                 qso['station_callsign'] = \

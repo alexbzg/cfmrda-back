@@ -460,6 +460,15 @@ def test_cfm_qso():
     assert rsp.status_code == 200
     data = json.loads(rsp.text)
 
+    logging.debug('Cfm qso list -- unregistered user')
+    rsp = requests.post(API_URI + '/cfm_qso',\
+        data=json.dumps({
+            'token': create_token({'callsign': 'RN6BN'})
+                }))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)
+
     logging.debug('Cfm qso changes')
     rsp = requests.post(API_URI + '/cfm_qso',\
         data=json.dumps({
