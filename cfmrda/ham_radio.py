@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 #coding=utf-8
 """various constants and functions for working with ham radio data"""
+import logging
 import re
 from rda import RDA_VALUES
 
@@ -122,13 +123,12 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                     data['activator'] = activator
 
             if rda_field:
-                qso['rda'] = get_adif_field(line, rda_field)
-                if qso['rda']:
-                    qso['rda'] = detect_rda(qso['rda'])
+                rda = get_adif_field(line, rda_field)
+                if rda:
+                    qso['rda'] = detect_rda(rda)
                 if not qso['rda']:
-                    raise ADIFParseException(\
-                        "Поле RDA (" + rda_field +\
-                        ") не найдено или содержит некорректные данные.")
+                    logging.debug('Invalid RDA: ' + rda)
+                    continue
 
             if not data['date_start'] or data['date_start'] > qso['tstamp']:
                 data['date_start'] = qso['tstamp']
