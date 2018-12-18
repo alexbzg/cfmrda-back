@@ -148,7 +148,7 @@ class QRZRuLink:
             logging.warning(r_dict)
             if 'session_id' in r_dict['QRZDatabase']['Session']:
                 self.session_id = r_dict['QRZDatabase']['Session']['session_id']
-                self.start_queue_task()
+#                self.start_queue_task()
                 self.session_task = \
                     self.loop.call_later(self._session_interval_success,\
                     self.get_session_id)
