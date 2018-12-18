@@ -666,7 +666,8 @@ class CfmRdaServer():
                     if qrz_data and 'email' in qrz_data and qrz_data['email']:
                         email = qrz_data['email'].lower()
                         password = ''.join([\
-                            random.choice(string.printable) for _ in range(8)]) 
+                            random.choice(string.digits + string.ascii_letters)\
+                            for _ in range(8)]) 
                         user_data = yield from self._db.get_object('users',\
                             {'callsign': callsign,\
                             'password': password,\
