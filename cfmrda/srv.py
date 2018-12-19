@@ -81,8 +81,15 @@ class CfmRdaServer():
 
     @asyncio.coroutine
     def get_user_data(self, callsign):
-        return (yield from self._db.get_object('users', \
-                {'callsign': callsign}, False, True))
+        data = yield from self._db.get_object('users', \
+                {'callsign': callsign}, False, True)
+        data['oldCallsigns'] = {} 
+        data['olfCallsigns']['confirmed'] = yield from\
+            self._db.get_old_callsigns(callsign, confirmed=True)
+        data['oldCallsigns']['all'] = yield from\
+            self._db.get_old_callsigns(callsign)
+        data['newCallsign'] = yield from self._db.get_new_callsign(callsign)
+        return data
 
     @asyncio.coroutine
     def login_hndlr(self, request):
@@ -675,6 +682,10 @@ class CfmRdaServer():
                             'email_confirmed': True},\
                             True)
                         if user_data:
+                            user_data['oldCallsigns'] = \
+                                {'confirmed': [], 'all': []}
+                            user_data['newCallsign'] = yield from\
+                                self._db.get_new_callsign(callsign)
                             text = """Спасибо, что воспользовались сервисом CFMRDA.ru
 
 Ваш логин - """ + callsign + """

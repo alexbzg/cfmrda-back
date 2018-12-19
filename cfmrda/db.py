@@ -184,4 +184,21 @@ class DBConn:
             raise Exception()
         return upl_id
 
+    @asyncio.coroutine
+    def get_old_callsigns(self, callsign, confirmed=False):
+        """returns array of old callsigns"""
+        sql = """select array_agg(old)
+            from old_callsigns
+            where new = %(callsign}s"""
+        if confirmed:
+            sql += " and confirmed"
+        return (yield from self.execute(sql, {'callsign': callsign}))
 
+    @asyncio.coroutine
+    def get_new_callsign(self, callsign):
+        """returns new callsign or False"""
+        return (yield from self.execute("""
+            select new 
+            from old_callsigns
+            where confirmed and old = %(callsign)
+            """, {'callsign': callsign}))

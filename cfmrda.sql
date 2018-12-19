@@ -496,6 +496,19 @@ CREATE TABLE list_rda (
 ALTER TABLE list_rda OWNER TO postgres;
 
 --
+-- Name: old_callsigns; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE old_callsigns (
+    old character varying(32) NOT NULL,
+    new character varying(32) NOT NULL,
+    confirmed boolean
+);
+
+
+ALTER TABLE old_callsigns OWNER TO postgres;
+
+--
 -- Name: qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -718,6 +731,14 @@ ALTER TABLE ONLY list_rda
 
 
 --
+-- Name: old_callsigns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY old_callsigns
+    ADD CONSTRAINT old_callsigns_pkey PRIMARY KEY (old, new);
+
+
+--
 -- Name: qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -807,6 +828,27 @@ CREATE INDEX cfm_request_qso_correspondent_callsign_idx ON cfm_request_qso USING
 --
 
 CREATE INDEX cfm_request_qso_sent_idx ON cfm_request_qso USING btree (sent);
+
+
+--
+-- Name: old_callsigns_confirmed_new_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX old_callsigns_confirmed_new_idx ON old_callsigns USING btree (confirmed, new);
+
+
+--
+-- Name: old_callsigns_confirmed_old_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX old_callsigns_confirmed_old_idx ON old_callsigns USING btree (confirmed, old);
+
+
+--
+-- Name: old_callsigns_uq; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX old_callsigns_uq ON old_callsigns USING btree (old) WHERE confirmed;
 
 
 --
@@ -1103,6 +1145,16 @@ REVOKE ALL ON TABLE list_rda FROM PUBLIC;
 REVOKE ALL ON TABLE list_rda FROM postgres;
 GRANT ALL ON TABLE list_rda TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE list_rda TO "www-group";
+
+
+--
+-- Name: old_callsigns; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE old_callsigns FROM PUBLIC;
+REVOKE ALL ON TABLE old_callsigns FROM postgres;
+GRANT ALL ON TABLE old_callsigns TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE old_callsigns TO "www-group";
 
 
 --
