@@ -202,3 +202,34 @@ class DBConn:
             from old_callsigns
             where confirmed and old = %(callsign)
             """, {'callsign': callsign}))
+
+    @asyncio.coroutine
+    def set_old_callsigns(self, callsign, new_old, confirm=False):
+        """changes old callsigns of the callsign returns False on db error, 
+        'OK' or warnings string"""
+        current_old = yield from self.get_old_callsigns(callsign)
+        current_confirmed = yield from self.get_old_callsigns(callsign, True)
+        msg = ''
+        add = []
+        delete = [{'old': cs, 'new': callsign} for cs in current_old\
+                if cs not in new_old and (cs not in current_confirmed or confirm)]
+        for _cs in new_old:
+            if _cs not in current_old:
+                check = yield from self.execute("""select new
+                    from old_callsigns 
+                    where confirmed and old = %(cs)s""",\
+                    {'cs': _cs})
+                if check:
+                    msg += ('\n' if msg else '') +\
+                        "Позывной " + _cs + " уже назначен старым позыным " +\
+                        check + "."
+                add.append({'old': _cs, 'new': callsign, 'confirmed': confirm})
+        if not (yield from self.execute("""
+            insert into old_callsigns (old, new, confirmed)
+            values (%(old)s, %(new)s)""", add)):
+            return False
+        if not (yield from self.execute("""
+            delete from old_callsigns
+            where old = %(old)s and new = %(new)""", delete)):
+            return False
+        return msg if msg else 'OK'
