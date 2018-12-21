@@ -84,7 +84,7 @@ class CfmRdaServer():
         data = yield from self._db.get_object('users', \
                 {'callsign': callsign}, False, True)
         data['oldCallsigns'] = {}
-        data['olfCallsigns']['confirmed'] = yield from\
+        data['oldCallsigns']['confirmed'] = yield from\
             self._db.get_old_callsigns(callsign, confirmed=True)
         data['oldCallsigns']['all'] = yield from\
             self._db.get_old_callsigns(callsign)

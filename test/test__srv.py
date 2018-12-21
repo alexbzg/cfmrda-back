@@ -159,7 +159,7 @@ def test_contact_support(cfm_rda_server):
         {'token': cfm_rda_server.create_token({'callsign': TEST_USER}), 
         'text':'blah blah blah blah blah blah blah'},
         200))
-    
+         
     for (title, data, expect_code) in params:
         loop.run_until_complete(do_test(title, data, expect_code))
 
@@ -227,25 +227,26 @@ def test_password_change(cfm_rda_server):
     loop.run_until_complete(check_db(cfm_rda_server,\
             {'password': '22222222'}))
 
-def login(title, expect_code):
-    logging.debug('login test: title')
-    rsp = requests.post(API_URI + '/login',\
-        data=json.dumps(\
-        {'callsign': user_data['callsign'], 
-        'password': user_data['password'], 
-        'mode': 'login'}))
-    logging.debug(rsp.text)
-    assert rsp.status_code == expect_code
-    if expect_code == 200:
+def test_login():
+    logging.debug('login test')
+    login_data = {'callsign': 'TE1ST', 
+        'password': '11111111', 
+        'mode': 'login'}
+
+    def login():
+        rsp = requests.post(API_URI + '/login', data=json.dumps(login_data))
+        logging.debug(rsp.text)
+        assert rsp.status_code == 200
         data = json.loads(rsp.text)
         assert data['token']
-        assert data['email'] == user_data['email']
-        user_data['token'] = data['token']
+        return data
+
+    data = login()
+    assert data['oldCallsigns']['confirmed']
+    login_data['callsign'] = 'TE1STOLD'
+    data = login()
+    assert data['newCallsign']
    
-def test_login():
-    login('correct', 200)
-
-
 def test_ADIF_upload():
 
     def do_test(title, data, expect_code, files_loaded):

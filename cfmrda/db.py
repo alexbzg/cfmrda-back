@@ -189,7 +189,7 @@ class DBConn:
         """returns array of old callsigns"""
         sql = """select array_agg(old)
             from old_callsigns
-            where new = %(callsign}s"""
+            where new = %(callsign)s"""
         if confirmed:
             sql += " and confirmed"
         return (yield from self.execute(sql, {'callsign': callsign}))
@@ -200,7 +200,7 @@ class DBConn:
         return (yield from self.execute("""
             select new 
             from old_callsigns
-            where confirmed and old = %(callsign)
+            where confirmed and old = %(callsign)s
             """, {'callsign': callsign}))
 
     @asyncio.coroutine

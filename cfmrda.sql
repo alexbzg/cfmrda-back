@@ -313,6 +313,24 @@ CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
 ALTER FUNCTION public.tf_cfm_request_qso_bi() OWNER TO postgres;
 
 --
+-- Name: tf_old_callsigns_aiu(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_old_callsigns_aiu() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$begin
+  if new.confirmed then
+    update qso 
+      set callsign = new.new, old_callsign = new.old 
+      where callsign = new.old;
+  end if;
+  return new;
+end$$;
+
+
+ALTER FUNCTION public.tf_old_callsigns_aiu() OWNER TO postgres;
+
+--
 -- Name: tf_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -521,7 +539,8 @@ CREATE TABLE qso (
     band character varying(8) NOT NULL,
     mode character varying(16) NOT NULL,
     tstamp timestamp without time zone NOT NULL,
-    dt date DEFAULT date(now()) NOT NULL
+    dt date DEFAULT date(now()) NOT NULL,
+    old_callsign character varying(32)
 );
 
 
@@ -982,6 +1001,13 @@ CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE
 --
 
 CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON cfm_request_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_request_qso_bi();
+
+
+--
+-- Name: tr_old_callsigns_aiu; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON old_callsigns FOR EACH ROW EXECUTE PROCEDURE tf_old_callsigns_aiu();
 
 
 --
