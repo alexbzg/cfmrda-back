@@ -277,11 +277,11 @@ class CfmRdaServer():
                 error['message'] = "Файл уже загружен"
                 return error
             adif_enc = chardet.detect(adif_bytes)
-            adif = adif_bytes.decode(adif_enc['encoding'])
+            adif = adif_bytes.decode(adif_enc['encoding'], 'ignore')
             adif_data = load_adif(adif, \
                 station_callsign_field=station_callsign_field,\
                 rda_field=rda_field)
-            logging.debug(adif_data)
+            logging.debug('ADIF parsed')
 
             upl_id = yield from self._db.insert_upload(\
                 callsign=callsign,\
@@ -293,6 +293,7 @@ class CfmRdaServer():
                     else set([])))
             if not upl_id:
                 raise Exception()
+            logging.debug('upload_id ' + str(upl_id))
 
             qso_sql = """insert into qso
                 (upload_id, callsign, station_callsign, rda,

@@ -118,9 +118,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 qso['station_callsign'] = \
                     get_adif_field(line, station_callsign_field)
                 if not qso['station_callsign']:
-                    raise ADIFParseException(\
-                        "Не найдено поле позывного активатора ('" + \
-                        station_callsign_field + "').")
+                    continue
                 activator = strip_callsign(qso['station_callsign'])
                 if not activator:
                     continue

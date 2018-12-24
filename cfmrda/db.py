@@ -113,15 +113,21 @@ class DBConn:
                 if self.verbose:
                     logging.debug(sql)
                     logging.debug(params)
+                logging.debug(sql)
+                logging.debug('Type of params: ' + str(type(params)))
                 if not params or isinstance(params, dict):
+                    logging.debug('Single execute')
                     yield from cur.execute(sql, params)
                     res = (yield from to_dict(cur, keys))\
                         if cur.description != None else True
+                    logging.debug(res)
                 else:
+                    logging.debug("Multiple execute")                    
                     yield from cur.execute('begin transaction;')
                     for item in params:
                         yield from cur.execute(sql, item)
                     yield from cur.execute('commit transaction;')
+                    logging.debug("Multiple execute OK")
                     res = True
             except Exception:
                 if cur.connection.get_transaction_status() !=\
