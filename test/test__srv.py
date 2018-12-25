@@ -227,24 +227,25 @@ def test_password_change(cfm_rda_server):
     loop.run_until_complete(check_db(cfm_rda_server,\
             {'password': '22222222'}))
 
+def login(login_data):
+    login_data['mode'] = 'login'
+    rsp = requests.post(API_URI + '/login', data=json.dumps(login_data))
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)
+    assert data['token']
+    return data
+
+
 def test_login():
     logging.debug('login test')
     login_data = {'callsign': 'TE1ST', 
-        'password': '11111111', 
-        'mode': 'login'}
+        'password': '11111111'}
 
-    def login():
-        rsp = requests.post(API_URI + '/login', data=json.dumps(login_data))
-        logging.debug(rsp.text)
-        assert rsp.status_code == 200
-        data = json.loads(rsp.text)
-        assert data['token']
-        return data
-
-    data = login()
+    data = login(login_data)
     assert data['oldCallsigns']['confirmed']
     login_data['callsign'] = 'TE1STOLD'
-    data = login()
+    data = login(login_data())
     assert data['newCallsign']
    
 def test_ADIF_upload():
@@ -652,6 +653,41 @@ def test_cfm_qsl_qso():
     logging.debug(rsp.text)
     assert rsp.status_code == 200
     assert not path.isfile(qsl_file_path(2))
+
+def test_old_callsigns():
+    callsign = 'TE1ST'
+    old_callsigns = ['TE1STOLD', 'TE1STOLDOLD']
+
+    def request():
+        return requests.post(API_URI + '/old_callsigns',\
+            data=json.dumps({'token': create_token({'callsign': callsign}),\
+                'callsigns': old_callsigns}))
+
+    def check():
+        login_data = {'callsign': callsign, 'password': '11111111'}
+        user_data = login(login_data)
+        assert not set(old_callsigns).difference(set(user_data['oldCalsigns']))
+        
+    logging.debug('Old callsigns -- add')
+    rsp = request()
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    check()
+
+    logging.debug('Old callsigns -- delete')
+    old_callsigns = ['TE1STOLD']
+    rsp = request()
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    check()
+
+    logging.debug('Old callsigns -- login callsign is old too')
+    callsign = 'TE1STOLD'
+    old_callsigns = ['TE1STOLDOLD']
+    rsp = request()
+    logging.debug(rsp.text)
+    assert rsp.status_code == 400
+
 
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 

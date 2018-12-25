@@ -1023,7 +1023,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/old_callsigns',\
         SRV.handler_wrap(SRV.old_callsigns_hndlr, 'oldCallsigns'))
     APP.router.add_post('/aiohttp/old_callsigns_admin',\
-        SRV.handler_wrap(SRV.old_callsigns_hndlr, require_admin=True))
+        SRV.handler_wrap(SRV.old_callsigns_admin_hndlr, require_admin=True))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
