@@ -285,6 +285,26 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
 ALTER FUNCTION public.tf_activators_bi() OWNER TO postgres;
 
 --
+-- Name: tf_cfm_qsl_qso_au(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_cfm_qsl_qso_au() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$begin
+  if new.state and (not old.state or old.state is null) then
+    insert into qso (callsign, station_callsign, rda, band, mode, tstamp)
+      values (coalesce(new.new_callsign, new.callsign), new.station_callsign, new.rda,
+        new.band, new.mode, new.tstamp);
+  end if;
+  return new;
+end;
+  
+   $$;
+
+
+ALTER FUNCTION public.tf_cfm_qsl_qso_au() OWNER TO postgres;
+
+--
 -- Name: tf_cfm_request_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -532,7 +552,7 @@ ALTER TABLE old_callsigns OWNER TO postgres;
 
 CREATE TABLE qso (
     id integer NOT NULL,
-    upload_id integer NOT NULL,
+    upload_id integer,
     callsign character varying(32) NOT NULL,
     station_callsign character varying(32) NOT NULL,
     rda character(5) NOT NULL,
@@ -994,6 +1014,13 @@ CREATE INDEX uploads_id_user_cs_upload_type_idx ON uploads USING btree (id, user
 --
 
 CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE PROCEDURE tf_activators_bi();
+
+
+--
+-- Name: tr_cfm_qsl_qso; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_cfm_qsl_qso AFTER UPDATE ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_au();
 
 
 --
