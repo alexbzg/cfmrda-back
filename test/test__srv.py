@@ -666,7 +666,8 @@ def test_old_callsigns():
     def check():
         login_data = {'callsign': callsign, 'password': '11111111'}
         user_data = login(login_data)
-        assert not set(old_callsigns).difference(set(user_data['oldCalsigns']))
+        assert not set(old_callsigns).difference(\
+            set(user_data['oldCallsigns']['all']))
         
     logging.debug('Old callsigns -- add')
     rsp = request()
@@ -686,8 +687,44 @@ def test_old_callsigns():
     old_callsigns = ['TE1STOLDOLD']
     rsp = request()
     logging.debug(rsp.text)
-    assert rsp.status_code == 400
+    assert rsp.status_code == 200
+    old_callsigns = []
+    check()
 
+def test_old_callsigns_admin():
+    admin = 'TE1ST'
+    callsign = 'R7AB'
+    old_callsigns = ['RN6BN', 'RN6BNOLD']
+
+    def request(cfm):
+        data = {'token': create_token({'callsign': admin})}
+        if cfm:
+            data['confirm'] = {'new': callsign,
+                'old': old_callsigns}
+        return requests.post(API_URI + '/old_callsigns_admin',\
+            data=json.dumps(data))
+
+    def check():
+        data = json.loads(request(False).text)
+        logging.debug(data)
+        user_data = [x for x in data if x['new'] == callsign][0]
+        assert user_data['confirmed']
+        user_callsigns = set([x['callsign'] for x in user_data['old']])
+        assert not set(old_callsigns).difference(user_callsigns)
+        
+    logging.debug('Old callsigns -- admin')
+    rsp = request(False)
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+
+    logging.debug('Old callsigns -- admin edit')
+    rsp = request(True)
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    check()
+
+    old_callsigns = ['RN6BN', 'R6AUV']
+    rsp = request(True)
 
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 

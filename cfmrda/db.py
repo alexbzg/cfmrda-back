@@ -205,10 +205,19 @@ class DBConn:
 
     @asyncio.coroutine
     def set_old_callsigns(self, callsign, new_old, confirm=False):
-        """changes old callsigns of the callsign returns False on db error, 
+        """changes old callsigns of the callsign returns False on db error,
         'OK' or warnings string"""
+        new_check = yield from self.get_new_callsign(callsign)
+        if new_check:
+            return "Позывной " + callsign + " назначен старым позывным для "\
+                + new_check + " и не может иметь старых позывных."
         current_old = yield from self.get_old_callsigns(callsign)
-        current_confirmed = yield from self.get_old_callsigns(callsign, True)
+        if not current_old:
+            current_old = []
+        current_confirmed = [] if confirm else\
+            (yield from self.get_old_callsigns(callsign, True))
+        if not current_confirmed:
+            current_confirmed = []
         msg = ''
         add = []
         delete = [{'old': cs, 'new': callsign} for cs in current_old\
@@ -224,12 +233,14 @@ class DBConn:
                         "Позывной " + _cs + " уже назначен старым позыным " +\
                         check + "."
                 add.append({'old': _cs, 'new': callsign, 'confirmed': confirm})
-        if not (yield from self.execute("""
-            insert into old_callsigns (old, new, confirmed)
-            values (%(old)s, %(new)s)""", add)):
-            return False
-        if not (yield from self.execute("""
-            delete from old_callsigns
-            where old = %(old)s and new = %(new)""", delete)):
-            return False
+        if add:
+            if not (yield from self.execute("""
+                insert into old_callsigns (old, new, confirmed)
+                values (%(old)s, %(new)s, %(confirmed)s)""", add)):
+                return False
+        if delete:
+            if not (yield from self.execute("""
+                delete from old_callsigns
+                where old = %(old)s and new = %(new)s""", delete)):
+                return False
         return msg if msg else 'OK'

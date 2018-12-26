@@ -615,7 +615,7 @@ class CfmRdaServer():
             else:
                 return CfmRdaServer.response_error_default()
         else:
-            callsigns = self._db.execute("""
+            callsigns = yield from self._db.execute("""
                 select new, 
                     array_agg(json_build_object('callsign', old, 
                         'confirmed', confirmed)) as old, 
@@ -917,11 +917,11 @@ support@cfmrda.ru"""
                                 'time', to_char(qso.tstamp, 'HH24:MI'),
                                 'stationCallsign', station_callsign,
                                 'uploadId', uploads.id,
-                                'uploadType', upload_type,
+                                'uploadType', coalesce( upload_type, 'QSL card'),
                                 'uploader', uploads.user_cs)) as data
-                        from qso, uploads
-                        where callsign = %(callsign)s and enabled 
-                            and qso.upload_id = uploads.id
+                        from qso left join uploads on qso.upload_id = uploads.id
+                        where callsign = %(callsign)s and 
+                            (enabled or upload_id is null)
                         group by qso.rda
                         union all
                         select rda, 'activator' as type,
