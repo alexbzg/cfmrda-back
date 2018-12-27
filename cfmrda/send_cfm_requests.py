@@ -44,7 +44,7 @@ def main():
         token = create_token(secret, {'callsign': row['correspondent']})
         link_cfm = conf.get('web', 'address') + '/#/cfm_qso/?token=' + token
         link_blacklist = conf.get('web', 'address') +\
-            '/#/cfm_request_blacklist/?token=' + token
+            '/#/cfm_blacklist/?token=' + token
         qso_txt = format_qsos(row['qso'])
         text = ("""
 Здравствуйте, {correspondent}.
