@@ -83,12 +83,13 @@ class CfmRdaServer():
     def get_user_data(self, callsign):
         data = yield from self._db.get_object('users', \
                 {'callsign': callsign}, False, True)
-        data['oldCallsigns'] = {}
-        data['oldCallsigns']['confirmed'] = yield from\
-            self._db.get_old_callsigns(callsign, confirmed=True)
-        data['oldCallsigns']['all'] = yield from\
-            self._db.get_old_callsigns(callsign)
-        data['newCallsign'] = yield from self._db.get_new_callsign(callsign)
+        if data:
+            data['oldCallsigns'] = {}
+            data['oldCallsigns']['confirmed'] = yield from\
+                self._db.get_old_callsigns(callsign, confirmed=True)
+            data['oldCallsigns']['all'] = yield from\
+                self._db.get_old_callsigns(callsign)
+            data['newCallsign'] = yield from self._db.get_new_callsign(callsign)
         return data
 
     @asyncio.coroutine
@@ -905,6 +906,9 @@ support@cfmrda.ru"""
     def hunter_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
+            new_callsign = yield from self._db.get_new_callsign(callsign)
+            if new_callsign:
+                return web.json_response({'newCallsign': new_callsign})
             qso = yield from self._db.execute("""
                 select json_object_agg(rda, data) as data
                 from
@@ -948,7 +952,10 @@ support@cfmrda.ru"""
                 rank = yield from self._db.execute("""
                 select rankings_json('callsign = '%(callsign)s'') as data
                 """, {'callsign': callsign}, False)
-                return web.json_response({'qso': qso, 'rank': rank})
+                data = {'qso': qso, 'rank': rank}
+                data['oldCallsigns'] = yield from\
+                    self._db.get_old_callsigns(callsign, True)
+                return web.json_response(data)
             else:
                 return web.json_response(False)
         else:
