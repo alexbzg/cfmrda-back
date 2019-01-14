@@ -612,7 +612,10 @@ class CfmRdaServer():
             res = yield from self._db.set_old_callsigns(data['confirm']['new'],\
                 data['confirm']['old'], True)
             if res:
-                return web.Response(text=res)
+                if res == 'OK':
+                    return web.Response(text='OK')
+                else:
+                    return web.HTTPBadRequest(text=res)
             else:
                 return CfmRdaServer.response_error_default()
         else:

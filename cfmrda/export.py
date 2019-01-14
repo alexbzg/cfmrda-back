@@ -77,9 +77,8 @@ def export_msc(conf):
 
     data = {}
     data['qsoCount'] = (yield from _db.execute("""
-        select n_live_tup AS qso_count
-        from pg_stat_user_tables 
-        where relname = 'qso' and schemaname = 'public';    
+        select count(*) as qso_count
+        from qso;    
     """, None, False))
     save_json(data, conf.get('web', 'root') + '/json/msc.json')
 
