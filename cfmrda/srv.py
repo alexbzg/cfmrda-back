@@ -625,7 +625,9 @@ class CfmRdaServer():
                         'confirmed', confirmed)) as old, 
                     bool_and(confirmed) as confirmed 
                 from old_callsigns
-                group by new""")
+                group by new""", keys=True)
+            if not callsigns:
+                callsigns = []
             return web.json_response(callsigns)
 
     @asyncio.coroutine
