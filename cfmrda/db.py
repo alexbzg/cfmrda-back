@@ -66,7 +66,7 @@ class DBConn:
     def connect(self):
         try:
             self.pool = yield from aiopg.create_pool(self.dsn, \
-                    timeout=3600,\
+                    timeout=7200,\
                     on_connect=init_connection)
             logging.debug('db connections pool created')
         except Exception:

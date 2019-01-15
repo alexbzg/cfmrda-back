@@ -356,9 +356,11 @@ ALTER FUNCTION public.tf_old_callsigns_aiu() OWNER TO postgres;
 
 CREATE FUNCTION tf_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$begin
+    AS $$
+declare new_callsign character varying(32);
+begin
   new.callsign = strip_callsign(new.callsign);
-  new.dt = date(new.tstamp);
+  new.dt = date(new.tstamp);  
   if new.callsign is null
   then
     return null;
@@ -366,9 +368,16 @@ CREATE FUNCTION tf_qso_bi() RETURNS trigger
   if (new.tstamp < '06-12-1991') 
   then
     return null;
-  else
-    return new;
   end if;
+  select old_callsigns.new into new_callsign
+    from old_callsigns 
+    where old_callsigns.old = new.callsign and confirmed;
+  if found
+  then  
+    new.old_callsign = new.callsign;
+    new.callsign = new_callsign;
+  end if;
+  return new;
  end$$;
 
 
