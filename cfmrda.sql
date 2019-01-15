@@ -32,138 +32,160 @@ SET search_path = public, pg_catalog;
 CREATE FUNCTION build_rankings() RETURNS void
     LANGUAGE plpgsql
     AS $$begin
-delete from rankings;
-insert into rankings 
-select * from
-(with rda_act_m_b as (select activator, qso.rda, mode, band, count(distinct callsign)
-from qso, uploads, activators
-where qso.upload_id = uploads.id and enabled and activators.upload_id = qso.upload_id
-group by activator, mode, band, qso.rda
-having count(distinct callsign) > 99),
+/*rda*/
 
-act_m_b as (select activator, mode, band, count(rda), rank() over (partition by mode, band order by count(rda) desc)
+delete from rda_activator;
+delete from rda_hunter;
+
+insert into rda_hunter (hunter, mode, band, rda)
+select distinct callsign, mode, band, rda from qso;
+
+insert into rda_activator 
+select activator, rda, band, mode, count(distinct callsign) as callsigns
+from activators, qso
+where (select enabled from uploads where id = activators.upload_id) and activators.upload_id = qso.upload_id
+group by activator, rda, band, mode;
+
+insert into rda_hunter
+select activator, rda, band, mode
+from rda_activator
+where callsigns > 99 and not exists 
+(select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator.rda and rda_hunter.band = rda_activator.band and rda_hunter.mode = rda_activator.mode);
+
+insert into rda_hunter
+select activator, rda, band, null
+from
+(select activator, rda, band
+from rda_activator
+group by activator, rda, band
+having sum(callsigns) > 99) as rda_activator_tm
+where not exists
+(select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tm.rda and rda_hunter.band = rda_activator_tm.band);
+
+insert into rda_hunter
+select activator, rda, null, null
+from
+(select activator, rda
+from rda_activator
+group by activator, rda
+having sum(callsigns) > 99) as rda_activator_tt
+where not exists
+(select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tt.rda);
+
+/*rankings*/
+delete from rankings;
+with rda_act_m_b as 
+(select activator, mode, band, rda
+from rda_activator
+where callsigns > 99),
+
+act_m_b as 
+(select activator, mode, band, count(rda), rank() over (partition by mode, band order by count(rda) desc)
 from rda_act_m_b
 group by activator, mode, band),
 
-rda_act_b as (select activator, qso.rda, band, count(distinct callsign)
-from qso, uploads, activators
-where qso.upload_id = uploads.id and enabled and activators.upload_id = qso.upload_id
-group by activator, band, qso.rda
-having count(distinct callsign) > 99),
-
-act_b as (select activator, band, count(rda), rank() over (partition by band order by count(rda) desc)
-from rda_act_b
+act_t_b as
+(select activator, band, count(rda), rank() over (partition by band order by count(rda) desc)
+from
+(select activator, rda, band
+from rda_activator
+group by activator, rda, band
+having sum(callsigns) > 99) as act_total_band_f
 group by activator, band),
 
-rda_act_m as (select activator, qso.rda, mode, count(distinct callsign)
-from qso, uploads, activators
-where qso.upload_id = uploads.id and enabled and activators.upload_id = qso.upload_id
-group by activator, mode, qso.rda
-having count(distinct callsign) > 99),
+hnt_t_b as 
+(select 'hunter', 'total', band, hunter, count(distinct rda), rank() over (partition by band order by count(distinct rda) desc)
+from rda_hunter
+where band is not null
+group by hunter, band)
 
-rda_act as (select activator, qso.rda, count(distinct callsign)
-from qso, uploads, activators
-where qso.upload_id = uploads.id and enabled and activators.upload_id = qso.upload_id
-group by activator, qso.rda
-having count(distinct callsign) > 99),
+insert into rankings
+/*--- ACTIVATORS ---*/
 
-rda_hnt_m_b as (select distinct callsign, qso.rda, mode, band 
-from qso
-where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
-union
-select activator as callsign, rda, mode, band from rda_act_m_b),
-
-hnt_m_b as (select callsign, mode, band, count(rda), rank() over (partition by mode, band order by count(rda) desc)
-from rda_hnt_m_b
-group by callsign, mode, band),
-
-rda_hnt_m as (select distinct callsign, qso.rda, mode
-from qso
-where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
-union
-select activator as callsign, rda, mode from rda_act_m),
-
-rda_hnt_b as (select distinct callsign, qso.rda, band 
-from qso
-where (select enabled from uploads where qso.upload_id = uploads.id) or qso.upload_id is null
-union
-select activator as callsign, rda, band from rda_act_b),
-
-hnt_b as (select callsign, band, count(rda), rank() over (partition by band order by count(rda) desc)
-from rda_hnt_b
-group by callsign, band),
-
-rda_hnt as (select distinct callsign, qso.rda 
-from qso, uploads 
-where qso.upload_id = uploads.id and enabled
-union
-select activator as callsign, rda from rda_act)
-
-select 'activator', mode, band, activator, count, rank
-from act_m_b
+/*mode, band*/
+select 'activator', mode, band, activator, count, rank from act_m_b 
 
 union all
 
-select 'activator', mode, 'bandsSum', activator, sum(count), rank() over(partition by mode order by sum(count) desc)
+/*mode, bandsSum*/
+select 'activator', mode, 'bandsSum', activator, sum(count), rank() over (partition by mode order by sum(count) desc)
 from act_m_b
 group by activator, mode
 
 union all
 
-select 'activator', mode, 'total', activator, count(rda), rank() over(partition by mode order by count(rda) desc) from
-rda_act_m
+/*mode, total*/
+select 'activator', mode, 'total', activator, count(rda), rank() over (partition by mode order by count(rda) desc)
+from
+(select activator, mode, rda
+from rda_activator
+group by activator, mode, rda
+having sum(callsigns) > 99) as act_m_total_f
 group by activator, mode
 
-union all 
+union all
+/*total, total*/
+select 'activator', 'total', 'total', activator, count(rda), rank() over (order by count(rda) desc)
+from
+(select activator, rda
+from rda_activator
+group by activator, rda
+having sum(callsigns) > 99) as act_total_total_f
+group by activator
 
+union all
+/*total, bandsSum*/
+select 'activator', 'total', 'bandsSum', activator, sum(count), rank() over (order by sum(count) desc)
+from act_t_b
+group by activator
+
+union all
+/*total, band*/
 select 'activator', 'total', band, activator, count, rank
-from act_b
+from act_t_b
+
+/*--- HUNTERS ---*/
 
 union all
-
-select 'activator', 'total', 'bandsSum', activator, sum(count), rank() over(order by sum(count) desc)
-from act_b
-group by activator
-
-union all
-
-select 'activator', 'total', 'total', activator, count(rda), rank() over(order by count(rda) desc)
-from rda_act
-group by activator
+/*mode, band*/
+select 'hunter', mode, band, hunter, count(*), rank() over (partition by mode, band order by count(*) desc)
+from rda_hunter
+where mode is not null and band is not null
+group by hunter, mode, band
 
 union all
-
-select 'hunter', mode, band, callsign, count, rank
-from hnt_m_b
-
-union all
-
-select 'hunter', mode, 'bandsSum', callsign, sum(count), rank() over(partition by mode order by sum(count) desc)
-from hnt_m_b
-group by callsign, mode
+/*mode, bandsSum*/
+select 'hunter', mode, 'bandsSum', hunter, count(*), rank() over (partition by mode order by count(*) desc)
+from rda_hunter
+where mode is not null
+group by hunter, mode
 
 union all
-
-select 'hunter', mode, 'total', callsign, count(rda), rank() over(partition by mode order by count(rda) desc)
-from rda_hnt_m
-group by callsign, mode
-
-union all
-
-select 'hunter', 'total', band, callsign, count, rank
-from hnt_b
+/*mode, total*/
+select 'hunter', mode, 'total', hunter, count(distinct rda), rank() over (partition by mode order by count(distinct rda) desc)
+from rda_hunter
+where mode is not null
+group by hunter, mode
 
 union all
-
-select 'hunter', 'total', 'bandsSum', callsign, sum(count), rank() over(order by sum(count) desc)
-from hnt_b
-group by callsign
+/*total, total*/
+select 'hunter', 'total', 'total', hunter, count(distinct rda), rank() over (order by count(distinct rda) desc)
+from rda_hunter
+where band is not null
+group by hunter
 
 union all
+/*total, band*/
+select 'hunter', 'total', band, hunter, count, rank
+from hnt_t_b
 
-select 'hunter', 'total', 'total', callsign, count(rda), rank() over(order by count(rda) desc)
-from rda_hnt
-group by callsign) as r;
+union all
+/*total, bandsSum */
+select 'hunter', 'total', 'bandsSum', hunter, sum(count), rank() over (order by sum(count) desc)
+from hnt_t_b
+group by hunter;
+
+
 end$$;
 
 
@@ -251,6 +273,9 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
   if new.activator is null
   then
     return null;
+  elsif exists (select 1 from activators where upload_id = new.upload_id and activator = new.activator)
+  then
+    return null;
   else
     return new;
   end if;
@@ -258,6 +283,26 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
 
 
 ALTER FUNCTION public.tf_activators_bi() OWNER TO postgres;
+
+--
+-- Name: tf_cfm_qsl_qso_au(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_cfm_qsl_qso_au() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$begin
+  if new.state and (not old.state or old.state is null) then
+    insert into qso (callsign, station_callsign, rda, band, mode, tstamp)
+      values (coalesce(new.new_callsign, new.callsign), new.station_callsign, new.rda,
+        new.band, new.mode, new.tstamp);
+  end if;
+  return new;
+end;
+  
+   $$;
+
+
+ALTER FUNCTION public.tf_cfm_qsl_qso_au() OWNER TO postgres;
 
 --
 -- Name: tf_cfm_request_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -288,14 +333,34 @@ CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
 ALTER FUNCTION public.tf_cfm_request_qso_bi() OWNER TO postgres;
 
 --
+-- Name: tf_old_callsigns_aiu(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_old_callsigns_aiu() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$begin
+  if new.confirmed then
+    update qso 
+      set callsign = new.new, old_callsign = new.old 
+      where callsign = new.old;
+  end if;
+  return new;
+end$$;
+
+
+ALTER FUNCTION public.tf_old_callsigns_aiu() OWNER TO postgres;
+
+--
 -- Name: tf_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION tf_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$begin
+    AS $$
+declare new_callsign character varying(32);
+begin
   new.callsign = strip_callsign(new.callsign);
-  new.dt = date(new.tstamp);
+  new.dt = date(new.tstamp);  
   if new.callsign is null
   then
     return null;
@@ -303,9 +368,16 @@ CREATE FUNCTION tf_qso_bi() RETURNS trigger
   if (new.tstamp < '06-12-1991') 
   then
     return null;
-  else
-    return new;
   end if;
+  select old_callsigns.new into new_callsign
+    from old_callsigns 
+    where old_callsigns.old = new.callsign and confirmed;
+  if found
+  then  
+    new.old_callsign = new.callsign;
+    new.callsign = new_callsign;
+  end if;
+  return new;
  end$$;
 
 
@@ -342,7 +414,8 @@ CREATE TABLE cfm_qsl_qso (
     tstamp timestamp without time zone NOT NULL,
     image character varying(128) NOT NULL,
     user_cs character varying(32) NOT NULL,
-    state boolean
+    state boolean,
+    comment character varying(256)
 );
 
 
@@ -437,6 +510,52 @@ CREATE TABLE cfm_requests (
 ALTER TABLE cfm_requests OWNER TO postgres;
 
 --
+-- Name: list_bands; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE list_bands (
+    band character varying(16) NOT NULL
+);
+
+
+ALTER TABLE list_bands OWNER TO postgres;
+
+--
+-- Name: list_modes; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE list_modes (
+    mode character varying(16) NOT NULL
+);
+
+
+ALTER TABLE list_modes OWNER TO postgres;
+
+--
+-- Name: list_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE list_rda (
+    rda character(5) NOT NULL
+);
+
+
+ALTER TABLE list_rda OWNER TO postgres;
+
+--
+-- Name: old_callsigns; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE old_callsigns (
+    old character varying(32) NOT NULL,
+    new character varying(32) NOT NULL,
+    confirmed boolean
+);
+
+
+ALTER TABLE old_callsigns OWNER TO postgres;
+
+--
 -- Name: qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -449,7 +568,8 @@ CREATE TABLE qso (
     band character varying(8) NOT NULL,
     mode character varying(16) NOT NULL,
     tstamp timestamp without time zone NOT NULL,
-    dt date DEFAULT date(now()) NOT NULL
+    dt date DEFAULT date(now()) NOT NULL,
+    old_callsign character varying(32)
 );
 
 
@@ -491,6 +611,35 @@ CREATE TABLE rankings (
 
 
 ALTER TABLE rankings OWNER TO postgres;
+
+--
+-- Name: rda_activator; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE rda_activator (
+    activator character varying(32) NOT NULL,
+    rda character(5) NOT NULL,
+    band character varying(8) NOT NULL,
+    mode character varying(16) NOT NULL,
+    callsigns bigint
+);
+
+
+ALTER TABLE rda_activator OWNER TO postgres;
+
+--
+-- Name: rda_hunter; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE rda_hunter (
+    hunter character varying(32) NOT NULL,
+    rda character(5) NOT NULL,
+    band character varying(16),
+    mode character varying(16)
+);
+
+
+ALTER TABLE rda_hunter OWNER TO postgres;
 
 --
 -- Name: uploads; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -606,6 +755,38 @@ ALTER TABLE ONLY cfm_request_qso
 
 
 --
+-- Name: list_bands_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY list_bands
+    ADD CONSTRAINT list_bands_pkey PRIMARY KEY (band);
+
+
+--
+-- Name: list_modes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY list_modes
+    ADD CONSTRAINT list_modes_pkey PRIMARY KEY (mode);
+
+
+--
+-- Name: list_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY list_rda
+    ADD CONSTRAINT list_rda_pkey PRIMARY KEY (rda);
+
+
+--
+-- Name: old_callsigns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY old_callsigns
+    ADD CONSTRAINT old_callsigns_pkey PRIMARY KEY (old, new);
+
+
+--
 -- Name: qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -627,6 +808,22 @@ ALTER TABLE ONLY cfm_requests
 
 ALTER TABLE ONLY rankings
     ADD CONSTRAINT rankings_pkey PRIMARY KEY (role, mode, band, callsign);
+
+
+--
+-- Name: rda_activator_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY rda_activator
+    ADD CONSTRAINT rda_activator_pkey PRIMARY KEY (activator, rda, band, mode);
+
+
+--
+-- Name: rda_hunter_uq; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY rda_hunter
+    ADD CONSTRAINT rda_hunter_uq UNIQUE (hunter, rda, band, mode);
 
 
 --
@@ -661,13 +858,6 @@ CREATE INDEX activators_activator_idx ON activators USING btree (activator);
 
 
 --
--- Name: activators_activator_upload_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX activators_activator_upload_id_idx ON activators USING btree (activator, upload_id);
-
-
---
 -- Name: cfm_qsl_qso_user_cs_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -686,6 +876,27 @@ CREATE INDEX cfm_request_qso_correspondent_callsign_idx ON cfm_request_qso USING
 --
 
 CREATE INDEX cfm_request_qso_sent_idx ON cfm_request_qso USING btree (sent);
+
+
+--
+-- Name: old_callsigns_confirmed_new_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX old_callsigns_confirmed_new_idx ON old_callsigns USING btree (confirmed, new);
+
+
+--
+-- Name: old_callsigns_confirmed_old_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX old_callsigns_confirmed_old_idx ON old_callsigns USING btree (confirmed, old);
+
+
+--
+-- Name: old_callsigns_uq; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX old_callsigns_uq ON old_callsigns USING btree (old) WHERE confirmed;
 
 
 --
@@ -745,6 +956,48 @@ CREATE INDEX rankings_top100 ON rankings USING btree (role, mode, band, callsign
 
 
 --
+-- Name: rda_activator_activator_rda_band_mode_callsigns_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX rda_activator_activator_rda_band_mode_callsigns_idx ON rda_activator USING btree (activator, rda, band, mode, callsigns);
+
+
+--
+-- Name: rda_hunter_callsign_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX rda_hunter_callsign_rda_idx ON rda_hunter USING btree (hunter, rda);
+
+
+--
+-- Name: rda_hunter_hunter_band_mode_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX rda_hunter_hunter_band_mode_idx ON rda_hunter USING btree (hunter, band, mode);
+
+
+--
+-- Name: rda_hunter_hunter_mode_band_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX rda_hunter_hunter_mode_band_idx ON rda_hunter USING btree (hunter, mode, band);
+
+
+--
+-- Name: rda_hunter_hunter_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX rda_hunter_hunter_mode_band_rda_idx ON rda_hunter USING btree (hunter, mode, band, rda);
+
+
+--
+-- Name: uploads_enabled_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX uploads_enabled_id_idx ON uploads USING btree (enabled, id);
+
+
+--
 -- Name: uploads_id_enabled_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -752,10 +1005,10 @@ CREATE INDEX uploads_id_enabled_idx ON uploads USING btree (id, enabled);
 
 
 --
--- Name: uploads_id_user_cs_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: uploads_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
-CREATE INDEX uploads_id_user_cs_idx ON uploads USING btree (id, user_cs);
+CREATE INDEX uploads_id_idx ON uploads USING btree (id);
 
 
 --
@@ -766,20 +1019,6 @@ CREATE INDEX uploads_id_user_cs_upload_type_idx ON uploads USING btree (id, user
 
 
 --
--- Name: uploads_user_cs_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX uploads_user_cs_id_idx ON uploads USING btree (user_cs, id);
-
-
---
--- Name: uploads_user_cs_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX uploads_user_cs_idx ON uploads USING btree (user_cs);
-
-
---
 -- Name: tr_activators_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -787,10 +1026,24 @@ CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE
 
 
 --
+-- Name: tr_cfm_qsl_qso; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_cfm_qsl_qso AFTER UPDATE ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_au();
+
+
+--
 -- Name: tr_cfm_requests_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
 CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON cfm_request_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_request_qso_bi();
+
+
+--
+-- Name: tr_old_callsigns_aiu; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON old_callsigns FOR EACH ROW EXECUTE PROCEDURE tf_old_callsigns_aiu();
 
 
 --
@@ -927,6 +1180,46 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_requests TO "w
 
 
 --
+-- Name: list_bands; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE list_bands FROM PUBLIC;
+REVOKE ALL ON TABLE list_bands FROM postgres;
+GRANT ALL ON TABLE list_bands TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE list_bands TO "www-group";
+
+
+--
+-- Name: list_modes; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE list_modes FROM PUBLIC;
+REVOKE ALL ON TABLE list_modes FROM postgres;
+GRANT ALL ON TABLE list_modes TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE list_modes TO "www-group";
+
+
+--
+-- Name: list_rda; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE list_rda FROM PUBLIC;
+REVOKE ALL ON TABLE list_rda FROM postgres;
+GRANT ALL ON TABLE list_rda TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE list_rda TO "www-group";
+
+
+--
+-- Name: old_callsigns; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE old_callsigns FROM PUBLIC;
+REVOKE ALL ON TABLE old_callsigns FROM postgres;
+GRANT ALL ON TABLE old_callsigns TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE old_callsigns TO "www-group";
+
+
+--
 -- Name: qso; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -954,6 +1247,26 @@ REVOKE ALL ON TABLE rankings FROM PUBLIC;
 REVOKE ALL ON TABLE rankings FROM postgres;
 GRANT ALL ON TABLE rankings TO postgres;
 GRANT SELECT,INSERT,DELETE,TRIGGER ON TABLE rankings TO "www-group";
+
+
+--
+-- Name: rda_activator; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE rda_activator FROM PUBLIC;
+REVOKE ALL ON TABLE rda_activator FROM postgres;
+GRANT ALL ON TABLE rda_activator TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE rda_activator TO "www-group";
+
+
+--
+-- Name: rda_hunter; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE rda_hunter FROM PUBLIC;
+REVOKE ALL ON TABLE rda_hunter FROM postgres;
+GRANT ALL ON TABLE rda_hunter TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE rda_hunter TO "www-group";
 
 
 --

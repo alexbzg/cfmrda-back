@@ -66,7 +66,7 @@ class DBConn:
     def connect(self):
         try:
             self.pool = yield from aiopg.create_pool(self.dsn, \
-                    timeout=3600,\
+                    timeout=7200,\
                     on_connect=init_connection)
             logging.debug('db connections pool created')
         except Exception:
@@ -184,4 +184,73 @@ class DBConn:
             raise Exception()
         return upl_id
 
+    @asyncio.coroutine
+    def get_old_callsigns(self, callsign, confirmed=False):
+        """returns array of old callsigns"""
+        sql = """select array_agg(old)
+            from old_callsigns
+            where new = %(callsign)s"""
+        if confirmed:
+            sql += " and confirmed"
+        return (yield from self.execute(sql, {'callsign': callsign}))
 
+    @asyncio.coroutine
+    def get_new_callsign(self, callsign):
+        """returns new callsign or False"""
+        return (yield from self.execute("""
+            select new 
+            from old_callsigns
+            where confirmed and old = %(callsign)s
+            """, {'callsign': callsign}))
+
+    @asyncio.coroutine
+    def set_old_callsigns(self, callsign, new_old, confirm=False):
+        """changes old callsigns of the callsign returns False on db error,
+        'OK' or warnings string"""
+        new_check = yield from self.get_new_callsign(callsign)
+        if new_check:
+            return "Позывной " + callsign + " назначен старым позывным для "\
+                + new_check + " и не может иметь старых позывных."
+        current_old = yield from self.get_old_callsigns(callsign)
+        if not current_old:
+            current_old = []
+        current_confirmed = [] if confirm else\
+            (yield from self.get_old_callsigns(callsign, True))
+        if not current_confirmed:
+            current_confirmed = []
+        msg = ''
+        add = []
+        delete = [{'old': cs, 'new': callsign} for cs in current_old\
+                if cs not in new_old and (cs not in current_confirmed or confirm)]
+        to_confirm = []
+        for _cs in new_old:
+            check = yield from self.execute("""select new
+                from old_callsigns 
+                where confirmed and old = %(cs)s and new <> %(new)s""",\
+                {'cs': _cs, 'new': callsign})
+            if check:
+                msg += ('\n' if msg else '') +\
+                    "Позывной " + _cs + " уже назначен старым позывным " +\
+                    check + "."
+            else:
+                if _cs in current_old and confirm:
+                    to_confirm.append({'old': _cs, 'new': callsign, 'confirmed': confirm})
+                if _cs not in current_old:
+                    add.append({'old': _cs, 'new': callsign, 'confirmed': confirm})
+        if add:
+            if not (yield from self.execute("""
+                insert into old_callsigns (old, new, confirmed)
+                values (%(old)s, %(new)s, %(confirmed)s)""", add)):
+                return False
+        if delete:
+            if not (yield from self.execute("""
+                delete from old_callsigns
+                where old = %(old)s and new = %(new)s""", delete)):
+                return False
+        if to_confirm:
+            if not (yield from self.execute("""
+                update old_callsigns
+                set confirmed = true
+                where old =%(old)s and new = %(new)s""", to_confirm)):
+                return False
+        return msg if msg else 'OK'

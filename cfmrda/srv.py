@@ -81,8 +81,16 @@ class CfmRdaServer():
 
     @asyncio.coroutine
     def get_user_data(self, callsign):
-        return (yield from self._db.get_object('users', \
-                {'callsign': callsign}, False, True))
+        data = yield from self._db.get_object('users', \
+                {'callsign': callsign}, False, True)
+        if data:
+            data['oldCallsigns'] = {}
+            data['oldCallsigns']['confirmed'] = yield from\
+                self._db.get_old_callsigns(callsign, confirmed=True)
+            data['oldCallsigns']['all'] = yield from\
+                self._db.get_old_callsigns(callsign)
+            data['newCallsign'] = yield from self._db.get_new_callsign(callsign)
+        return data
 
     @asyncio.coroutine
     def login_hndlr(self, request):
@@ -270,11 +278,11 @@ class CfmRdaServer():
                 error['message'] = "Файл уже загружен"
                 return error
             adif_enc = chardet.detect(adif_bytes)
-            adif = adif_bytes.decode(adif_enc['encoding'])
+            adif = adif_bytes.decode(adif_enc['encoding'], 'ignore')
             adif_data = load_adif(adif, \
                 station_callsign_field=station_callsign_field,\
                 rda_field=rda_field)
-            logging.debug(adif_data)
+            logging.debug('ADIF parsed')
 
             upl_id = yield from self._db.insert_upload(\
                 callsign=callsign,\
@@ -286,6 +294,7 @@ class CfmRdaServer():
                     else set([])))
             if not upl_id:
                 raise Exception()
+            logging.debug('upload_id ' + str(upl_id))
 
             qso_sql = """insert into qso
                 (upload_id, callsign, station_callsign, rda,
@@ -576,6 +585,57 @@ class CfmRdaServer():
         else:
             return callsign
 
+    def handler_wrap(self, handler, validation_scheme=None, require_callsign=True,\
+        require_admin=False):
+
+        @asyncio.coroutine
+        def handler_wrapped(request):
+            data = yield from request.json()
+            if validation_scheme:
+                if not self._json_validator.validate(validation_scheme, data):
+                    return CfmRdaServer.response_error_default()
+            if require_callsign:
+                callsign = self.decode_token(data)
+                if isinstance(callsign, str):
+                    if require_admin:
+                        if not self.is_admin(callsign):
+                            return CfmRdaServer.response_error_admin_required()
+                    return (yield from handler(callsign, data))
+                else:
+                    return callsign
+
+        return handler_wrapped
+
+    @asyncio.coroutine
+    def old_callsigns_admin_hndlr(self, callsign, data):
+        if 'confirm' in data:
+            res = yield from self._db.set_old_callsigns(data['confirm']['new'],\
+                data['confirm']['old'], True)
+            if res:
+                if res == 'OK':
+                    return web.Response(text='OK')
+                else:
+                    return web.HTTPBadRequest(text=res)
+            else:
+                return CfmRdaServer.response_error_default()
+        else:
+            callsigns = yield from self._db.execute("""
+                select new, 
+                    array_agg(json_build_object('callsign', old, 
+                        'confirmed', confirmed)) as old, 
+                    bool_and(confirmed) as confirmed 
+                from old_callsigns
+                group by new""")
+            return web.json_response(callsigns)
+
+    @asyncio.coroutine
+    def old_callsigns_hndlr(self, callsign, data):
+        res = yield from self._db.set_old_callsigns(callsign, data['callsigns'])
+        if res:
+            return web.Response(text=res)
+        else:
+            return CfmRdaServer.response_error_default()
+
     @asyncio.coroutine
     def cfm_qso_hndlr(self, request):
         data = yield from request.json()
@@ -666,7 +726,8 @@ class CfmRdaServer():
                     if qrz_data and 'email' in qrz_data and qrz_data['email']:
                         email = qrz_data['email'].lower()
                         password = ''.join([\
-                            random.choice(string.printable) for _ in range(8)]) 
+                            random.choice(string.digits + string.ascii_letters)\
+                            for _ in range(8)])
                         user_data = yield from self._db.get_object('users',\
                             {'callsign': callsign,\
                             'password': password,\
@@ -674,6 +735,10 @@ class CfmRdaServer():
                             'email_confirmed': True},\
                             True)
                         if user_data:
+                            user_data['oldCallsigns'] = \
+                                {'confirmed': [], 'all': []}
+                            user_data['newCallsign'] = yield from\
+                                self._db.get_new_callsign(callsign)
                             text = """Спасибо, что воспользовались сервисом CFMRDA.ru
 
 Ваш логин - """ + callsign + """
@@ -688,9 +753,7 @@ support@cfmrda.ru"""
                                 fr=CONF.get('email', 'address'),\
                                 to=email,\
                                 subject="Регистрация на CFMRDA.ru")
-                           
                             return web.json_response({'user': user_data})
-               
                 return web.Response(text="OK")
             else:
                 qso = yield from self._db.execute("""
@@ -846,6 +909,9 @@ support@cfmrda.ru"""
     def hunter_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
+            new_callsign = yield from self._db.get_new_callsign(callsign)
+            if new_callsign:
+                return web.json_response({'newCallsign': new_callsign})
             qso = yield from self._db.execute("""
                 select json_object_agg(rda, data) as data
                 from
@@ -858,11 +924,11 @@ support@cfmrda.ru"""
                                 'time', to_char(qso.tstamp, 'HH24:MI'),
                                 'stationCallsign', station_callsign,
                                 'uploadId', uploads.id,
-                                'uploadType', upload_type,
+                                'uploadType', coalesce( upload_type, 'QSL card'),
                                 'uploader', uploads.user_cs)) as data
-                        from qso, uploads
-                        where callsign = %(callsign)s and enabled 
-                            and qso.upload_id = uploads.id
+                        from qso left join uploads on qso.upload_id = uploads.id
+                        where callsign = %(callsign)s and 
+                            (enabled or upload_id is null)
                         group by qso.rda
                         union all
                         select rda, 'activator' as type,
@@ -889,7 +955,10 @@ support@cfmrda.ru"""
                 rank = yield from self._db.execute("""
                 select rankings_json('callsign = '%(callsign)s'') as data
                 """, {'callsign': callsign}, False)
-                return web.json_response({'qso': qso, 'rank': rank})
+                data = {'qso': qso, 'rank': rank}
+                data['oldCallsigns'] = yield from\
+                    self._db.get_old_callsigns(callsign, True)
+                return web.json_response(data)
             else:
                 return web.json_response(False)
         else:
@@ -961,6 +1030,10 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/cfm_qso', SRV.cfm_qso_hndlr)
     APP.router.add_post('/aiohttp/cfm_blacklist', SRV.cfm_blacklist_hndlr)
     APP.router.add_post('/aiohttp/chat', SRV.chat_hndlr)
+    APP.router.add_post('/aiohttp/old_callsigns',\
+        SRV.handler_wrap(SRV.old_callsigns_hndlr, 'oldCallsigns'))
+    APP.router.add_post('/aiohttp/old_callsigns_admin',\
+        SRV.handler_wrap(SRV.old_callsigns_admin_hndlr, require_admin=True))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\

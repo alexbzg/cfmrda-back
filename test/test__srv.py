@@ -159,7 +159,7 @@ def test_contact_support(cfm_rda_server):
         {'token': cfm_rda_server.create_token({'callsign': TEST_USER}), 
         'text':'blah blah blah blah blah blah blah'},
         200))
-    
+         
     for (title, data, expect_code) in params:
         loop.run_until_complete(do_test(title, data, expect_code))
 
@@ -227,25 +227,27 @@ def test_password_change(cfm_rda_server):
     loop.run_until_complete(check_db(cfm_rda_server,\
             {'password': '22222222'}))
 
-def login(title, expect_code):
-    logging.debug('login test: title')
-    rsp = requests.post(API_URI + '/login',\
-        data=json.dumps(\
-        {'callsign': user_data['callsign'], 
-        'password': user_data['password'], 
-        'mode': 'login'}))
+def login(login_data):
+    login_data['mode'] = 'login'
+    rsp = requests.post(API_URI + '/login', data=json.dumps(login_data))
     logging.debug(rsp.text)
-    assert rsp.status_code == expect_code
-    if expect_code == 200:
-        data = json.loads(rsp.text)
-        assert data['token']
-        assert data['email'] == user_data['email']
-        user_data['token'] = data['token']
-   
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)
+    assert data['token']
+    return data
+
+
 def test_login():
-    login('correct', 200)
+    logging.debug('login test')
+    login_data = {'callsign': 'TE1ST', 
+        'password': '11111111'}
 
-
+    data = login(login_data)
+    assert data['oldCallsigns']['confirmed']
+    login_data['callsign'] = 'TE1STOLD'
+    data = login(login_data())
+    assert data['newCallsign']
+   
 def test_ADIF_upload():
 
     def do_test(title, data, expect_code, files_loaded):
@@ -651,6 +653,78 @@ def test_cfm_qsl_qso():
     logging.debug(rsp.text)
     assert rsp.status_code == 200
     assert not path.isfile(qsl_file_path(2))
+
+def test_old_callsigns():
+    callsign = 'TE1ST'
+    old_callsigns = ['TE1STOLD', 'TE1STOLDOLD']
+
+    def request():
+        return requests.post(API_URI + '/old_callsigns',\
+            data=json.dumps({'token': create_token({'callsign': callsign}),\
+                'callsigns': old_callsigns}))
+
+    def check():
+        login_data = {'callsign': callsign, 'password': '11111111'}
+        user_data = login(login_data)
+        assert not set(old_callsigns).difference(\
+            set(user_data['oldCallsigns']['all']))
+        
+    logging.debug('Old callsigns -- add')
+    rsp = request()
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    check()
+
+    logging.debug('Old callsigns -- delete')
+    old_callsigns = ['TE1STOLD']
+    rsp = request()
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    check()
+
+    logging.debug('Old callsigns -- login callsign is old too')
+    callsign = 'TE1STOLD'
+    old_callsigns = ['TE1STOLDOLD']
+    rsp = request()
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    old_callsigns = []
+    check()
+
+def test_old_callsigns_admin():
+    admin = 'TE1ST'
+    callsign = 'R7AB'
+    old_callsigns = ['RN6BN', 'RN6BNOLD']
+
+    def request(cfm):
+        data = {'token': create_token({'callsign': admin})}
+        if cfm:
+            data['confirm'] = {'new': callsign,
+                'old': old_callsigns}
+        return requests.post(API_URI + '/old_callsigns_admin',\
+            data=json.dumps(data))
+
+    def check():
+        data = json.loads(request(False).text)
+        logging.debug(data)
+        user_data = [x for x in data if x['new'] == callsign][0]
+        assert user_data['confirmed']
+        user_callsigns = set([x['callsign'] for x in user_data['old']])
+        assert not set(old_callsigns).difference(user_callsigns)
+        
+    logging.debug('Old callsigns -- admin')
+    rsp = request(False)
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+
+    logging.debug('Old callsigns -- admin edit')
+    rsp = request(True)
+    logging.debug(rsp.text)
+    assert rsp.status_code == 200
+    check()
+
+    old_callsigns = ['RN6BN', 'R6AUV']
+    rsp = request(True)
 
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
