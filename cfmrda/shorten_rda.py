@@ -14,7 +14,7 @@ for group in rda:
         skip = []
         c_el = 1
         c_no = 1
-        while c_no < len(group['values']):
+        while c_no < last_value:
             if int(group['values'][c_el - 1]['displayValue']) != c_no:
                 skip.append(c_no)
             else:
