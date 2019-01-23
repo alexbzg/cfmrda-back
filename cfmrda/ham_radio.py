@@ -22,7 +22,7 @@ MODES = {'DIGI': ('DATA', 'HELL', 'MT63', 'THOR16', 'FAX', 'OPERA', 'PKT', 'RY',
          'CW': ('A1A'),\
          'SSB': ('USB', 'LSB', 'FM', 'AM', 'PHONE')}
 
-RE_STRIP_CALLSIGN = re.compile(r"\d*[A-Z]+\d+[A-Z]+")
+RE_STRIP_CALLSIGN = re.compile(r"\d?[A-Z]+\d+[A-Z]+")
 
 RE_RDA_VALUE = re.compile(r"([a-zA-Z][a-zA-Z])[\d-]*(\d\d)")
 

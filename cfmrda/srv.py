@@ -957,12 +957,12 @@ support@cfmrda.ru"""
                 rank = yield from self._db.execute("""
                 select rankings_json('callsign = '%(callsign)s'') as data
                 """, {'callsign': callsign}, False)
-                data = {'qso': qso, 'rank': rank}
-                data['oldCallsigns'] = yield from\
-                    self._db.get_old_callsigns(callsign, True)
-                return web.json_response(data)
             else:
-                return web.json_response(False)
+                rank = False
+            data = {'qso': qso, 'rank': rank}
+            data['oldCallsigns'] = yield from\
+                self._db.get_old_callsigns(callsign, True)
+            return web.json_response(data)
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
