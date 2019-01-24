@@ -89,6 +89,9 @@ class CfmRdaServer():
                 self._db.get_old_callsigns(callsign, confirmed=True)
             data['oldCallsigns']['all'] = yield from\
                 self._db.get_old_callsigns(callsign)
+            for type in data['oldCallsigns']:
+                if not data['oldCallsigns'][type]:
+                    data['oldCallsigns'][type] = []
             data['newCallsign'] = yield from self._db.get_new_callsign(callsign)
         return data
 
@@ -962,6 +965,8 @@ support@cfmrda.ru"""
             data = {'qso': qso, 'rank': rank}
             data['oldCallsigns'] = yield from\
                 self._db.get_old_callsigns(callsign, True)
+            if not data['oldCallsigns']:
+                data['oldCallsigns'] = []
             return web.json_response(data)
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
