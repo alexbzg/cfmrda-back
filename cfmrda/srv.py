@@ -911,7 +911,7 @@ support@cfmrda.ru"""
             return callsign
 
     @asyncio.coroutine
-    def hunter_hndlr(self, request):
+    def hunter_qso_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
             new_callsign = yield from self._db.get_new_callsign(callsign)
@@ -963,6 +963,46 @@ support@cfmrda.ru"""
             else:
                 rank = False
             data = {'qso': qso, 'rank': rank}
+            data['oldCallsigns'] = yield from\
+                self._db.get_old_callsigns(callsign, True)
+            if not data['oldCallsigns']:
+                data['oldCallsigns'] = []
+            return web.json_response(data)
+        else:
+            return web.HTTPBadRequest(text='Необходимо ввести позывной')
+
+
+    @asyncio.coroutine
+    def hunter_hndlr(self, request):
+        callsign = request.match_info.get('callsign', None)
+        if callsign:
+            new_callsign = yield from self._db.get_new_callsign(callsign)
+            if new_callsign:
+                return web.json_response({'newCallsign': new_callsign})
+            rda = {}
+            rda['hunter'] = yield from self._db.execute("""
+                select json_object_agg(rda, data) from
+                    (select rda, json_agg(json_build_object(
+                        'band', band, 'mode', mode)) as data
+                    from rda_hunter
+                    where hunter = %(callsign)s
+                    group by rda) as q
+            """, {'callsign': callsign}, False)
+            rda['activator'] = yield from self._db.execute("""
+                select json_object_agg(rda, data) from
+                    (select rda, json_agg(json_build_object(
+                        'band', band, 'mode', mode, 'count', callsigns)) as data
+                    from rda_activator
+                    where activator = %(callsign)s
+                    group by rda) as q
+            """, {'callsign': callsign}, False)
+            if rda['hunter'] or rda['actovator']:
+                rank = yield from self._db.execute("""
+                select rankings_json('callsign = '%(callsign)s'') as data
+                """, {'callsign': callsign}, False)
+            else:
+                rank = False
+            data = {'rda': rda, 'rank': rank}
             data['oldCallsigns'] = yield from\
                 self._db.get_old_callsigns(callsign, True)
             if not data['oldCallsigns']:
