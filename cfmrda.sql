@@ -80,111 +80,133 @@ from rda_activator
 where callsigns > 99),
 
 act_m_b as 
-(select activator, mode, band, count(rda), rank() over (partition by mode, band order by count(rda) desc)
+(select activator, mode, band, count(rda), rank() over w, row_number() over w
 from rda_act_m_b
-group by activator, mode, band),
+group by activator, mode, band
+window w as (partition by mode, band order by count(rda) desc)),
 
 act_t_b as
-(select activator, band, count(rda), rank() over (partition by band order by count(rda) desc)
+(select activator, band, count(rda), rank() over w, row_number() over w 
 from
 (select activator, rda, band
 from rda_activator
 group by activator, rda, band
 having sum(callsigns) > 99) as act_total_band_f
-group by activator, band),
+group by activator, band
+window w as (partition by band order by count(rda) desc)),
 
 hnt_t_b as 
-(select 'hunter', 'total', band, hunter, count(distinct rda), rank() over (partition by band order by count(distinct rda) desc)
+(select 'hunter', 'total', band, hunter, count(distinct rda), rank() over w, row_number() over w
 from rda_hunter
 where band is not null
-group by hunter, band)
+group by hunter, band
+window w as (partition by band order by count(distinct rda) desc))
 
 insert into rankings
 /*--- ACTIVATORS ---*/
 
 /*mode, band*/
-select 'activator', mode, band, activator, count, rank from act_m_b 
+select 'activator', mode, band, activator, count, rank, row_number from act_m_b 
 
 union all
 
 /*mode, bandsSum*/
-select 'activator', mode, 'bandsSum', activator, sum(count), rank() over (partition by mode order by sum(count) desc)
+select 'activator', mode, 'bandsSum', activator, sum(count), rank() over w, row_number() over w 
 from act_m_b
 group by activator, mode
+window w as (partition by mode order by sum(count) desc)
 
 union all
 
 /*mode, total*/
-select 'activator', mode, 'total', activator, count(rda), rank() over (partition by mode order by count(rda) desc)
+select 'activator', mode, 'total', activator, count(rda), rank() over w, row_number() over w 
 from
 (select activator, mode, rda
 from rda_activator
 group by activator, mode, rda
 having sum(callsigns) > 99) as act_m_total_f
 group by activator, mode
+window w as (partition by mode order by count(rda) desc)
 
 union all
 /*total, total*/
-select 'activator', 'total', 'total', activator, count(rda), rank() over (order by count(rda) desc)
+select 'activator', 'total', 'total', activator, count(rda), rank() over w, row_number() over w 
 from
 (select activator, rda
 from rda_activator
 group by activator, rda
 having sum(callsigns) > 99) as act_total_total_f
 group by activator
+window w as (order by count(rda) desc)
 
 union all
 /*total, bandsSum*/
-select 'activator', 'total', 'bandsSum', activator, sum(count), rank() over (order by sum(count) desc)
+select 'activator', 'total', 'bandsSum', activator, sum(count), rank() over w, row_number() over w 
 from act_t_b
 group by activator
+window w as (order by sum(count) desc)
 
 union all
 /*total, band*/
-select 'activator', 'total', band, activator, count, rank
+select 'activator', 'total', band, activator, count, rank, row_number
 from act_t_b
 
 /*--- HUNTERS ---*/
 
 union all
 /*mode, band*/
-select 'hunter', mode, band, hunter, count(*), rank() over (partition by mode, band order by count(*) desc)
+select 'hunter', mode, band, hunter, count(*), rank() over w, row_number() over w 
 from rda_hunter
 where mode is not null and band is not null
 group by hunter, mode, band
+window w as (partition by mode, band order by count(*) desc)
 
 union all
 /*mode, bandsSum*/
-select 'hunter', mode, 'bandsSum', hunter, count(*), rank() over (partition by mode order by count(*) desc)
+select 'hunter', mode, 'bandsSum', hunter, count(*), rank() over w, row_number() over w 
 from rda_hunter
 where mode is not null
 group by hunter, mode
+window w as (partition by mode order by count(*) desc)
 
 union all
 /*mode, total*/
-select 'hunter', mode, 'total', hunter, count(distinct rda), rank() over (partition by mode order by count(distinct rda) desc)
+select 'hunter', mode, 'total', hunter, count(distinct rda), rank() over w, row_number() over w 
 from rda_hunter
 where mode is not null
 group by hunter, mode
+window w as (partition by mode order by count(distinct rda) desc)
 
 union all
 /*total, total*/
-select 'hunter', 'total', 'total', hunter, count(distinct rda), rank() over (order by count(distinct rda) desc)
+select 'hunter', 'total', 'total', hunter, count(distinct rda), rank() over w, row_number() over w 
 from rda_hunter
 where band is not null
 group by hunter
+window w as (order by count(distinct rda) desc)
 
 union all
 /*total, band*/
-select 'hunter', 'total', band, hunter, count, rank
+select 'hunter', 'total', band, hunter, count, rank, row_number
 from hnt_t_b
 
 union all
 /*total, bandsSum */
-select 'hunter', 'total', 'bandsSum', hunter, sum(count), rank() over (order by sum(count) desc)
+select 'hunter', 'total', 'bandsSum', hunter, sum(count), rank() over w, row_number() over w
 from hnt_t_b
-group by hunter;
+group by hunter
+window w as (order by sum(count) desc)
 
+/*--- 9BANDS ---*/
+union all
+
+select '9BANDS', 'N/A', 'N/A', hunter, sum(points), rank() over w, row_number() over w from
+(select hunter, band, least(100, count(distinct rda)) as points
+from rda_hunter
+where band is not null
+group by hunter, band) as s
+group by hunter
+window w as (order by sum(points) desc);
 
 end$$;
 
@@ -256,7 +278,7 @@ ALTER FUNCTION public.rankings_json(condition character varying) OWNER TO postgr
 CREATE FUNCTION strip_callsign(callsign character varying) RETURNS character varying
     LANGUAGE plpgsql IMMUTABLE
     AS $$begin
-  return substring(callsign from '[\d]*[A-Z]+\d+[A-Z]+');
+  return substring(callsign from '\d?[A-Z]+\d+[A-Z]+');
 end$$;
 
 
@@ -606,7 +628,8 @@ CREATE TABLE rankings (
     band character varying(8) NOT NULL,
     callsign character varying(32) NOT NULL,
     _count integer,
-    _rank integer
+    _rank integer,
+    _row integer
 );
 
 
@@ -946,6 +969,13 @@ CREATE INDEX qso_upload_id_station_callsign_rda_idx ON qso USING btree (upload_i
 --
 
 CREATE INDEX rankings_callsign_idx ON rankings USING btree (callsign);
+
+
+--
+-- Name: rankings_role_mode_band__row_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX rankings_role_mode_band__row_idx ON rankings USING btree (role, mode, band, _row);
 
 
 --
