@@ -200,7 +200,7 @@ window w as (order by sum(count) desc)
 /*--- 9BANDS ---*/
 union all
 
-select '9BANDS', 'N/A', 'N/A', hunter, sum(points), rank() over w, row_number() over w from
+select 'hunter', 'total', '9BAND', hunter, sum(points), rank() over w, row_number() over w from
 (select hunter, band, least(100, count(distinct rda)) as points
 from rda_hunter
 where band is not null
@@ -259,7 +259,7 @@ begin
 	|| '(select role, json_object_agg(mode, data) as data from '
 	|| '(select role, mode, json_object_agg(band, data) as data from '
 	|| '(select role, mode, band, json_agg(json_build_object(''callsign'', callsign, '
-	|| '''count'', _count, ''rank'', _rank)) as data from '
+	|| '''count'', _count, ''rank'', _rank, ''row'', _row)) as data from '
 	|| '(select * from rankings where ' || condition || ' order by _rank) as l_0 '
 	|| 'group by role, mode, band) as l_1 '
 	|| 'group by role, mode) as l_2 '
