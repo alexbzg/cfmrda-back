@@ -260,7 +260,7 @@ begin
 	|| '(select role, mode, json_object_agg(band, data) as data from '
 	|| '(select role, mode, band, json_agg(json_build_object(''callsign'', callsign, '
 	|| '''count'', _count, ''rank'', _rank, ''row'', _row)) as data from '
-	|| '(select * from rankings where ' || condition || ' order by _rank) as l_0 '
+	|| '(select * from rankings where ' || condition || ' order by _row) as l_0 '
 	|| 'group by role, mode, band) as l_1 '
 	|| 'group by role, mode) as l_2 '
 	|| 'group by role) as l_3'

@@ -911,6 +911,24 @@ support@cfmrda.ru"""
             return callsign
 
     @asyncio.coroutine
+    def rankings_hndlr(self, request):
+        params = {'role': None,\
+                'band': None,\
+                'mode': None,\
+                'from': 1,\
+                'to': 100}
+        for param in params:
+            val = request.match_info.get(param, params[param])
+            if val:
+                params[param] = val
+        cond_tmplt = """role = ''{role}'' and mode = ''{mode}'' and 
+            band = ''{band}'' and _row >= {from} and _row <= {to}"""
+        condition = cond_tmplt.format_map(params)
+        rankings = yield from self._db.execute("select rankings_json('" +\
+                condition + "') as data", None, False)
+        return web.json_response(rankings)
+
+    @asyncio.coroutine
     def qso_hndlr(self, request):
         params = {'callsign': None,\
                 'role': None,\
@@ -1089,6 +1107,7 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)
+    APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}', SRV.rankings_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
             SRV.correspondent_email_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
