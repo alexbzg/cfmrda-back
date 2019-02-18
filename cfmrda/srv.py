@@ -279,6 +279,7 @@ class CfmRdaServer():
             """, {'hash': adif_hash})
             if hash_check:
                 error['message'] = "Файл уже загружен"
+                logging.error("Duplicate adif id: "  + hash_check['id'])
                 return error
             adif_enc = chardet.detect(adif_bytes)
             adif = adif_bytes.decode(adif_enc['encoding'], 'ignore')
