@@ -208,6 +208,17 @@ group by hunter, band) as s
 group by hunter
 window w as (order by sum(points) desc);
 
+update rankings set _count = new_count, _rank = new_rank, _row = new_row
+from
+(select hunter, sum(points) as new_count, rank() over w as new_rank, row_number() over w as new_row from
+(select hunter, band, least(200, count(distinct rda)) as points
+from rda_hunter
+where band is not null and hunter in (select callsign from rankings where role = 'hunter' and mode = 'total' and band = '9BAND' and _count = 900)
+group by hunter, band) as s
+group by hunter
+window w as (order by sum(points) desc)) as p2
+where callsign = hunter and role = 'hunter' and mode = 'total' and band = '9BAND';
+
 end$$;
 
 
