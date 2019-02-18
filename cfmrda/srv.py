@@ -89,6 +89,9 @@ class CfmRdaServer():
                 self._db.get_old_callsigns(callsign, confirmed=True)
             data['oldCallsigns']['all'] = yield from\
                 self._db.get_old_callsigns(callsign)
+            for type in data['oldCallsigns']:
+                if not data['oldCallsigns'][type]:
+                    data['oldCallsigns'][type] = []
             data['newCallsign'] = yield from self._db.get_new_callsign(callsign)
         return data
 
@@ -276,6 +279,7 @@ class CfmRdaServer():
             """, {'hash': adif_hash})
             if hash_check:
                 error['message'] = "Файл уже загружен"
+                logging.error("Duplicate adif id: "  + hash_check['id'])
                 return error
             adif_enc = chardet.detect(adif_bytes)
             adif = adif_bytes.decode(adif_enc['encoding'], 'ignore')
@@ -908,60 +912,125 @@ support@cfmrda.ru"""
             return callsign
 
     @asyncio.coroutine
+    def rankings_hndlr(self, request):
+        params = {'role': None,\
+                'band': None,\
+                'mode': None,\
+                'from': 1,\
+                'to': 100}
+        for param in params:
+            val = request.match_info.get(param, params[param])
+            if val:
+                params[param] = val
+        cond_tmplt = """role = ''{role}'' and mode = ''{mode}'' and 
+            band = ''{band}'' and _row >= {from} and _row <= {to}"""
+        condition = cond_tmplt.format_map(params)
+        rankings = yield from self._db.execute("select rankings_json('" +\
+                condition + "') as data", None, False)
+        return web.json_response(rankings)
+
+    @asyncio.coroutine
+    def qso_hndlr(self, request):
+        params = {'callsign': None,\
+                'role': None,\
+                'rda': None,\
+                'band': None,\
+                'mode': None}
+        for param in params:
+            val = request.match_info.get(param, params[param])
+            if val:
+                params[param] = val
+        sql = {'hunter': """
+        select json_build_object('band', band,
+                'mode', mode,
+                'date', to_char(qso.tstamp, 'DD Month YYYY'),
+                'time', to_char(qso.tstamp, 'HH24:MI'),
+                'stationCallsign', station_callsign,
+                'uploadId', uploads.id,
+                'uploadType', coalesce( upload_type, 'QSL card'),
+                'uploader', uploads.user_cs) as data
+        from qso left join uploads on qso.upload_id = uploads.id
+        where callsign = %(callsign)s and 
+            (enabled or upload_id is null) and
+            qso.rda = %(rda)s and
+            (qso.band = %(band)s or %(band)s is null) and
+            (qso.mode = %(mode)s or %(mode)s is null)
+        order by qso.tstamp
+        """,\
+        'activator': """
+            select json_build_object('mode', mode,
+                            'band', band,
+                            'date', to_char(dt, 'DD Month YYYY'),
+                            'uploadId', upload_id,
+                            'uploadType', upload_type,
+                            'uploader', user_cs, 'count', count) as data
+                    from
+                        (select mode, band, qso.rda, dt, 
+                            count(distinct callsign), 
+                            qso.upload_id, user_cs, upload_type
+                        from qso, uploads, activators
+                        where uploads.id = qso.upload_id and enabled
+                            and activators.upload_id = qso.upload_id 
+                            and activator = %(callsign)s and
+                            qso.rda = %(rda)s and
+                            (qso.band = %(band)s or %(band)s is null) and
+                            (qso.mode = %(mode)s or %(mode)s is null)
+                        group by qso.upload_id, user_cs, upload_type, 
+                            mode, band, qso.rda, dt
+                        order by dt) as l_0
+        """}
+
+        @asyncio.coroutine
+        def _get_qso(role):
+            return (yield from self._db.execute(sql[role], params, True))
+
+        if params['callsign'] and params['role'] and params['rda']:
+            data = {'hunter': None}
+            if params['role'] == 'hunter':
+                for role in sql:
+                    data[role] = yield from _get_qso(role)
+            else:
+                data['activator'] = yield from _get_qso('activator')
+            return web.json_response(data)
+        else:
+            return web.HTTPBadRequest(\
+                text='Необходимо ввести позывной, роль и район')
+
+    @asyncio.coroutine
     def hunter_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
             new_callsign = yield from self._db.get_new_callsign(callsign)
             if new_callsign:
                 return web.json_response({'newCallsign': new_callsign})
-            qso = yield from self._db.execute("""
-                select json_object_agg(rda, data) as data
-                from
-                    (select rda, json_object_agg(type, data) as data
-                    from
-                        (select qso.rda, 'hunter' as type,
-                            json_agg(json_build_object('band', band,
-                                'mode', mode,
-                                'date', to_char(qso.tstamp, 'DD Month YYYY'),
-                                'time', to_char(qso.tstamp, 'HH24:MI'),
-                                'stationCallsign', station_callsign,
-                                'uploadId', uploads.id,
-                                'uploadType', coalesce( upload_type, 'QSL card'),
-                                'uploader', uploads.user_cs)) as data
-                        from qso left join uploads on qso.upload_id = uploads.id
-                        where callsign = %(callsign)s and 
-                            (enabled or upload_id is null)
-                        group by qso.rda
-                        union all
-                        select rda, 'activator' as type,
-                            json_agg(json_build_object('mode', mode,
-                                'band', band,
-                                'date', to_char(dt, 'DD Month YYYY'),
-                                'uploadId', upload_id,
-                                'uploadType', upload_type,
-                                'uploader', user_cs, 'count', count)) as data
-                        from
-                            (select mode, band, qso.rda, dt, 
-                                count(distinct callsign), 
-                                qso.upload_id, user_cs, upload_type
-                            from qso, uploads, activators
-                            where uploads.id = qso.upload_id and enabled
-                                and activators.upload_id = qso.upload_id 
-                                and activator = %(callsign)s
-                            group by qso.upload_id, user_cs, upload_type, 
-                                mode, band, qso.rda, dt) as l_0
-                        group by rda) as l_1
-                    group by rda) as l_2
+            rda = {}
+            rda['hunter'] = yield from self._db.execute("""
+                select json_object_agg(rda, data) from
+                    (select rda, json_agg(json_build_object(
+                        'band', band, 'mode', mode)) as data
+                    from rda_hunter
+                    where hunter = %(callsign)s
+                    group by rda) as q
             """, {'callsign': callsign}, False)
-            if qso:
+            rda['activator'] = yield from self._db.execute("""
+                select json_object_agg(rda, data) from
+                    (select rda, json_agg(json_build_object(
+                        'band', band, 'mode', mode, 'count', callsigns)) as data
+                    from rda_activator
+                    where activator = %(callsign)s
+                    group by rda) as q
+            """, {'callsign': callsign}, False)
+            if rda['hunter'] or rda['actovator']:
                 rank = yield from self._db.execute("""
                 select rankings_json('callsign = '%(callsign)s'') as data
                 """, {'callsign': callsign}, False)
             else:
                 rank = False
-            data = {'qso': qso, 'rank': rank}
+            data = {'rda': rda, 'rank': rank}
             data['oldCallsigns'] = yield from\
                 self._db.get_old_callsigns(callsign, True)
+            if not data['oldCallsigns']:
+                data['oldCallsigns'] = []
             return web.json_response(data)
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
@@ -1038,6 +1107,8 @@ if __name__ == '__main__':
         SRV.handler_wrap(SRV.old_callsigns_admin_hndlr, require_admin=True))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
+    APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)
+    APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}', SRV.rankings_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
             SRV.correspondent_email_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)

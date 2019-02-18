@@ -22,7 +22,7 @@ def export_rankings(conf):
     yield from _db.execute("select from build_rankings()")
 
     rankings = yield from _db.execute("""
-                select rankings_json('_rank < 101') as data
+                select rankings_json('_rank < 104') as data
                 """, None, False)
     save_json(rankings, conf.get('web', 'root') + '/json/rankings.json')
 
