@@ -24,7 +24,6 @@ import recaptcha
 from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
-from export import export_msc, export_recent_uploads
 from send_cfm_requests import format_qsos
 
 CONF = site_conf()
@@ -478,10 +477,6 @@ class CfmRdaServer():
                             response['errors'].append(error)
                         else:
                             response['filesLoaded'] += 1
-                    if response['filesLoaded'] and 'skipRankings' not in data:
-                        logging.debug('running export_rankings')
-                        yield from export_msc(CONF)
-                        yield from export_recent_uploads(CONF)
                     logging.debug(response)
                     return web.json_response(response)
                 else:
@@ -570,8 +565,6 @@ class CfmRdaServer():
                 update uploads set enabled = %(enabled)s where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
-        yield from export_msc(CONF)
-        yield from export_recent_uploads(CONF)
         return CfmRdaServer.response_ok()
 
     @asyncio.coroutine
@@ -724,8 +717,6 @@ class CfmRdaServer():
                 if all_ids:
                     yield from self._db.execute("""delete from cfm_request_qso
                         where id in """ + typed_values_list(all_ids, int))
-                yield from export_msc(CONF)
-                yield from export_recent_uploads(CONF)
                 test_callsign = yield from self.get_user_data(callsign)
                 if not test_callsign:
                     qrz_data = self._qrzcom.get_data(callsign)
