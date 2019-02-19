@@ -303,6 +303,10 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   new.activator = strip_callsign(new.activator);
+  if exists (select from old_callsigns where confirmed and old_callsigns.old = new.activator)
+  then
+    select old_callsigns.new into new.activator from old_callsigns where confirmed and old_callsigns.old = new.activator;
+  end if;
   if new.activator is null
   then
     return null;
@@ -376,6 +380,13 @@ CREATE FUNCTION tf_old_callsigns_aiu() RETURNS trigger
     update qso 
       set callsign = new.new, old_callsign = new.old 
       where callsign = new.old;
+    update activators as a1
+      set activator = new.new
+      where activator = new.old and not exists 
+        (select from activators as a2 
+        where a2.activator = new.new and a2.upload_id = a1.upload_id);
+    delete from activators 
+      where activator = new.old;
   end if;
   return new;
 end$$;
