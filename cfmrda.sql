@@ -395,6 +395,24 @@ end$$;
 ALTER FUNCTION public.tf_old_callsigns_aiu() OWNER TO postgres;
 
 --
+-- Name: tf_qso_ai(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_qso_ai() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  if not exists (select from rda_hunter where rda = new.rda and hunter = new.callsign and mode = new.mode and band = new.band)
+  then
+    insert into rda_hunter values (new.callsign, new.rda, new.band, new.mode);
+  end if;
+  return new;
+ end$$;
+
+
+ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
+
+--
 -- Name: tf_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1096,6 +1114,13 @@ CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON cfm_request_qso FOR EACH 
 --
 
 CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON old_callsigns FOR EACH ROW EXECUTE PROCEDURE tf_old_callsigns_aiu();
+
+
+--
+-- Name: tr_qso_ai; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_qso_ai AFTER INSERT ON qso FOR EACH ROW EXECUTE PROCEDURE tf_qso_ai();
 
 
 --
