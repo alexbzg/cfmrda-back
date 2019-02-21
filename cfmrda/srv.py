@@ -802,12 +802,44 @@ support@cfmrda.ru"""
                         where upload_id = uploads.id) as activators
                     from uploads 
                     {}
-                    order by tstamp desc) as data
+                    order by tstamp desc
+                    {}) as data
             """
             admin = self.is_admin(callsign) and 'admin' in data and data['admin']
-            sql = sql_tmplt.format('' if admin else 'where user_cs = %(callsign)s')
-            uploads = yield from self._db.execute(sql, {'callsign': callsign},\
-                False)
+            params = {}
+            where_cond = []
+            qso_where_cond = []
+            limit_cl = ''
+            where_cl = ''
+            if not admin:
+                where_cond.append('user_cs = %(callsign)s')
+                params['callsign'] = callsign
+            if 'search' in data and data['search']:
+                if 'rda' in data['search'] and data['search']['rda']:
+                    qso_where_cond.append('rda = %(rda)s')
+                    params['rda'] = data['search']['rda']
+                if 'uploader' in data['search'] and data['search']['uploader']:
+                    params['cs_like'] = '%' + \
+                        data['search']['uploader'].replace('*', '%') + '%'
+                    where_cond.append('user_cs like %(cs_like)s')
+                if 'station' in data['search'] and data['search']['station']:
+                    params['station_like'] = '%' + \
+                        data['search']['station'].replace('*', '%') + '%'
+                    qso_where_cond.append('station_callsign like %(station_like)s')
+                if 'uploadDate' in data['search'] and data['search']['uploadDate']:
+                    where_cond.append('date(tstamp) = %(date)s')
+                    params['date'] = data['search']['uploadDate']
+            if qso_where_cond:
+                where_cond.append("""id in 
+                    (select upload_id
+                    from qso
+                    where """ + ' and '.join(qso_where_cond) + ')')
+            if where_cond:
+                where_cl = 'where ' + ' and '.join(where_cond)
+            else:
+                limit_cl = 'limit 100'
+            sql = sql_tmplt.format(where_cl, limit_cl)
+            uploads = yield from self._db.execute(sql, params, False)
             return web.json_response(uploads if uploads else [])
         else:
             return callsign
