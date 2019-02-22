@@ -208,6 +208,17 @@ group by hunter, band) as s
 group by hunter
 window w as (order by sum(points) desc);
 
+update rankings set _count = new_count, _rank = new_rank, _row = new_row
+from
+(select hunter, sum(points) as new_count, rank() over w as new_rank, row_number() over w as new_row from
+(select hunter, band, least(200, count(distinct rda)) as points
+from rda_hunter
+where band is not null and hunter in (select callsign from rankings where role = 'hunter' and mode = 'total' and band = '9BAND' and _count = 900)
+group by hunter, band) as s
+group by hunter
+window w as (order by sum(points) desc)) as p2
+where callsign = hunter and role = 'hunter' and mode = 'total' and band = '9BAND';
+
 end$$;
 
 
@@ -292,6 +303,10 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   new.activator = strip_callsign(new.activator);
+  if exists (select from old_callsigns where confirmed and old_callsigns.old = new.activator)
+  then
+    select old_callsigns.new into new.activator from old_callsigns where confirmed and old_callsigns.old = new.activator;
+  end if;
   if new.activator is null
   then
     return null;
@@ -365,12 +380,37 @@ CREATE FUNCTION tf_old_callsigns_aiu() RETURNS trigger
     update qso 
       set callsign = new.new, old_callsign = new.old 
       where callsign = new.old;
+    update activators as a1
+      set activator = new.new
+      where activator = new.old and not exists 
+        (select from activators as a2 
+        where a2.activator = new.new and a2.upload_id = a1.upload_id);
+    delete from activators 
+      where activator = new.old;
   end if;
   return new;
 end$$;
 
 
 ALTER FUNCTION public.tf_old_callsigns_aiu() OWNER TO postgres;
+
+--
+-- Name: tf_qso_ai(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_qso_ai() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  if not exists (select from rda_hunter where rda = new.rda and hunter = new.callsign and mode = new.mode and band = new.band)
+  then
+    insert into rda_hunter values (new.callsign, new.rda, new.band, new.mode);
+  end if;
+  return new;
+ end$$;
+
+
+ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
 
 --
 -- Name: tf_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -1074,6 +1114,13 @@ CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON cfm_request_qso FOR EACH 
 --
 
 CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON old_callsigns FOR EACH ROW EXECUTE PROCEDURE tf_old_callsigns_aiu();
+
+
+--
+-- Name: tr_qso_ai; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_qso_ai AFTER INSERT ON qso FOR EACH ROW EXECUTE PROCEDURE tf_qso_ai();
 
 
 --

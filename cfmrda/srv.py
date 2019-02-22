@@ -24,7 +24,6 @@ import recaptcha
 from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
-from export import export_msc, export_recent_uploads
 from send_cfm_requests import format_qsos
 
 CONF = site_conf()
@@ -478,10 +477,6 @@ class CfmRdaServer():
                             response['errors'].append(error)
                         else:
                             response['filesLoaded'] += 1
-                    if response['filesLoaded'] and 'skipRankings' not in data:
-                        logging.debug('running export_rankings')
-                        yield from export_msc(CONF)
-                        yield from export_recent_uploads(CONF)
                     logging.debug(response)
                     return web.json_response(response)
                 else:
@@ -570,8 +565,6 @@ class CfmRdaServer():
                 update uploads set enabled = %(enabled)s where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
-        yield from export_msc(CONF)
-        yield from export_recent_uploads(CONF)
         return CfmRdaServer.response_ok()
 
     @asyncio.coroutine
@@ -724,8 +717,6 @@ class CfmRdaServer():
                 if all_ids:
                     yield from self._db.execute("""delete from cfm_request_qso
                         where id in """ + typed_values_list(all_ids, int))
-                yield from export_msc(CONF)
-                yield from export_recent_uploads(CONF)
                 test_callsign = yield from self.get_user_data(callsign)
                 if not test_callsign:
                     qrz_data = self._qrzcom.get_data(callsign)
@@ -811,12 +802,44 @@ support@cfmrda.ru"""
                         where upload_id = uploads.id) as activators
                     from uploads 
                     {}
-                    order by tstamp desc) as data
+                    order by tstamp desc
+                    {}) as data
             """
             admin = self.is_admin(callsign) and 'admin' in data and data['admin']
-            sql = sql_tmplt.format('' if admin else 'where user_cs = %(callsign)s')
-            uploads = yield from self._db.execute(sql, {'callsign': callsign},\
-                False)
+            params = {}
+            where_cond = []
+            qso_where_cond = []
+            limit_cl = ''
+            where_cl = ''
+            if not admin:
+                where_cond.append('user_cs = %(callsign)s')
+                params['callsign'] = callsign
+            if 'search' in data and data['search']:
+                if 'rda' in data['search'] and data['search']['rda']:
+                    qso_where_cond.append('rda = %(rda)s')
+                    params['rda'] = data['search']['rda']
+                if 'uploader' in data['search'] and data['search']['uploader']:
+                    params['cs_like'] = '%' + \
+                        data['search']['uploader'].replace('*', '%') + '%'
+                    where_cond.append('user_cs like %(cs_like)s')
+                if 'station' in data['search'] and data['search']['station']:
+                    params['station_like'] = '%' + \
+                        data['search']['station'].replace('*', '%') + '%'
+                    qso_where_cond.append('station_callsign like %(station_like)s')
+                if 'uploadDate' in data['search'] and data['search']['uploadDate']:
+                    where_cond.append('date(tstamp) = %(date)s')
+                    params['date'] = data['search']['uploadDate']
+            if qso_where_cond:
+                where_cond.append("""id in 
+                    (select upload_id
+                    from qso
+                    where """ + ' and '.join(qso_where_cond) + ')')
+            if where_cond:
+                where_cl = 'where ' + ' and '.join(where_cond)
+            else:
+                limit_cl = 'limit 100'
+            sql = sql_tmplt.format(where_cl, limit_cl)
+            uploads = yield from self._db.execute(sql, params, False)
             return web.json_response(uploads if uploads else [])
         else:
             return callsign
