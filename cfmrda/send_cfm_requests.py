@@ -36,7 +36,8 @@ def main():
         from
             (select * 
             from cfm_request_qso 
-            where not sent) as data
+            where not sent and correspondent not in  
+            (select callsign from cfm_request_blacklist)) as data
         group by correspondent, correspondent_email""", None, True)
     if not data:
         return
@@ -71,11 +72,13 @@ def main():
             fr=conf.get('email', 'address'),\
             to=row['correspondent_email'],\
             subject="Запрос на подтверждение QSO от CFMRDA.ru")
+        logging.error('cfm request email sent to ' + row['correspondent'])
     yield from _db.execute("""
         update cfm_request_qso 
         set sent = true
         where correspondent = %(correspondent)s""",\
         data)
+    logging.error('cfm_request_qso table updated')
     yield from _db.execute("""
         update cfm_requests 
         set tstamp = now()
@@ -87,6 +90,7 @@ def main():
             from cfm_requests 
             where callsign = %(correspondent)s)
         """, data)
+    logging.error('cfm_requests table updated')
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(main())
