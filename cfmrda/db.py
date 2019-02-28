@@ -58,7 +58,7 @@ class DBConn:
 
     def __init__(self, db_params):
         self.dsn = ' '.join([k + "='" + v + "'" for k, v in db_params])
-        self.verbose = False
+        self.verbose = 'verbose' in db_params
         self.pool = None
         self.error = None
 

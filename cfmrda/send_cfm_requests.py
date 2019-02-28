@@ -24,8 +24,10 @@ def main():
     logging.debug('start send cfm requests')
     conf = site_conf()
     secret = get_secret(conf.get('files', 'secret'))
+    db_params = conf.items('db')
+    db_params['verbose'] = True
 
-    _db = DBConn(conf.items('db'))
+    _db = DBConn(db_params)
     yield from _db.connect()
     data = yield from _db.execute("""
         select correspondent, correspondent_email,
@@ -73,6 +75,7 @@ def main():
             to=row['correspondent_email'],\
             subject="Запрос на подтверждение QSO от CFMRDA.ru")
         logging.error('cfm request email sent to ' + row['correspondent'])
+    logging.error('all requests were sent')
     yield from _db.execute("""
         update cfm_request_qso 
         set sent = true
