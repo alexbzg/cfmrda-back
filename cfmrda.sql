@@ -31,8 +31,11 @@ SET search_path = public, pg_catalog;
 
 CREATE FUNCTION build_rankings() RETURNS void
     LANGUAGE plpgsql
-    AS $$begin
-/*rda*/
+    AS $$
+declare _9band_tr smallint;
+begin
+
+-- rda
 
 delete from rda_activator;
 delete from rda_hunter;
@@ -72,8 +75,10 @@ having sum(callsigns) > 99) as rda_activator_tt
 where not exists
 (select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tt.rda);
 
-/*rankings*/
+-- rankings 
+
 delete from rankings;
+
 with rda_act_m_b as 
 (select activator, mode, band, rda
 from rda_activator
@@ -103,14 +108,15 @@ group by hunter, band
 window w as (partition by band order by count(distinct rda) desc))
 
 insert into rankings
-/*--- ACTIVATORS ---*/
 
-/*mode, band*/
+-- ACTIVATORS --
+
+-- mode, band
 select 'activator', mode, band, activator, count, rank, row_number from act_m_b 
 
 union all
 
-/*mode, bandsSum*/
+-- mode, bandsSum
 select 'activator', mode, 'bandsSum', activator, sum(count), rank() over w, row_number() over w 
 from act_m_b
 group by activator, mode
@@ -118,7 +124,7 @@ window w as (partition by mode order by sum(count) desc)
 
 union all
 
-/*mode, total*/
+-- mode, total
 select 'activator', mode, 'total', activator, count(rda), rank() over w, row_number() over w 
 from
 (select activator, mode, rda
@@ -129,7 +135,7 @@ group by activator, mode
 window w as (partition by mode order by count(rda) desc)
 
 union all
-/*total, total*/
+-- total, total
 select 'activator', 'total', 'total', activator, count(rda), rank() over w, row_number() over w 
 from
 (select activator, rda
@@ -140,21 +146,21 @@ group by activator
 window w as (order by count(rda) desc)
 
 union all
-/*total, bandsSum*/
+-- total, bandsSum
 select 'activator', 'total', 'bandsSum', activator, sum(count), rank() over w, row_number() over w 
 from act_t_b
 group by activator
 window w as (order by sum(count) desc)
 
 union all
-/*total, band*/
+--total, band
 select 'activator', 'total', band, activator, count, rank, row_number
 from act_t_b
 
-/*--- HUNTERS ---*/
+--- HUNTERS ---
 
 union all
-/*mode, band*/
+--mode, band
 select 'hunter', mode, band, hunter, count(*), rank() over w, row_number() over w 
 from rda_hunter
 where mode is not null and band is not null
@@ -162,7 +168,7 @@ group by hunter, mode, band
 window w as (partition by mode, band order by count(*) desc)
 
 union all
-/*mode, bandsSum*/
+--mode, bandsSum
 select 'hunter', mode, 'bandsSum', hunter, count(*), rank() over w, row_number() over w 
 from rda_hunter
 where mode is not null
@@ -170,7 +176,7 @@ group by hunter, mode
 window w as (partition by mode order by count(*) desc)
 
 union all
-/*mode, total*/
+--mode, total
 select 'hunter', mode, 'total', hunter, count(distinct rda), rank() over w, row_number() over w 
 from rda_hunter
 where mode is not null
@@ -178,7 +184,7 @@ group by hunter, mode
 window w as (partition by mode order by count(distinct rda) desc)
 
 union all
-/*total, total*/
+--total, total
 select 'hunter', 'total', 'total', hunter, count(distinct rda), rank() over w, row_number() over w 
 from rda_hunter
 where band is not null
@@ -186,18 +192,19 @@ group by hunter
 window w as (order by count(distinct rda) desc)
 
 union all
-/*total, band*/
+--total, band
 select 'hunter', 'total', band, hunter, count, rank, row_number
 from hnt_t_b
 
 union all
-/*total, bandsSum */
+--total, bandsSum 
 select 'hunter', 'total', 'bandsSum', hunter, sum(count), rank() over w, row_number() over w
 from hnt_t_b
 group by hunter
 window w as (order by sum(count) desc)
 
-/*--- 9BANDS ---*/
+--- 9BANDS ---
+
 union all
 
 select 'hunter', 'total', '9BAND', hunter, sum(points), rank() over w, row_number() over w from
@@ -208,16 +215,30 @@ group by hunter, band) as s
 group by hunter
 window w as (order by sum(points) desc);
 
-update rankings set _count = new_count, _rank = new_rank, _row = new_row
-from
-(select hunter, sum(points) as new_count, rank() over w as new_rank, row_number() over w as new_row from
-(select hunter, band, least(200, count(distinct rda)) as points
-from rda_hunter
-where band is not null and hunter in (select callsign from rankings where role = 'hunter' and mode = 'total' and band = '9BAND' and _count = 900)
-group by hunter, band) as s
-group by hunter
-window w as (order by sum(points) desc)) as p2
-where callsign = hunter and role = 'hunter' and mode = 'total' and band = '9BAND';
+insert into stat_log values (now(), 'ranking table built');
+
+--- 9BANDS 900+---
+_9band_tr = 100;
+
+while exists (select callsign from rankings where role = 'hunter' and mode = 'total' and band = '9BAND' and _count = 9*_9band_tr)
+  loop
+   update rankings set _count = new_count, _rank = new_rank, _row = new_row
+   from
+    (select hunter, sum(points) as new_count, rank() over w as new_rank, row_number() over w as new_row 
+    from
+      (select hunter, band, least(_9band_tr + 100, count(distinct rda)) as points
+      from rda_hunter
+      where band is not null and hunter in (select callsign from rankings where role = 'hunter' and mode = 'total' and band = '9BAND' and _count = 9*_9band_tr)
+      group by hunter, band) as s
+    group by hunter
+    window w as (order by sum(points) desc)) as p2
+   where callsign = hunter and role = 'hunter' and mode = 'total' and band = '9BAND';
+  _9band_tr = _9band_tr + 100;
+end loop;
+
+insert into stat_log values (now(), 'additional 9BAND loops');
+
+insert into stat_log values (now(), 'stats completed');
 
 end$$;
 
@@ -439,6 +460,11 @@ begin
     new.old_callsign = new.callsign;
     new.callsign = new_callsign;
   end if;
+  if exists (select from qso where callsign = new.callsign and station_callsign = new.station_callsign 
+    and rda = new.rda and mode = new.mode and band = new.band and tstamp = new.tstamp)
+    then
+      return null;
+  end if;
   return new;
  end$$;
 
@@ -532,7 +558,8 @@ CREATE TABLE cfm_request_qso (
     rec_rst character varying(8) NOT NULL,
     sent_rst character varying(8) NOT NULL,
     sent boolean DEFAULT false NOT NULL,
-    correspondent_email character varying(64) NOT NULL
+    correspondent_email character varying(64) NOT NULL,
+    viewed boolean DEFAULT false
 );
 
 

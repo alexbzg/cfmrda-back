@@ -56,9 +56,9 @@ def init_connection(conn):
 
 class DBConn:
 
-    def __init__(self, db_params):
+    def __init__(self, db_params, verbose=False):
         self.dsn = ' '.join([k + "='" + v + "'" for k, v in db_params])
-        self.verbose = 'verbose' in db_params
+        self.verbose = verbose
         self.pool = None
         self.error = None
 
