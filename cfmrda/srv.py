@@ -790,20 +790,25 @@ support@cfmrda.ru"""
                     'qsoCount', qsos->'qsoCount', 
                     'activators', activators)) as data
                 from
+                    (
+                    select * from
                     (select id, enabled, date_start, date_end, tstamp, user_cs,
-                        upload_type,
-                        (select json_build_object('rda', array_agg(distinct rda), 
-                            'stations', array_agg(distinct station_callsign), 
-                            'qsoCount', count(*)) 
-                        from qso 
-                        where upload_id = uploads.id) as qsos,
-                        (select array_agg(activator) 
-                        from activators 
-                        where upload_id = uploads.id) as activators
-                    from uploads 
+                        upload_type
+                    from uploads
                     {}
                     order by tstamp desc
-                    {}) as data
+                    ()) as u,
+                    lateral 
+                    (select json_build_object('rda', array_agg(distinct rda),
+                            'stations', array_agg(distinct station_callsign),
+                            'qsoCount', count(*)) as qsos
+                    from qso
+                    where upload_id = u.id) as qsos,
+                    lateral 
+                    (select array_agg(activator) as activators
+                    from activators
+                    where upload_id = u.id) as activators
+                    ) as data
             """
             admin = self.is_admin(callsign) and 'admin' in data and data['admin']
             params = {}
