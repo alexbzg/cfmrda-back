@@ -797,7 +797,7 @@ support@cfmrda.ru"""
                     from uploads
                     {}
                     order by tstamp desc
-                    ()) as u,
+                    {}) as u,
                     lateral 
                     (select json_build_object('rda', array_agg(distinct rda),
                             'stations', array_agg(distinct station_callsign),
@@ -814,12 +814,13 @@ support@cfmrda.ru"""
             params = {}
             where_cond = []
             qso_where_cond = []
-            limit_cl = ''
+            limit_cl = 'limit 100'
             where_cl = ''
             if not admin:
                 where_cond.append('user_cs = %(callsign)s')
                 params['callsign'] = callsign
             if 'search' in data and data['search']:
+                limit_cl = ''
                 if 'rda' in data['search'] and data['search']['rda']:
                     qso_where_cond.append('rda = %(rda)s')
                     params['rda'] = data['search']['rda']
@@ -841,8 +842,6 @@ support@cfmrda.ru"""
                     where """ + ' and '.join(qso_where_cond) + ')')
             if where_cond:
                 where_cl = 'where ' + ' and '.join(where_cond)
-            else:
-                limit_cl = 'limit 100'
             sql = sql_tmplt.format(where_cl, limit_cl)
             uploads = yield from self._db.execute(sql, params, False)
             return web.json_response(uploads if uploads else [])
