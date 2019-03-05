@@ -133,43 +133,67 @@ class CfmRdaServer():
     def cfm_request_qso_hndlr(self, request):
         data = yield from request.json()
         error = None
-        if self._json_validator.validate('cfmRequestQso', data):
-            email = None
-            if 'token' in data:
-                callsign = self.decode_token(data)
-                if isinstance(callsign, str):
+        callsign = None
+        if 'token' in data:
+            callsign = self.decode_token(data)
+            if not isinstance(callsign, str):
+                return callsign
+        else:
+            rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+            if not rc_test:
+                return CfmRdaServer.response_error_recaptcha()
+        if 'qso' in data:
+            if self._json_validator.validate('cfmRequestQso', data):
+                email = None
+                if callsign:
                     user_data = yield from self.get_user_data(callsign)
                     email = user_data['email']
                 else:
-                    return callsign
-            else:
-                rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
-                if rc_test:
                     email = data['email']
-                else:
-                    return CfmRdaServer.response_error_recaptcha()
-            if email:
-                for qso in data['qso']:
-                    qso['hunterEmail'] = email
-                    qso['tstamp'] = (qso['date'].split('T'))[0] + ' ' +\
-                        qso['time']
-                if not (yield from self._db.execute("""
-                    insert into cfm_request_qso 
-                    (correspondent, callsign, station_callsign, rda,
-                    band, mode, tstamp, hunter_email, 
-                    correspondent_email, rec_rst, sent_rst)
-                    values (%(correspondent)s, %(callsign)s, 
-                    %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
-                    %(tstamp)s, %(hunterEmail)s, %(email)s,
-                    %(recRST)s, %(sentRST)s)""",\
-                    data['qso'], False)):
-                    return CfmRdaServer.response_error_default()
+                if email:
+                    for qso in data['qso']:
+                        qso['hunterEmail'] = email
+                        qso['tstamp'] = (qso['date'].split('T'))[0] + ' ' +\
+                            qso['time']
+                    if not (yield from self._db.execute("""
+                        insert into cfm_request_qso 
+                        (correspondent, callsign, station_callsign, rda,
+                        band, mode, tstamp, hunter_email, 
+                        correspondent_email, rec_rst, sent_rst)
+                        values (%(correspondent)s, %(callsign)s, 
+                        %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
+                        %(tstamp)s, %(hunterEmail)s, %(email)s,
+                        %(recRST)s, %(sentRST)s)""",\
+                        data['qso'], False)):
+                        return CfmRdaServer.response_error_default()
+            else:
+                return CfmRdaServer.response_error_default()
+            if error:
+                return web.HTTPBadRequest(text=error)
+            else:
+                return web.Response(text="OK")
         else:
-            return CfmRdaServer.response_error_default()
-        if error:
-            return web.HTTPBadRequest(text=error)
-        else:
-            return web.Response(text="OK")
+            if callsign:
+                qso = yield from self._db.execute("""
+                    select json_build_object(
+                    'id', id,
+                    'callsign', callsign,
+                    'state', state, 'viewed', viewed,
+                    'comment', comment,
+                    'blacklist',
+                    exists (select from cfm_request_blacklist
+                        where cfm_request_blacklist.callsign = correspondent),
+                    'stationCallsign', station_callsign, 'rda', rda, 
+                    'band', band, 'mode', mode, 
+                    'date', to_char(tstamp, 'DD Month YYYY'),
+                    'time', to_char(tstamp, 'HH24:MI'),
+                    'rcvRST', rec_rst, 'sntRST', sent_rst)
+                        from cfm_request_qso
+                        where user_cs = %(callssign)s
+                    """, {'callsign': callsign}, True)
+                return web.json_response(qso)
+            else:
+                return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
     def contact_support_hndlr(self, request):
@@ -572,10 +596,7 @@ class CfmRdaServer():
         data = yield from request.json()
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
-            if (yield from self._db.execute("""
-                insert into cfm_request_blacklist
-                values (%(callsign)s)""",\
-                {'callsign': callsign}, False)):
+            if (yield from self._db.cfm_blacklist(callsign)):
                 return CfmRdaServer.response_ok()
             else:
                 return CfmRdaServer.response_error_default()
@@ -640,6 +661,7 @@ class CfmRdaServer():
         data = yield from request.json()
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
+            admin = self.is_admin(callsign) and 'admin' in data and data['admin']
             if 'qso' in data:
                 if 'cfm' in data['qso'] and data['qso']['cfm']:
                     logging.debug(data)
@@ -711,32 +733,45 @@ class CfmRdaServer():
                         fr=CONF.get('email', 'address'),\
                         to=email,\
                         subject="Подтверждение QSO на CFMRDA.ru")
-                all_ids = []
+                qso_params = []
                 for _type in data['qso']:
-                    all_ids += data['qso'][_type]
-                if all_ids:
-                    yield from self._db.execute("""delete from cfm_request_qso
-                        where id in """ + typed_values_list(all_ids, int))
-                test_callsign = yield from self.get_user_data(callsign)
-                if not test_callsign:
-                    qrz_data = self._qrzcom.get_data(callsign)
-                    if qrz_data and 'email' in qrz_data and qrz_data['email']:
-                        email = qrz_data['email'].lower()
-                        password = ''.join([\
-                            random.choice(string.digits + string.ascii_letters)\
-                            for _ in range(8)])
-                        user_data = yield from self._db.get_object('users',\
-                            {'callsign': callsign,\
-                            'password': password,\
-                            'email': email,\
-                            'email_confirmed': True},\
-                            True)
-                        if user_data:
-                            user_data['oldCallsigns'] = \
-                                {'confirmed': [], 'all': []}
-                            user_data['newCallsign'] = yield from\
-                                self._db.get_new_callsign(callsign)
-                            text = """Спасибо, что воспользовались сервисом CFMRDA.ru
+                    state = _type == 'cfm'
+                    for _id in data['qso'][_type]:
+                        comment = data['comments'][_id] if 'comments' in data and\
+                            data['comments'] and _id in data['comments']\
+                            else None
+                        qso_params.append({'id': _id, 'comment': comment,\
+                            'state': state})
+                if qso_params:
+                    if not (yield from self._db.execute("""update cfm_request_qso
+                        set state = %(state)s, comment = %(comment)s
+                        where id = %(id)s;""", qso_params)):
+                        return CfmRdaServer.response_error_default()
+                if admin:
+                    if 'blacklist' in data and data['blacklist']:
+                        for callsign in data['blacklist']:
+                            yield from self._db.cfm_blacklist(callsign)
+                else:
+                    test_callsign = yield from self.get_user_data(callsign)
+                    if not test_callsign:
+                        qrz_data = self._qrzcom.get_data(callsign)
+                        if qrz_data and 'email' in qrz_data and qrz_data['email']:
+                            email = qrz_data['email'].lower()
+                            password = ''.join([\
+                                random.choice(string.digits + string.ascii_letters)\
+                                for _ in range(8)])
+                            user_data = yield from self._db.get_object('users',\
+                                {'callsign': callsign,\
+                                'password': password,\
+                                'email': email,\
+                                'email_confirmed': True},\
+                                True)
+                            if user_data:
+                                user_data['oldCallsigns'] = \
+                                    {'confirmed': [], 'all': []}
+                                user_data['newCallsign'] = yield from\
+                                    self._db.get_new_callsign(callsign)
+                                text = """Спасибо, что воспользовались сервисом CFMRDA.ru
 
 Ваш логин - """ + callsign + """
 Ваш пароль - """ + password + """
@@ -746,14 +781,14 @@ class CfmRdaServer():
 73!
 С уважением, команда CFMRDA.ru
 support@cfmrda.ru"""
-                            send_email.send_email(text=text,\
-                                fr=CONF.get('email', 'address'),\
-                                to=email,\
-                                subject="Регистрация на CFMRDA.ru")
-                            return web.json_response({'user': user_data})
+                                send_email.send_email(text=text,\
+                                    fr=CONF.get('email', 'address'),\
+                                    to=email,\
+                                    subject="Регистрация на CFMRDA.ru")
+                                return web.json_response({'user': user_data})
                 return web.Response(text="OK")
             else:
-                qso = yield from self._db.execute("""
+                sql = """
                     select json_build_object(
                     'id', id,
                     'callsign', callsign, 
@@ -763,8 +798,19 @@ support@cfmrda.ru"""
                     'time', to_char(tstamp, 'HH24:MI'),
                     'rcvRST', rec_rst, 'sntRST', sent_rst)
                         from cfm_request_qso
-                        where correspondent = %(callsign)s
-                    """, {'callsign': callsign}, True)
+                        where state is null {}
+                    """
+                where_cl = "" if admin\
+                    else "and correspondent = %(callsign)s" 
+                sql = sql.format(where_cl)
+                qso = yield from self._db.execute(sql,\
+                    {'callsign': callsign}, True)
+                if not admin:
+                    yield from self._db.execute("""
+                        update cfm_request_qso 
+                        set viewed = true
+                        where correspondent = %(callsign)s""",\
+                        {'callsign': callsign})
                 return web.json_response({'qso': qso})
         else:
             return callsign
@@ -1135,7 +1181,8 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)
-    APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}', SRV.rankings_hndlr)
+    APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}',\
+            SRV.rankings_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
             SRV.correspondent_email_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)

@@ -452,6 +452,10 @@ begin
   then
     return null;
   end if;
+  if (new.band = '10' and new.mode = 'SSB')
+  then
+    return null;
+  end if;
   select old_callsigns.new into new_callsign
     from old_callsigns 
     where old_callsigns.old = new.callsign and confirmed;
@@ -559,7 +563,10 @@ CREATE TABLE cfm_request_qso (
     sent_rst character varying(8) NOT NULL,
     sent boolean DEFAULT false NOT NULL,
     correspondent_email character varying(64) NOT NULL,
-    viewed boolean DEFAULT false
+    viewed boolean DEFAULT false,
+    comment character varying(256),
+    state boolean,
+    user_cs character varying(32)
 );
 
 
@@ -966,6 +973,13 @@ CREATE INDEX cfm_request_qso_correspondent_callsign_idx ON cfm_request_qso USING
 --
 
 CREATE INDEX cfm_request_qso_sent_idx ON cfm_request_qso USING btree (sent);
+
+
+--
+-- Name: cfm_request_qso_user_cs_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX cfm_request_qso_user_cs_idx ON cfm_request_qso USING btree (user_cs);
 
 
 --

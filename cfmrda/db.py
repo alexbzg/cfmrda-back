@@ -254,3 +254,11 @@ class DBConn:
                 where old =%(old)s and new = %(new)s""", to_confirm)):
                 return False
         return msg if msg else 'OK'
+
+    @asyncio.coroutine
+    def cfm_blacklist(self, callsign):
+        """adds callsign to blacklist fro cfm requests"""
+        return (yield from self.execute("""
+            insert into cfm_request_blacklist
+            values (%(callsign)s)""",\
+            {'callsign': callsign}, False))
