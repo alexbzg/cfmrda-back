@@ -144,6 +144,8 @@ class CfmRdaServer():
                 return CfmRdaServer.response_error_recaptcha()
         if 'qso' in data:
             if self._json_validator.validate('cfmRequestQso', data):
+                for qso in data['qso']:
+                    qso['user_cs'] = callsign if callsign else None
                 email = None
                 if callsign:
                     user_data = yield from self.get_user_data(callsign)
@@ -158,11 +160,11 @@ class CfmRdaServer():
                     if not (yield from self._db.execute("""
                         insert into cfm_request_qso 
                         (correspondent, callsign, station_callsign, rda,
-                        band, mode, tstamp, hunter_email, 
+                        band, mode, tstamp, hunter_email, user_cs
                         correspondent_email, rec_rst, sent_rst)
                         values (%(correspondent)s, %(callsign)s, 
                         %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
-                        %(tstamp)s, %(hunterEmail)s, %(email)s,
+                        %(tstamp)s, %(hunterEmail)s, %(user_cs)s, %(email)s,
                         %(recRST)s, %(sentRST)s)""",\
                         data['qso'], False)):
                         return CfmRdaServer.response_error_default()
