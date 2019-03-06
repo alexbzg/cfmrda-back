@@ -87,7 +87,7 @@ def main():
     logging.error('all requests were sent')
     yield from _db.execute("""
         update cfm_request_qso 
-        set sent = true
+        set sent = true, status_tstamp = now()
         where correspondent = %(correspondent)s""",\
         sent_to)
     logging.error('cfm_request_qso table updated')

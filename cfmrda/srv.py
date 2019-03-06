@@ -144,12 +144,12 @@ class CfmRdaServer():
                 return CfmRdaServer.response_error_recaptcha()
         if 'qso' in data:
             if self._json_validator.validate('cfmRequestQso', data):
-                for qso in data['qso']:
-                    qso['user_cs'] = callsign if callsign else None
                 email = None
+                user_cs = None
                 if callsign:
                     user_data = yield from self.get_user_data(callsign)
                     email = user_data['email']
+                    user_cs = callsign
                 else:
                     email = data['email']
                 if email:
@@ -157,10 +157,11 @@ class CfmRdaServer():
                         qso['hunterEmail'] = email
                         qso['tstamp'] = (qso['date'].split('T'))[0] + ' ' +\
                             qso['time']
+                        qso['user_cs'] = user_cs
                     if not (yield from self._db.execute("""
                         insert into cfm_request_qso 
                         (correspondent, callsign, station_callsign, rda,
-                        band, mode, tstamp, hunter_email, user_cs
+                        band, mode, tstamp, hunter_email, user_cs,
                         correspondent_email, rec_rst, sent_rst)
                         values (%(correspondent)s, %(callsign)s, 
                         %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
@@ -187,11 +188,12 @@ class CfmRdaServer():
                         where cfm_request_blacklist.callsign = correspondent),
                     'stationCallsign', station_callsign, 'rda', rda, 
                     'band', band, 'mode', mode, 
+                    'status_date', to_char(status_tstamp, 'DD Month YYYY'),
                     'date', to_char(tstamp, 'DD Month YYYY'),
                     'time', to_char(tstamp, 'HH24:MI'),
                     'rcvRST', rec_rst, 'sntRST', sent_rst)
                         from cfm_request_qso
-                        where user_cs = %(callssign)s
+                        where user_cs = %(callsign)s
                     """, {'callsign': callsign}, True)
                 return web.json_response(qso)
             else:
@@ -746,7 +748,8 @@ class CfmRdaServer():
                             'state': state})
                 if qso_params:
                     if not (yield from self._db.execute("""update cfm_request_qso
-                        set state = %(state)s, comment = %(comment)s
+                        set status_tstamp = now(), state = %(state)s, 
+                            comment = %(comment)s
                         where id = %(id)s;""", qso_params)):
                         return CfmRdaServer.response_error_default()
                 if admin:
@@ -810,7 +813,7 @@ support@cfmrda.ru"""
                 if not admin:
                     yield from self._db.execute("""
                         update cfm_request_qso 
-                        set viewed = true
+                        set viewed = true, status_tstamp = now()
                         where correspondent = %(callsign)s""",\
                         {'callsign': callsign})
                 return web.json_response({'qso': qso})
