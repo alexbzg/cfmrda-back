@@ -177,25 +177,40 @@ class CfmRdaServer():
                 return web.Response(text="OK")
         else:
             if callsign:
-                qso = yield from self._db.execute("""
-                    select json_build_object(
-                    'id', id,
-                    'callsign', callsign,
-                    'state', state, 'viewed', viewed,
-                    'comment', comment,
-                    'blacklist',
-                    exists (select from cfm_request_blacklist
-                        where cfm_request_blacklist.callsign = correspondent),
-                    'stationCallsign', station_callsign, 'rda', rda, 
-                    'band', band, 'mode', mode, 
-                    'status_date', to_char(status_tstamp, 'DD Month YYYY'),
-                    'date', to_char(tstamp, 'DD Month YYYY'),
-                    'time', to_char(tstamp, 'HH24:MI'),
-                    'rcvRST', rec_rst, 'sntRST', sent_rst)
-                        from cfm_request_qso
-                        where user_cs = %(callsign)s
-                    """, {'callsign': callsign}, True)
-                return web.json_response(qso)
+                if 'delete' in data and data['delete']:
+                    check_state = yield from self._db.execute("""
+                        select state 
+                        from cfm_request_qso 
+                        where id = %(id)s""", {'id': data['delete']})
+                    sql = """delete from cfm_request_qso
+                        where id = %(id)s""" if check_state is None\
+                        else """update cfm_request_qso
+                            set user_cs = null
+                            where id = %(id)s"""
+                    if (yield from self._db.execute(sql, {'id': data['delete']})):
+                        return CfmRdaServer.response_ok()
+                    else:
+                        return CfmRdaServer.response_error_default()
+                else:                        
+                    qso = yield from self._db.execute("""
+                        select json_build_object(
+                        'id', id,
+                        'callsign', callsign,
+                        'state', state, 'viewed', viewed,
+                        'comment', comment,
+                        'blacklist',
+                        exists (select from cfm_request_blacklist
+                            where cfm_request_blacklist.callsign = correspondent),
+                        'stationCallsign', station_callsign, 'rda', rda, 
+                        'band', band, 'mode', mode, 
+                        'status_date', to_char(status_tstamp, 'DD Month YYYY'),
+                        'date', to_char(tstamp, 'DD Month YYYY'),
+                        'time', to_char(tstamp, 'HH24:MI'),
+                        'rcvRST', rec_rst, 'sntRST', sent_rst)
+                            from cfm_request_qso
+                            where user_cs = %(callsign)s
+                        """, {'callsign': callsign}, True)
+                    return web.json_response(qso)
             else:
                 return CfmRdaServer.response_error_default()
 
