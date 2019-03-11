@@ -83,7 +83,8 @@ def main():
             else:
                 retries += 1
                 yield from asyncio.sleep(1)
-        blacklist.append(row)
+        if retries == 3:
+            blacklist.append(row)
     logging.error('all requests were sent')
     yield from _db.execute("""
         update cfm_request_qso 
@@ -109,7 +110,7 @@ def main():
             (%(correspondent)s)""",\
             blacklist)
         logging.error('cfm_request_blacklist table updated')
-      
+
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(main())
 

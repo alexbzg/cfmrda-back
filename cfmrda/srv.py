@@ -614,8 +614,16 @@ class CfmRdaServer():
     def cfm_blacklist_hndlr(self, request):
         data = yield from request.json()
         callsign = self.decode_token(data)
+        bl_callsign = None
         if isinstance(callsign, str):
-            if (yield from self._db.cfm_blacklist(callsign)):
+            if 'admin' in data:
+                if self.is_admin(callsign):
+                    bl_callsign = data['blacklist']
+                else:
+                    return CfmRdaServer.response_error_admin_required()
+            else:
+                bl_callsign = callsign
+            if (yield from self._db.cfm_blacklist(bl_callsign)):
                 return CfmRdaServer.response_ok()
             else:
                 return CfmRdaServer.response_error_default()
