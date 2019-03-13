@@ -179,7 +179,7 @@ class CfmRdaServer():
             if callsign:
                 if 'delete' in data and data['delete']:
                     check_state = yield from self._db.execute("""
-                        select state 
+                        select sent
                         from cfm_request_qso 
                         where id = %(id)s""", {'id': data['delete']})
                     sql = """delete from cfm_request_qso
@@ -196,20 +196,22 @@ class CfmRdaServer():
                         select json_build_object(
                         'id', id,
                         'callsign', callsign,
-                        'state', state, 'viewed', viewed,
+                        'state', state, 'viewed', viewed, 'sent', sent,
                         'comment', comment,
                         'blacklist',
                         exists (select from cfm_request_blacklist
                             where cfm_request_blacklist.callsign = correspondent),
                         'stationCallsign', station_callsign, 'rda', rda, 
                         'band', band, 'mode', mode, 
-                        'status_date', to_char(status_tstamp, 'DD Month YYYY'),
+                        'statusDate', to_char(status_tstamp, 'DD Month YYYY'),
                         'date', to_char(tstamp, 'DD Month YYYY'),
                         'time', to_char(tstamp, 'HH24:MI'),
                         'rcvRST', rec_rst, 'sntRST', sent_rst)
                             from cfm_request_qso
                             where user_cs = %(callsign)s
                         """, {'callsign': callsign}, True)
+                    if not qso:
+                        qso = []
                     return web.json_response(qso)
             else:
                 return CfmRdaServer.response_error_default()
@@ -686,9 +688,14 @@ class CfmRdaServer():
     @asyncio.coroutine
     def cfm_qso_hndlr(self, request):
         data = yield from request.json()
+        logging.debug(data)
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
-            admin = self.is_admin(callsign) and 'admin' in data and data['admin']
+            admin = False
+            if 'admin' in data and data['admin']:
+                admin_callsign = self.decode_token({'token': data['admin']})
+                if isinstance(admin_callsign, str):
+                    admin = self.is_admin(admin_callsign)
             if 'qso' in data:
                 if 'cfm' in data['qso'] and data['qso']['cfm']:
                     logging.debug(data)
@@ -764,12 +771,14 @@ class CfmRdaServer():
                 for _type in data['qso']:
                     state = _type == 'cfm'
                     for _id in data['qso'][_type]:
-                        comment = data['comments'][_id] if 'comments' in data and\
-                            data['comments'] and _id in data['comments']\
+                        comment = data['comments'][str(_id)]\
+                            if 'comments' in data and data['comments']\
+                            and str(_id) in data['comments']\
                             else None
                         qso_params.append({'id': _id, 'comment': comment,\
                             'state': state})
                 if qso_params:
+                    logging.debug(qso_params)
                     if not (yield from self._db.execute("""update cfm_request_qso
                         set status_tstamp = now(), state = %(state)s, 
                             comment = %(comment)s
@@ -777,8 +786,7 @@ class CfmRdaServer():
                         return CfmRdaServer.response_error_default()
                 if admin:
                     if 'blacklist' in data and data['blacklist']:
-                        for callsign in data['blacklist']:
-                            yield from self._db.cfm_blacklist(callsign)
+                        yield from self._db.cfm_blacklist(callsign)
                 else:
                     test_callsign = yield from self.get_user_data(callsign)
                     if not test_callsign:
@@ -819,18 +827,18 @@ support@cfmrda.ru"""
                 sql = """
                     select json_build_object(
                     'id', id,
-                    'callsign', callsign, 
+                    'callsign', callsign, 'comment', comment,
+                    'blacklist',
+                        exists (select from cfm_request_blacklist
+                            where cfm_request_blacklist.callsign = correspondent),
                     'stationCallsign', station_callsign, 'rda', rda, 
                     'band', band, 'mode', mode, 
                     'date', to_char(tstamp, 'DD Month YYYY'),
                     'time', to_char(tstamp, 'HH24:MI'),
                     'rcvRST', rec_rst, 'sntRST', sent_rst)
                         from cfm_request_qso
-                        where state is null {}
+                        where state is null and correspondent = %(callsign)s
                     """
-                where_cl = "" if admin\
-                    else "and correspondent = %(callsign)s" 
-                sql = sql.format(where_cl)
                 qso = yield from self._db.execute(sql,\
                     {'callsign': callsign}, True)
                 if not admin:
@@ -842,7 +850,6 @@ support@cfmrda.ru"""
                 return web.json_response({'qso': qso})
         else:
             return callsign
-
 
     @asyncio.coroutine
     def uploads_hndlr(self, request):

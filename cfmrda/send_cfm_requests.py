@@ -46,7 +46,8 @@ def main():
     blacklist = []
     for row in data:
         token = create_token(secret, {'callsign': row['correspondent']})
-        link_cfm = conf.get('web', 'address') + '/#/cfm_qso/?token=' + token
+        link_cfm = conf.get('web', 'address') + '/#/cfm_qso/?token=' + token + \
+            '&callsign=' + row['correspondent']
         link_blacklist = conf.get('web', 'address') +\
             '/#/cfm_blacklist/?token=' + token
         qso_txt = format_qsos(row['qso'])
