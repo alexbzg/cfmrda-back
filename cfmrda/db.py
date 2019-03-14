@@ -56,9 +56,9 @@ def init_connection(conn):
 
 class DBConn:
 
-    def __init__(self, db_params):
+    def __init__(self, db_params, verbose=False):
         self.dsn = ' '.join([k + "='" + v + "'" for k, v in db_params])
-        self.verbose = False
+        self.verbose = verbose
         self.pool = None
         self.error = None
 
@@ -254,3 +254,11 @@ class DBConn:
                 where old =%(old)s and new = %(new)s""", to_confirm)):
                 return False
         return msg if msg else 'OK'
+
+    @asyncio.coroutine
+    def cfm_blacklist(self, callsign):
+        """adds callsign to blacklist fro cfm requests"""
+        return (yield from self.execute("""
+            insert into cfm_request_blacklist
+            values (%(callsign)s)""",\
+            {'callsign': callsign}, False))

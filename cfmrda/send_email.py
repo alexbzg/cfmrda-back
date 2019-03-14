@@ -2,6 +2,7 @@
 #coding=utf-8
 
 import smtplib
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
@@ -25,7 +26,12 @@ def send_email(**email):
             part = MIMEApplication(item['data'], Name=item['name'])
             part['Content-Disposition'] = 'attachment; filename="%s"' % item['name']
             msg.attach(part)
-    server = smtplib.SMTP_SSL(conf.get('email', 'smtp'))
-    server.login(my_address, conf.get('email', 'password'))
-    server.sendmail(my_address, msg['to'], str(msg))
+    try:
+        server = smtplib.SMTP_SSL(conf.get('email', 'smtp'))
+        server.login(my_address, conf.get('email', 'password'))
+        server.sendmail(my_address, msg['to'], str(msg))
+        return True
+    except Exception as exc:
+        logging.exception('error sending email')
+        return False
 

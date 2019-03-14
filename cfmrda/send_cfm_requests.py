@@ -24,8 +24,9 @@ def main():
     logging.debug('start send cfm requests')
     conf = site_conf()
     secret = get_secret(conf.get('files', 'secret'))
+    db_params = conf.items('db')
 
-    _db = DBConn(conf.items('db'))
+    _db = DBConn(db_params)
     yield from _db.connect()
     data = yield from _db.execute("""
         select correspondent, correspondent_email,
@@ -36,13 +37,17 @@ def main():
         from
             (select * 
             from cfm_request_qso 
-            where not sent) as data
+            where not sent and correspondent not in  
+            (select callsign from cfm_request_blacklist)) as data
         group by correspondent, correspondent_email""", None, True)
     if not data:
         return
+    sent_to = []
+    blacklist = []
     for row in data:
         token = create_token(secret, {'callsign': row['correspondent']})
-        link_cfm = conf.get('web', 'address') + '/#/cfm_qso/?token=' + token
+        link_cfm = conf.get('web', 'address') + '/#/cfm_qso/?token=' + token + \
+            '&callsign=' + row['correspondent']
         link_blacklist = conf.get('web', 'address') +\
             '/#/cfm_blacklist/?token=' + token
         qso_txt = format_qsos(row['qso'])
@@ -67,15 +72,27 @@ def main():
 И нажмите кнопку "Не присылать мне больше запросов от CFMRDA.ru"
         """).format_map({'correspondent': row['correspondent'],\
             'link_cfm': link_cfm, 'link_blacklist': link_blacklist})
-        send_email(text=text,\
-            fr=conf.get('email', 'address'),\
-            to=row['correspondent_email'],\
-            subject="Запрос на подтверждение QSO от CFMRDA.ru")
+        retries = 0
+        while retries < 3:
+            if send_email(text=text,\
+                fr=conf.get('email', 'address'),\
+                to=row['correspondent_email'],\
+                subject="Запрос на подтверждение QSO от CFMRDA.ru"):
+                logging.error('cfm request email sent to ' + row['correspondent'])
+                sent_to.append(row)
+                break
+            else:
+                retries += 1
+                yield from asyncio.sleep(1)
+        if retries == 3:
+            blacklist.append(row)
+    logging.error('all requests were sent')
     yield from _db.execute("""
         update cfm_request_qso 
-        set sent = true
+        set sent = true, status_tstamp = now()
         where correspondent = %(correspondent)s""",\
-        data)
+        sent_to)
+    logging.error('cfm_request_qso table updated')
     yield from _db.execute("""
         update cfm_requests 
         set tstamp = now()
@@ -86,7 +103,14 @@ def main():
             (select 1 
             from cfm_requests 
             where callsign = %(correspondent)s)
-        """, data)
+        """, sent_to)
+    logging.error('cfm_requests table updated')
+    if blacklist:
+        yield from _db.execute("""
+            insert into cfm_request_blacklist values
+            (%(correspondent)s)""",\
+            blacklist)
+        logging.error('cfm_request_blacklist table updated')
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(main())
