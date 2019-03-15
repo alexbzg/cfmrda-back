@@ -101,7 +101,15 @@ def export_stat(conf):
                     where upload_id is null or 
                         (select enabled from uploads 
                         where id=upload_id) 
-                    group by mode, band, rda) as q0
+                    group by mode, band, rda
+                    union all
+                    select count(*) as qso_count, rda, band, 'total'
+                    from qso 
+                    where upload_id is null or 
+                        (select enabled from uploads 
+                        where id=upload_id) 
+                    group by band, rda
+                    ) as q0
                 group by rda, band) as q1
             group by rda) as q2
     """, None, False))
