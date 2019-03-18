@@ -102,17 +102,22 @@ def export_stat(conf):
                         (select enabled from uploads 
                         where id=upload_id) 
                     group by mode, band, rda
-                    union all
-                    select count(*) as qso_count, rda, band, 'total'
-                    from qso 
-                    where upload_id is null or 
-                        (select enabled from uploads 
-                        where id=upload_id) 
-                    group by band, rda
                     ) as q0
                 group by rda, band) as q1
             group by rda) as q2
     """, None, False))
+    for rda_data in data['qso by rda'].values():
+        rda_total = {'total': 0}
+        for band_data in rda_data.values():
+            band_total = 0
+            for mode, qso_count in band_data.items():
+                band_total += qso_count
+                if mode not in rda_total:
+                    rda_total[mode] = 0
+                rda_total[mode] += qso_count                
+            band_data['total'] = band_total
+            rda_total['total'] += band_total
+        rda_data['total'] = rda_total
     save_json(data, conf.get('web', 'root') + '/json/stat.json')
     logging.debug('export stats finished')
 
