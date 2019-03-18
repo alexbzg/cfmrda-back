@@ -29,12 +29,6 @@ def export_rankings(conf):
     logging.debug('export rankings finished')
 
 @asyncio.coroutine
-def export_all(conf):
-    yield from export_rankings(conf)
-    yield from export_recent_uploads(conf)
-    yield from export_msc(conf)
-
-@asyncio.coroutine
 def export_recent_uploads(conf):
     """export 20 recent uploaded file batches to json file for web"""
     logging.debug('export recent uploads')
@@ -89,6 +83,44 @@ def export_msc(conf):
     save_json(data, conf.get('web', 'root') + '/json/msc.json')
     logging.debug('export misc finished')
 
+@asyncio.coroutine
+def export_stat(conf):
+    """export statistic data to json file for web"""
+    logging.debug('export stats')
+
+    _db = DBConn(conf.items('db'))
+    yield from _db.connect()
+
+    data = {}
+    data['qso by rda'] = (yield from _db.execute("""
+        select json_object_agg(rda, data) as data from
+            (select rda, json_object_agg(band, data) as data from
+                (select rda, band, json_object_agg(mode, qso_count) as data from
+                    (select count(*) as qso_count, rda, band, mode 
+                    from qso 
+                    where upload_id is null or 
+                        (select enabled from uploads 
+                        where id=upload_id) 
+                    group by mode, band, rda
+                    ) as q0
+                group by rda, band) as q1
+            group by rda) as q2
+    """, None, False))
+    for rda_data in data['qso by rda'].values():
+        rda_total = {'total': 0}
+        for band_data in rda_data.values():
+            band_total = 0
+            for mode, qso_count in band_data.items():
+                band_total += qso_count
+                if mode not in rda_total:
+                    rda_total[mode] = 0
+                rda_total[mode] += qso_count                
+            band_data['total'] = band_total
+            rda_total['total'] += band_total
+        rda_data['total'] = rda_total
+    save_json(data, conf.get('web', 'root') + '/json/stat.json')
+    logging.debug('export stats finished')
+
 def main():
     """when called from shell exports rankings"""
     start_logging('export')
@@ -105,8 +137,9 @@ def main():
     parser.add_argument('-r', action="store_true")
     parser.add_argument('-u', action="store_true")
     parser.add_argument('-m', action="store_true")
+    parser.add_argument('-s', action="store_true")
     args = parser.parse_args()
-    export_all = not args.r and not args.u and not args.m
+    export_all = not args.r and not args.u and not args.m and not args.s
     if args.r or export_all:
         asyncio.get_event_loop().run_until_complete(export_rankings(conf))
         set_local_owner('/json/rankings.json')
@@ -116,6 +149,11 @@ def main():
     if args.m or export_all:
         asyncio.get_event_loop().run_until_complete(export_msc(conf))
         set_local_owner('/json/msc.json')
+    if args.s or export_all:
+        asyncio.get_event_loop().run_until_complete(export_stat(conf))
+        set_local_owner('/json/stat.json')
+
+
 
 if __name__ == "__main__":
     main()

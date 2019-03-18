@@ -133,44 +133,29 @@ class CfmRdaServer():
     def cfm_request_qso_hndlr(self, request):
         data = yield from request.json()
         error = None
-        callsign = None
-        if 'token' in data:
-            callsign = self.decode_token(data)
-            if not isinstance(callsign, str):
-                return callsign
-        else:
-            rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
-            if not rc_test:
-                return CfmRdaServer.response_error_recaptcha()
+        callsign = self.decode_token(data)
+        if not isinstance(callsign, str):
+            return callsign
         if 'qso' in data:
             if self._json_validator.validate('cfmRequestQso', data):
-                email = None
-                user_cs = None
-                if callsign:
-                    user_data = yield from self.get_user_data(callsign)
-                    email = user_data['email']
-                    user_cs = callsign
-                else:
-                    email = data['email']
-                if email:
-                    for qso in data['qso']:
-                        qso['hunterEmail'] = email
-                        qso['tstamp'] = (qso['date'].split('T'))[0] + ' ' +\
-                            qso['time']
-                        qso['user_cs'] = user_cs
-                    if not (yield from self._db.execute("""
-                        insert into cfm_request_qso 
-                        (correspondent, callsign, station_callsign, rda,
-                        band, mode, tstamp, hunter_email, user_cs,
-                        correspondent_email, rec_rst, sent_rst)
-                        values (%(correspondent)s, %(callsign)s, 
-                        %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
-                        %(tstamp)s, %(hunterEmail)s, %(user_cs)s, %(email)s,
-                        %(recRST)s, %(sentRST)s)""",\
-                        data['qso'], False)):
-                        return CfmRdaServer.response_error_default()
-            else:
-                return CfmRdaServer.response_error_default()
+                user_data = yield from self.get_user_data(callsign)
+                email = user_data['email']
+                for qso in data['qso']:
+                    qso['hunterEmail'] = email
+                    qso['tstamp'] = (qso['date'].split('T'))[0] + ' ' +\
+                        qso['time']
+                    qso['user_cs'] = callsign
+                if not (yield from self._db.execute("""
+                    insert into cfm_request_qso 
+                    (correspondent, callsign, station_callsign, rda,
+                    band, mode, tstamp, hunter_email, user_cs,
+                    correspondent_email, rec_rst, sent_rst)
+                    values (%(correspondent)s, %(callsign)s, 
+                    %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
+                    %(tstamp)s, %(hunterEmail)s, %(user_cs)s, %(email)s,
+                    %(recRST)s, %(sentRST)s)""",\
+                    data['qso'], False)):
+                    return CfmRdaServer.response_error_default()
             if error:
                 return web.HTTPBadRequest(text=error)
             else:
@@ -749,24 +734,6 @@ class CfmRdaServer():
                             if row['email'] not in qsos:
                                 qsos[row['email']] = {}
                             qsos[row['email']][_type] = row['qsos']
-                for email in qsos:
-                    text = """Здравствуйте.
-
-По вашему email-запросу на сайте CFMRDA.ru """
-                    if 'cfm' in qsos[email]:
-                        text += "были подтверждены следующие QSO:\n" +\
-                            format_qsos(qsos[email]['cfm'])
-                    if 'reject' in qsos[email]:
-                        text += "В подтверждении следующих QSO корреспондент отказал:\n" +\
-                            format_qsos(qsos[email]['reject'])
-                    text += """
-
-Спасибо. 73!
-Команда CFMRDA.ru"""
-                    send_email.send_email(text=text,\
-                        fr=CONF.get('email', 'address'),\
-                        to=email,\
-                        subject="Подтверждение QSO на CFMRDA.ru")
                 qso_params = []
                 for _type in data['qso']:
                     state = _type == 'cfm'

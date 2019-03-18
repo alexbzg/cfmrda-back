@@ -41,7 +41,8 @@ delete from rda_activator;
 delete from rda_hunter;
 
 insert into rda_hunter (hunter, mode, band, rda)
-select distinct callsign, mode, band, rda from qso;
+select distinct callsign, mode, band, rda from qso
+where upload_id is null or (select enabled from uploads where id = upload_id);
 
 insert into rda_activator 
 select activator, rda, band, mode, count(distinct callsign) as callsigns
@@ -566,7 +567,8 @@ CREATE TABLE cfm_request_qso (
     viewed boolean DEFAULT false,
     comment character varying(256),
     state boolean,
-    user_cs character varying(32)
+    user_cs character varying(32),
+    status_tstamp timestamp without time zone DEFAULT now()
 );
 
 
@@ -1025,6 +1027,13 @@ CREATE INDEX qso_callsign_mode_rda_idx ON qso USING btree (callsign, mode, rda);
 
 
 --
+-- Name: qso_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_mode_band_rda_idx ON qso USING btree (mode, band, rda);
+
+
+--
 -- Name: qso_upload_id_mode_band_rda_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1036,6 +1045,13 @@ CREATE INDEX qso_upload_id_mode_band_rda_callsign_idx ON qso USING btree (upload
 --
 
 CREATE INDEX qso_upload_id_mode_band_rda_dt_callsign_idx ON qso USING btree (upload_id, mode, band, rda, dt, callsign);
+
+
+--
+-- Name: qso_upload_id_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX qso_upload_id_mode_band_rda_idx ON qso USING btree (upload_id, mode, band, rda);
 
 
 --
