@@ -28,7 +28,7 @@ def send_email(**email):
             msg.attach(part)
     try:
         server = smtplib.SMTP_SSL(conf.get('email', 'smtp'))
-        server.login(my_address, conf.get('email', 'password'))
+        server.login(conf.get('email', 'login'), conf.get('email', 'password'))
         server.sendmail(my_address, msg['to'], str(msg))
         return True
     except Exception as exc:

@@ -1,4 +1,4 @@
-chmod o+x cfmrda/srv.py cfmrda/export.py cfmrda/send_cfm_requests.py
+chmod o+x cfmrda/srv.py cfmrda/export.py cfmrda/send_cfm_requests.py cfmrda/maintenance.py
 chown postgres:postgres cfmrda.sql
 cp cfmrda/*.py ../cfmrda
 cp cfmrda/schemas.json ../cfmrda
