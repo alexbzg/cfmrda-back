@@ -1075,9 +1075,11 @@ support@cfmrda.ru"""
     def hunter_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
+            data = {}
             new_callsign = yield from self._db.get_new_callsign(callsign)
             if new_callsign:
-                return web.json_response({'newCallsign': new_callsign})
+                callsign = new_callsign
+                data['newCallsign'] = new_callsign
             rda = {}
             rda['hunter'] = yield from self._db.execute("""
                 select json_object_agg(rda, data) from
@@ -1101,7 +1103,8 @@ support@cfmrda.ru"""
                 """, {'callsign': callsign}, False)
             else:
                 rank = False
-            data = {'rda': rda, 'rank': rank}
+            data['rda'] = rda
+            data['rank'] = rank
             data['oldCallsigns'] = yield from\
                 self._db.get_old_callsigns(callsign, True)
             if not data['oldCallsigns']:
