@@ -308,7 +308,7 @@ class CfmRdaServer():
             """, {'hash': adif_hash})
             if hash_check:
                 error['message'] = "Файл уже загружен"
-                logging.error("Duplicate adif id: "  + hash_check['id'])
+                logging.error("Duplicate adif id: "  + str(hash_check))
                 return error
             adif_enc = chardet.detect(adif_bytes)
             adif = adif_bytes.decode(adif_enc['encoding'], 'ignore')
@@ -1097,7 +1097,7 @@ support@cfmrda.ru"""
                     where activator = %(callsign)s
                     group by rda) as q
             """, {'callsign': callsign}, False)
-            if rda['hunter'] or rda['actovator']:
+            if rda['hunter'] or rda['activator']:
                 rank = yield from self._db.execute("""
                 select rankings_json('callsign = '%(callsign)s'') as data
                 """, {'callsign': callsign}, False)

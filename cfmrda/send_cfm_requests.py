@@ -92,7 +92,7 @@ def main():
         yield from _db.execute("""
             update cfm_request_qso 
             set sent = true, status_tstamp = now()
-            where correspondent = %(correspondent)s""",\
+            where correspondent = %(correspondent)s and not sent""",\
             sent_to)
         logging.error('cfm_request_qso table updated')
         yield from _db.execute("""
