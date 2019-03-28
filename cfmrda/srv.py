@@ -308,7 +308,7 @@ class CfmRdaServer():
             """, {'hash': adif_hash})
             if hash_check:
                 error['message'] = "Файл уже загружен"
-                logging.error("Duplicate adif id: "  + hash_check['id'])
+                logging.error("Duplicate adif id: "  + str(hash_check))
                 return error
             adif_enc = chardet.detect(adif_bytes)
             adif = adif_bytes.decode(adif_enc['encoding'], 'ignore')
@@ -1030,7 +1030,7 @@ support@cfmrda.ru"""
             qso.rda = %(rda)s and
             (qso.band = %(band)s or %(band)s is null) and
             (qso.mode = %(mode)s or %(mode)s is null)
-        order by qso.tstamp
+        order by qso.band, qso.mode
         """,\
         'activator': """
             select json_build_object('mode', mode,
@@ -1052,7 +1052,7 @@ support@cfmrda.ru"""
                             (qso.mode = %(mode)s or %(mode)s is null)
                         group by qso.upload_id, user_cs, upload_type, 
                             mode, band, qso.rda, dt
-                        order by dt) as l_0
+                        order by band, mode) as l_0
         """}
 
         @asyncio.coroutine
@@ -1075,9 +1075,11 @@ support@cfmrda.ru"""
     def hunter_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
+            data = {}
             new_callsign = yield from self._db.get_new_callsign(callsign)
             if new_callsign:
-                return web.json_response({'newCallsign': new_callsign})
+                callsign = new_callsign
+                data['newCallsign'] = new_callsign
             rda = {}
             rda['hunter'] = yield from self._db.execute("""
                 select json_object_agg(rda, data) from
@@ -1095,13 +1097,14 @@ support@cfmrda.ru"""
                     where activator = %(callsign)s
                     group by rda) as q
             """, {'callsign': callsign}, False)
-            if rda['hunter'] or rda['actovator']:
+            if rda['hunter'] or rda['activator']:
                 rank = yield from self._db.execute("""
                 select rankings_json('callsign = '%(callsign)s'') as data
                 """, {'callsign': callsign}, False)
             else:
                 rank = False
-            data = {'rda': rda, 'rank': rank}
+            data['rda'] = rda
+            data['rank'] = rank
             data['oldCallsigns'] = yield from\
                 self._db.get_old_callsigns(callsign, True)
             if not data['oldCallsigns']:

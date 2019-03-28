@@ -43,7 +43,6 @@ def main():
     if not data:
         return
     sent_to = []
-    blacklist = []
     for row in data:
         token = create_token(secret, {'callsign': row['correspondent']})
         link_cfm = conf.get('web', 'address') + '/#/cfm_qso/?token=' + token + \
@@ -83,34 +82,31 @@ def main():
                 break
             else:
                 retries += 1
-                yield from asyncio.sleep(1)
+                yield from asyncio.sleep(10)
         if retries == 3:
-            blacklist.append(row)
+            logging.error('Email delivery failed. Correspondent: ' + row['correspondent']\
+                + ', address: ' + row['correspondent_email'])
+        yield from asyncio.sleep(10)
     logging.error('all requests were sent')
-    yield from _db.execute("""
-        update cfm_request_qso 
-        set sent = true, status_tstamp = now()
-        where correspondent = %(correspondent)s""",\
-        sent_to)
-    logging.error('cfm_request_qso table updated')
-    yield from _db.execute("""
-        update cfm_requests 
-        set tstamp = now()
-        where callsign = %(correspondent)s;
-        insert into cfm_requests
-        select %(correspondent)s, now()
-        where not exists
-            (select 1 
-            from cfm_requests 
-            where callsign = %(correspondent)s)
-        """, sent_to)
-    logging.error('cfm_requests table updated')
-    if blacklist:
+    if sent_to:
         yield from _db.execute("""
-            insert into cfm_request_blacklist values
-            (%(correspondent)s)""",\
-            blacklist)
-        logging.error('cfm_request_blacklist table updated')
+            update cfm_request_qso 
+            set sent = true, status_tstamp = now()
+            where correspondent = %(correspondent)s and not sent""",\
+            sent_to)
+        logging.error('cfm_request_qso table updated')
+        yield from _db.execute("""
+            update cfm_requests 
+            set tstamp = now()
+            where callsign = %(correspondent)s;
+            insert into cfm_requests
+            select %(correspondent)s, now()
+            where not exists
+                (select 1 
+                from cfm_requests 
+                where callsign = %(correspondent)s)
+            """, sent_to)
+        logging.error('cfm_requests table updated')
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(main())
