@@ -1030,7 +1030,7 @@ support@cfmrda.ru"""
             qso.rda = %(rda)s and
             (qso.band = %(band)s or %(band)s is null) and
             (qso.mode = %(mode)s or %(mode)s is null)
-        order by qso.tstamp
+        order by qso.band, qso.mode
         """,\
         'activator': """
             select json_build_object('mode', mode,
@@ -1052,7 +1052,7 @@ support@cfmrda.ru"""
                             (qso.mode = %(mode)s or %(mode)s is null)
                         group by qso.upload_id, user_cs, upload_type, 
                             mode, band, qso.rda, dt
-                        order by dt) as l_0
+                        order by band, mode) as l_0
         """}
 
         @asyncio.coroutine
