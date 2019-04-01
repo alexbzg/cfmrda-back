@@ -749,7 +749,7 @@ class CfmRdaServer():
                     if not (yield from self._db.execute("""update cfm_request_qso
                         set status_tstamp = now(), state = %(state)s, 
                             comment = %(comment)s
-                        where id = %(id)s;""", qso_params)):
+                        where id = %(id)s and not viewed;""", qso_params)):
                         return CfmRdaServer.response_error_default()
                 if admin:
                     if 'blacklist' in data and data['blacklist']:
