@@ -23,7 +23,7 @@ def perform(conf):
 
     yield from _db.execute("delete from activators where not exists (select from qso where qso.upload_id = activators.upload_id)")
     yield from _db.execute("delete from uploads where not exists (select from qso where qso.upload_id = uploads.id)")
-   logging.debug('empty uploads deleted')
+    logging.debug('empty uploads deleted')
 
     logging.debug('maintenance finished')
 

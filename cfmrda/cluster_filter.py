@@ -12,6 +12,7 @@ from json_utils import load_json, save_json
 def perform(conf):
     """cluster filtering"""
     logging.debug('cluster filtering')
+    list_length = conf.getint('cluster', 'list_length')
 
     _db = DBConn(conf.items('cluster_db'))
     yield from _db.connect()
@@ -41,10 +42,12 @@ def perform(conf):
         if 'RDA' in item['awards'] or item['cs'] in dxped:
             if item['cs'] in dxped:
                 item['dxped'] = dxped[item['cs']]
+            if item['mode'] == 'DATA':
+                item['mode'] = 'DIGI'
             rda_dx.insert(idx, item)
             idx += 1
-    if len(rda_dx) > 20:
-        rda_dx = rda_dx[:20]
+    if len(rda_dx) > list_length:
+        rda_dx = rda_dx[:list_length]
     save_json(rda_dx, rda_dx_fname)
 
 def main():
