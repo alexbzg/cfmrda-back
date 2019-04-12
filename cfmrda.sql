@@ -374,15 +374,13 @@ CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
 	where upload_id = uploads.id and enabled
 	and callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
-	and band = new.band and mode = new.mode 
-	and qso.tstamp = new.tstamp) then
+	and band = new.band and mode = new.mode) then
     return null;
    end if;
   if exists (select 1 from cfm_request_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
-	and band = new.band and mode = new.mode 
-	and tstamp = new.tstamp) then
+	and band = new.band and mode = new.mode) then
     return null;
    end if;   
    return new;
@@ -508,7 +506,9 @@ CREATE TABLE cfm_qsl_qso (
     image character varying(128) NOT NULL,
     user_cs character varying(32) NOT NULL,
     state boolean,
-    comment character varying(256)
+    comment character varying(256),
+    admin character varying(64),
+    status_date timestamp without time zone
 );
 
 
@@ -954,6 +954,13 @@ ALTER TABLE ONLY users
 --
 
 CREATE INDEX activators_activator_idx ON activators USING btree (activator);
+
+
+--
+-- Name: cfm_qsl_qso_status_date_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX cfm_qsl_qso_status_date_idx ON cfm_qsl_qso USING btree (status_date);
 
 
 --

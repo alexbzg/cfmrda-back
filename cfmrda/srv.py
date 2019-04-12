@@ -22,7 +22,7 @@ import send_email
 from secret import get_secret, create_token
 import recaptcha
 from json_utils import load_json, save_json, JSONvalidator
-from qrz import QRZComLink
+from qrz import QRZComLink, QRZRuLink
 from ham_radio import load_adif, ADIFParseException, strip_callsign
 from send_cfm_requests import format_qsos
 
@@ -66,6 +66,7 @@ class CfmRdaServer():
         self._loop = loop
         self._db = DBConn(CONF.items('db'))
         self._qrzcom = QRZComLink(loop)
+        self._qrzru = QRZRuLink(loop)
         asyncio.async(self._db.connect())
         self._secret = get_secret(CONF.get('files', 'secret'))
         self._site_admins = str(CONF.get('web', 'admins')).split(' ')
@@ -410,6 +411,7 @@ class CfmRdaServer():
                 'date', to_char(tstamp, 'DD mon YYYY'),
                 'time', to_char(tstamp, 'HH24:MI'),
                 'state', state,
+                'admin', admin,
                 'comment', comment,
                 'image', image))
             from cfm_qsl_qso 
@@ -450,9 +452,12 @@ class CfmRdaServer():
             if self.is_admin(callsign):
                 if 'qsl' in data:
                     if self._json_validator.validate('qslAdmin', data['qsl']):
+                        for qso in data['qsl']:
+                            qso['admin'] = callsign
                         if (yield from self._db.execute("""
                             update cfm_qsl_qso 
-                            set state = %(state)s, comment = %(comment)s
+                            set state = %(state)s, comment = %(comment)s,
+                            admin = %(admin)s
                             where id = %(id)s""", data['qsl'])):
                             for qsl in data['qsl']:
                                 _del_qsl_image(qsl['id'])
@@ -1115,6 +1120,18 @@ support@cfmrda.ru"""
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
     @asyncio.coroutine
+    def get_qrzru(self, request):
+        callsign = request.match_info.get('callsign', None)
+        if callsign:
+            data = yield from self._qrzru.query(callsign)
+            if data:
+                return web.json_response(data)
+            else:
+                return web.json_response(False)
+        else:
+            return web.HTTPBadRequest(text='Необходимо ввести позывной')
+
+    @asyncio.coroutine
     def view_upload_hndlr(self, request):
         upload_id = request.match_info.get('id', None)
         if upload_id:
@@ -1166,7 +1183,7 @@ def test_hndlr(request):
     return CfmRdaServer.response_ok()
 
 if __name__ == '__main__':
-    APP = web.Application(client_max_size=100 * 1024 ** 2)
+    APP = web.Application(client_max_size=100 * 1024 ** 2, loop=asyncio.get_event_loop())
     SRV = CfmRdaServer(APP.loop)
     APP.router.add_get('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/test', test_hndlr)
@@ -1192,4 +1209,5 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
             SRV.correspondent_email_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
+    APP.router.add_get('/aiohttp/qrzru/{callsign}', SRV.get_qrzru)
     web.run_app(APP, path=CONF.get('files', 'server_socket'))
