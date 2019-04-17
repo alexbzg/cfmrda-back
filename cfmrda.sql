@@ -344,16 +344,17 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
 ALTER FUNCTION public.tf_activators_bi() OWNER TO postgres;
 
 --
--- Name: tf_cfm_qsl_qso_au(); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: tf_cfm_qsl_qso_bu(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_cfm_qsl_qso_au() RETURNS trigger
+CREATE FUNCTION tf_cfm_qsl_qso_bu() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   if new.state and (not old.state or old.state is null) then
     insert into qso (callsign, station_callsign, rda, band, mode, tstamp)
       values (coalesce(new.new_callsign, new.callsign), new.station_callsign, new.rda,
         new.band, new.mode, new.tstamp);
+    new.status_date = now();
   end if;
   return new;
 end;
@@ -361,7 +362,7 @@ end;
    $$;
 
 
-ALTER FUNCTION public.tf_cfm_qsl_qso_au() OWNER TO postgres;
+ALTER FUNCTION public.tf_cfm_qsl_qso_bu() OWNER TO postgres;
 
 --
 -- Name: tf_cfm_request_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -374,7 +375,8 @@ CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
 	where upload_id = uploads.id and enabled
 	and callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
-	and band = new.band and mode = new.mode) then
+	and band = new.band and mode = new.mode
+	and abs(extract(epoch from new.tstamp - qso.tstamp)) < 180) then
     return null;
    end if;
   if exists (select 1 from cfm_request_qso
@@ -1160,10 +1162,10 @@ CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE
 
 
 --
--- Name: tr_cfm_qsl_qso; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: tr_cfm_qsl_qso_bu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_cfm_qsl_qso AFTER UPDATE ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_au();
+CREATE TRIGGER tr_cfm_qsl_qso_bu BEFORE UPDATE ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_bu();
 
 
 --

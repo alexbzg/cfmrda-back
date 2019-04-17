@@ -88,24 +88,24 @@ def export_msc(conf):
                 'qslWait', qsl_wait, 'qslToday', qsl_today, 
                 'email', email) as data 
             from
-                (select callsign, count(*) as qsl_wait 
+                (select user_cs as callsign, count(*) as qsl_wait 
                 from cfm_qsl_qso 
                 where state is null 
-                group by callsign) as qsl_wait 
+                group by user_cs) as qsl_wait 
                 full join
-                (select callsign, count(*) as qsl_today 
+                (select user_cs as callsign, count(*) as qsl_today 
                 from cfm_qsl_qso 
-                where state and status_date > now() - interval '24 hours' 
-                group by callsign) as qsl_today 
+                where state
+                group by user_cs) as qsl_today 
                 on qsl_wait.callsign = qsl_today.callsign 
                 full join
-                (select callsign, count(*) as email 
+                (select user_cs as callsign, count(*) as email 
                 from cfm_request_qso 
-                where not sent 
-                group by callsign) as email 
-                on qsl_wait.callsign = email.callsign
+                where not sent and user_cs is not null  
+                group by user_cs) as email 
+                on coalesce(qsl_wait.callsign, qsl_today.callsign) = email.callsign
                 order by coalesce(qsl_wait.callsign, qsl_today.callsign, 
-                    email.callsign) desc
+                    email.callsign)
             )  as data""", None, False))
 
     save_json(data, conf.get('web', 'root') + '/json/msc.json')
