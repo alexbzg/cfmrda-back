@@ -581,6 +581,28 @@ class CfmRdaServer():
                     """, data, False)
                 if check_uploader != callsign:
                     return CfmRdaServer.response_error_default()
+
+            upload_data = yield from self._db.execute("""
+                select json_build_object('activators', activators,
+                    'rda', rda,
+                    'delDate', to_char(now(), 'DD mon YYYY'),
+                    'delTime', to_char(now(), 'HH24:MI'),
+                    'uploadType', upload_type,
+                    'uploader', uploader) as data
+                from
+                (select user_cs as uploader, upload_type
+                    from uploads            
+                    where id = %(id)s) as u,
+                lateral 
+                (select array_agg(distinct station_callsign) as activators 
+                    from qso 
+                    where upload_id = %(id)s) as acts,
+                lateral 
+                (select array_agg(distinct rda) as rda   
+                    from qso 
+                    where upload_id = %(id)s) as rdas 
+                """, data, False)
+               
             if not (yield from self._db.execute("""
                 delete from qso where upload_id = %(id)s
                 """, data)):
@@ -593,6 +615,12 @@ class CfmRdaServer():
                 delete from uploads where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
+            del_uploads_path = CONF.get('web', 'root') + '/json/del_uploads.json'
+            del_uploads = load_json(del_uploads_path) or []
+            del_uploads.insert(0, upload_data)
+            if len(del_uploads) > 20:
+                del_uploads = del_uploads[:20]
+            save_json(del_uploads, del_uploads_path)
         elif 'enabled' in data:
             if callsign not in self._site_admins:
                 return CfmRdaServer.response_error_default()
