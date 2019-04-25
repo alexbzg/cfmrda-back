@@ -129,10 +129,23 @@ class DBConn:
                     yield from cur.execute('rollback transaction;')
                 logging.exception("Error executing: " + sql + "\n",\
                     exc_info=True)
-                if params:
+                if params and not isinstance(params, dict):
                     logging.error("Params: ")
                     logging.error(params)
         return res
+
+    @asyncio.coroutine
+    def exec_cur(self, cur, sql, params=None):
+        try:
+            yield from cur.execute(sql, params)
+            return True
+        except Exception:
+            logging.exception("Error executing: " + sql + "\n",\
+                exc_info=True)
+            if params:
+                logging.error("Params: ")
+                logging.error(params)
+            return False
 
     @asyncio.coroutine
     def get_object(self, table, params, create=False, never_create=False):
@@ -157,23 +170,41 @@ class DBConn:
         return res
 
     @asyncio.coroutine
-    def insert_upload(self, callsign=None, date_start=None, date_end=None,\
-        file_hash=None, upload_type='adif', activators=None):
-        upl_id = yield from self.execute("""
-            insert into uploads
-                (user_cs, date_start, date_end, hash,
-                upload_type)
-            values (%(callsign)s, 
-                %(date_start)s, %(date_end)s, %(hash)s,
-                %(upload_type)s)
-            returning id""",\
-            {'callsign': callsign,\
-            'date_start': date_start,\
-            'date_end': date_end,\
-            'hash': file_hash,\
-            'upload_type': upload_type})
-        if not upl_id:
-            raise Exception()
+    def create_upload(self, callsign=None, date_start=None, date_end=None,\
+        file_hash_data=None, upload_type='adif', activators=None, qso=None):
+        error = {'rda': file['rda'] if 'rda' in file else None,\
+                'message': 'Ошибка загрузки'}
+        try:
+            with (yield from self.pool.cursor()) as cur:
+
+                file_hash = hashlib.md5(file_hash_data).hexdigest()
+                hash_check = yield from self.exec_cur(cur, """
+                    select id from uploads where hash = %(hash)s
+                    """, {'hash': file_hash})
+                if hash_check and cur.rowcount:
+                    duplicate_id = cur.fetchone()[0]
+                    error['message'] = "Файл уже загружен"
+                    logging.error("Duplicate adif id: "  + str(duplicate_id))
+                    return error
+                with (yield from self.pool.cursor()) as cur:
+
+                upl_res = yield from self.exec_cur(cur, """
+                    insert into uploads
+                        (user_cs, date_start, date_end, hash,
+                        upload_type)
+                    values (%(callsign)s, 
+                        %(date_start)s, %(date_end)s, %(hash)s,
+                        %(upload_type)s)
+                    returning id""",\
+                    {'callsign': callsign,\
+                    'date_start': date_start,\
+                    'date_end': date_end,\
+                    'hash': file_hash,\
+                    'upload_type': upload_type})
+                if not upl_res or not cur.rowcount:
+                    raise Exception()
+                upl_id = cur.fetchone()[0]
+
 
         act_sql = """insert into activators
             values (%(upload_id)s, %(activator)s)"""
