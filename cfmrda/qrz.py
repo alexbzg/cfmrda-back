@@ -151,6 +151,7 @@ class QRZRuLink:
                 self.session_task = \
                     self.loop.call_later(self._session_interval_success,\
                     self.get_session_id)
+                logging.debug('New qrz.ru session id:' + self.session_id)
             else:
                 if 'error' in r_dict['QRZDatabase']['Session']:
                     logging.error('QRZ returned error: ' + \

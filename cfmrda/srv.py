@@ -602,6 +602,7 @@ class CfmRdaServer():
                     from qso 
                     where upload_id = %(id)s) as rdas 
                 """, data, False)
+            upload_data['delBy'] = callsign
                
             if not (yield from self._db.execute("""
                 delete from qso where upload_id = %(id)s

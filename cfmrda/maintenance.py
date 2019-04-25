@@ -15,8 +15,8 @@ def perform(conf):
     _db = DBConn(conf.items('db'))
     yield from _db.connect()
 
-    yield from _db.execute("delete from cfm_request_qso where state")
-    logging.debug('confirmed email cfm requests deleted')
+#    yield from _db.execute("delete from cfm_request_qso where state")
+#    logging.debug('confirmed email cfm requests deleted')
 
     yield from _db.execute("delete from cfm_qsl_qso where state")
     logging.debug('confirmed qsl cfm requests deleted')
