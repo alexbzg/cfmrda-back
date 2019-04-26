@@ -53,6 +53,18 @@ def init_connection(conn):
     conn.set_client_encoding('UTF8')
     logging.debug('new db connection')
 
+@asyncio.coroutine
+def exec_cur(cur, sql, params=None):
+    try:
+        yield from cur.execute(sql, params)
+        return True
+    except Exception:
+        logging.exception("Error executing: " + sql + "\n",\
+            exc_info=True)
+        if params:
+            logging.error("Params: ")
+            logging.error(params)
+        return False
 
 class DBConn:
 
@@ -134,18 +146,6 @@ class DBConn:
                     logging.error(params)
         return res
 
-    @asyncio.coroutine
-    def exec_cur(self, cur, sql, params=None):
-        try:
-            yield from cur.execute(sql, params)
-            return True
-        except Exception:
-            logging.exception("Error executing: " + sql + "\n",\
-                exc_info=True)
-            if params:
-                logging.error("Params: ")
-                logging.error(params)
-            return False
 
     @asyncio.coroutine
     def get_object(self, table, params, create=False, never_create=False):
@@ -171,14 +171,21 @@ class DBConn:
 
     @asyncio.coroutine
     def create_upload(self, callsign=None, date_start=None, date_end=None,\
-        file_hash_data=None, upload_type='adif', activators=None, qso=None):
-        error = {'rda': file['rda'] if 'rda' in file else None,\
-                'message': 'Ошибка загрузки'}
-        try:
-            with (yield from self.pool.cursor()) as cur:
+        file_hash_data=None, upload_type='adif', activators=None, qsos=None):
+
+        res = {'message': 'Ошибка загрузки',
+               'qso': {\
+                    'ok': 0,\
+                    'error': 0\
+               }
+              }
+
+        with (yield from self.pool.cursor()) as cur:
+            try:
+                yield from exec_cur(cur, 'begin transaction')
 
                 file_hash = hashlib.md5(file_hash_data).hexdigest()
-                hash_check = yield from self.exec_cur(cur, """
+                hash_check = yield from exec_cur(cur, """
                     select id from uploads where hash = %(hash)s
                     """, {'hash': file_hash})
                 if hash_check and cur.rowcount:
@@ -186,9 +193,8 @@ class DBConn:
                     error['message'] = "Файл уже загружен"
                     logging.error("Duplicate adif id: "  + str(duplicate_id))
                     return error
-                with (yield from self.pool.cursor()) as cur:
 
-                upl_res = yield from self.exec_cur(cur, """
+                upl_res = yield from exec_cur(cur, """
                     insert into uploads
                         (user_cs, date_start, date_end, hash,
                         upload_type)
@@ -204,16 +210,43 @@ class DBConn:
                 if not upl_res or not cur.rowcount:
                     raise Exception()
                 upl_id = cur.fetchone()[0]
+                if not upl_id:
+                    raise Exception()
 
+                act_sql = """insert into activators
+                    values (%(upload_id)s, %(activator)s)"""
+                for act in activators:
+                    if not (yield from exec_cur(cur, act_sql,\
+                        {'upload_id': upl_id, 'activator': act})):
+                        raise Exception()
 
-        act_sql = """insert into activators
-            values (%(upload_id)s, %(activator)s)"""
-        act_params = [{'upload_id': upl_id,\
-            'activator': act} for act in activators]
-        res = yield from self.execute(act_sql, act_params)
-        if not res:
-            raise Exception()
-        return upl_id
+                qso_sql = """insert into qso
+                    (upload_id, callsign, station_callsign, rda,
+                        band, mode, tstamp)
+                    values (%(upload_id)s, %(callsign)s,
+                        %(station_callsign)s, %(rda)s, %(band)s,
+                        %(mode)s, %(tstamp)s)
+                    returning id"""
+                for qso in qsos:
+                    qso['upload_id'] = upl_id
+                    qso_res = yield from exec_cur(cur, qso_sql, qso)
+                    qso_id = None
+                    if qso_res and cur.rowcount:
+                        qso_id = cur.fetchone()[0]
+                    res['qso']['ok' if qso_id else 'inserted'] += 1
+
+                if res['qso']['ok']:
+                    res['message'] = 'Ok'
+                else:
+                    res['message'] = 'Не найдено корректных qso.'
+                    raise Exception()
+
+            except Exception:
+                if cur.connection.get_transaction_status() !=\
+                        TRANSACTION_STATUS_IDLE:
+                    yield from exec_cur(cur, 'rollback transaction;')
+
+            return res
 
     @asyncio.coroutine
     def get_old_callsigns(self, callsign, confirmed=False):
