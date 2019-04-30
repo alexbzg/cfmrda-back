@@ -4,6 +4,7 @@
 import logging
 import json
 import asyncio
+import hashlib
 
 import aiopg
 from psycopg2.extensions import TRANSACTION_STATUS_IDLE
@@ -78,7 +79,7 @@ class DBConn:
     def connect(self):
         try:
             self.pool = yield from aiopg.create_pool(self.dsn, \
-                    timeout=10800,\
+                    timeout=18000,\
                     on_connect=init_connection)
             logging.debug('db connections pool created')
         except Exception:
@@ -170,8 +171,19 @@ class DBConn:
         return res
 
     @asyncio.coroutine
+    def check_upload_hash(self, hash_data):
+        file_hash = hashlib.md5(hash_data).hexdigest()
+        hash_check = yield from self.execute("""
+            select id from uploads where hash = %(hash)s
+            """, {'hash': file_hash})
+        if hash_check:
+            logging.error("Duplicate adif id: "  + str(hash_check))
+            return False
+        return file_hash
+
+    @asyncio.coroutine
     def create_upload(self, callsign=None, date_start=None, date_end=None,\
-        file_hash_data=None, upload_type='adif', activators=None, qsos=None):
+        file_hash=None, upload_type='adif', activators=None, qsos=None):
 
         res = {'message': 'Ошибка загрузки',
                'qso': {\
@@ -183,16 +195,6 @@ class DBConn:
         with (yield from self.pool.cursor()) as cur:
             try:
                 yield from exec_cur(cur, 'begin transaction')
-
-                file_hash = hashlib.md5(file_hash_data).hexdigest()
-                hash_check = yield from exec_cur(cur, """
-                    select id from uploads where hash = %(hash)s
-                    """, {'hash': file_hash})
-                if hash_check and cur.rowcount:
-                    duplicate_id = cur.fetchone()[0]
-                    error['message'] = "Файл уже загружен"
-                    logging.error("Duplicate adif id: "  + str(duplicate_id))
-                    return error
 
                 upl_res = yield from exec_cur(cur, """
                     insert into uploads
