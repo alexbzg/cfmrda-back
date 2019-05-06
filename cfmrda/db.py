@@ -176,6 +176,7 @@ class DBConn:
         hash_check = yield from self.execute("""
             select id from uploads where hash = %(hash)s
             """, {'hash': file_hash})
+        logging.debug(hash_check)
         if hash_check:
             logging.error("Duplicate adif id: "  + str(hash_check))
             return False
@@ -192,9 +193,18 @@ class DBConn:
                }
               }
 
+        logging.debug('create upload start')
+
         with (yield from self.pool.cursor()) as cur:
             try:
                 yield from exec_cur(cur, 'begin transaction')
+                logging.debug('transaction start')
+
+                upl_params = {'callsign': callsign,\
+                    'date_start': date_start,\
+                    'date_end': date_end,\
+                    'hash': file_hash,\
+                    'upload_type': upload_type}
 
                 upl_res = yield from exec_cur(cur, """
                     insert into uploads
@@ -203,24 +213,27 @@ class DBConn:
                     values (%(callsign)s, 
                         %(date_start)s, %(date_end)s, %(hash)s,
                         %(upload_type)s)
-                    returning id""",\
-                    {'callsign': callsign,\
-                    'date_start': date_start,\
-                    'date_end': date_end,\
-                    'hash': file_hash,\
-                    'upload_type': upload_type})
+                    returning id""", upl_params)
                 if not upl_res or not cur.rowcount:
+                    logging.error('upload create failed! Params:')
+                    logging.error(upl_params)
                     raise Exception()
-                upl_id = cur.fetchone()[0]
+                upl_id = (yield from cur.fetchone())[0]
                 if not upl_id:
+                    logging.error('upload create failed! Params:')
+                    logging.error(upl_params)
                     raise Exception()
+                logging.debug('upload created')
 
                 act_sql = """insert into activators
                     values (%(upload_id)s, %(activator)s)"""
                 for act in activators:
-                    if not (yield from exec_cur(cur, act_sql,\
-                        {'upload_id': upl_id, 'activator': act})):
+                    act_params = {'upload_id': upl_id, 'activator': act} 
+                    if not (yield from exec_cur(cur, act_sql, act_params)):
+                        logging.error('activators create failed! Params:')
+                        logging.error(act_params)
                         raise Exception()
+                logging.debug('activators created')
 
                 qso_sql = """insert into qso
                     (upload_id, callsign, station_callsign, rda,
@@ -234,8 +247,8 @@ class DBConn:
                     qso_res = yield from exec_cur(cur, qso_sql, qso)
                     qso_id = None
                     if qso_res and cur.rowcount:
-                        qso_id = cur.fetchone()[0]
-                    res['qso']['ok' if qso_id else 'inserted'] += 1
+                        qso_id = (yield from cur.fetchone())[0]
+                    res['qso']['ok' if qso_id else 'error'] += 1
 
                 if res['qso']['ok']:
                     res['message'] = 'Ok'
@@ -243,7 +256,10 @@ class DBConn:
                     res['message'] = 'Не найдено корректных qso.'
                     raise Exception()
 
+                yield from exec_cur(cur, 'commit transaction')
+
             except Exception:
+                logging.exception('create upload failed')
                 if cur.connection.get_transaction_status() !=\
                         TRANSACTION_STATUS_IDLE:
                     yield from exec_cur(cur, 'rollback transaction;')

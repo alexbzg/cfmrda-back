@@ -22,7 +22,7 @@ from secret import get_secret, create_token
 import recaptcha
 from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink, QRZRuLink
-from ham_radio import load_adif, strip_callsign
+from ham_radio import load_adif, strip_callsign, ADIFParseException
 
 CONF = site_conf()
 start_logging('srv', level=CONF.get('logs', 'srv_level'))
@@ -449,10 +449,15 @@ class CfmRdaServer():
 
                         adif_enc = chardet.detect(adif_bytes)
                         adif = adif_bytes.decode(adif_enc['encoding'], 'ignore')
-                        adif_data = load_adif(adif, \
-                            station_callsign_field=station_callsign_field,\
-                            rda_field=rda_field)
-                        logging.debug('ADIF parsed')
+                        try:
+                            adif_data = load_adif(adif, \
+                                station_callsign_field=station_callsign_field,\
+                                rda_field=rda_field)
+                            logging.debug('ADIF parsed')
+                        except ADIFParseException as exc:
+                            response.append({'file': file['name'],\
+                                'message': str(exc)})
+                            continue
 
                         for qso in adif_data['qso']:
                             qso['station_callsign'] = station_callsign or\
