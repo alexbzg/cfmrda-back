@@ -474,6 +474,12 @@ class CfmRdaServer():
                                 else set([])),
                             qsos=adif_data['qso'])
                         db_res['file'] = file['name']
+                        if not rda_field:
+                            db_res['rda'] = file['rda']
+                        db_res['message'] = adif_data['message'] + \
+                            (' ' if adif_data['message'] and db_res['message'] else '') + \
+                            db_res['message']
+                        db_res['qso']['error'] += adif_data['qso_errors']
                         response.append(db_res)
 
                     logging.debug(response)
