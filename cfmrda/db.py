@@ -251,7 +251,7 @@ class DBConn:
                     res['qso']['ok' if qso_id else 'error'] += 1
 
                 if res['qso']['ok']:
-                    res['message'] = 'Ok'
+                    res['message'] = 'OK'
                 else:
                     res['message'] = 'Не найдено корректных qso.'
                     raise Exception()

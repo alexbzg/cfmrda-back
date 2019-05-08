@@ -706,7 +706,7 @@ class CfmRdaServer():
                         select callsign, station_callsign, rda,
                             band, mode, tstamp 
                         from cfm_request_qso
-                        where id in """ + ids, None, False)
+                        where id in """ + ids, None, True)
                     yield from self._db.create_upload(\
                         callsign=callsign,\
                         date_start=date_start,\
