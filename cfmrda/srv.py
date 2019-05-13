@@ -295,6 +295,7 @@ class CfmRdaServer():
     @asyncio.coroutine
     def _cfm_qsl_qso_new(self, callsign, data):
         if self._json_validator.validate('cfmQslQso', data['qso']):
+            asyncio.async(self._load_qrz_rda(data['qso']['stationCallsign']))
             res = yield from self._db.get_object('cfm_qsl_qso',\
                 {'user_cs': callsign,\
                 'station_callsign': data['qso']['stationCallsign'],\
@@ -1130,6 +1131,23 @@ support@cfmrda.ru"""
                 return web.json_response(False)
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
+
+    @asyncio.coroutine
+    def _load_qrz_rda(self, callsign):
+        check = yield from self._db.execute("""
+            select rda 
+            from callsigns_rda
+            where callsign = %(callsign)s and source = 'QRZ.ru'
+                and ts > now() - interval '1 month'""",\
+           {'callsign': callsign})
+        if not check:
+            data = yield from self._qrzru.query(callsign)
+            if data and 'state' in data and data['state']:
+                yield from self._db.execute("""
+                insert into rda_callsigns (callsign, source, rda)
+                values (%(callsign), 'QRZ.ru', %(rda)s)""",\
+                {'callsign': callsign, 'rda': data['state']})
+
 
     @asyncio.coroutine
     def view_upload_hndlr(self, request):

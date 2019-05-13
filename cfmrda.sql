@@ -344,6 +344,37 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
 ALTER FUNCTION public.tf_activators_bi() OWNER TO postgres;
 
 --
+-- Name: tf_callsigns_rda_bi(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_callsigns_rda_bi() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  if (new.source = 'QRZ.ru')
+  then
+    if exists (select from callsigns_rda where source = 'QRZ.ru' and callsign = new.callsign)
+    then
+      update callsigns_rda 
+      set rda = new.rda, ts = now() 
+      where callsign = new.callsign and source = 'QRZ.ru';
+      return null;
+    end if;
+  else
+    if exists (select from callsigns_rda where source != 'QRZ.ru' and callsign = new.callsign 
+      and (dt_start <= new.dt_stop or dt_start is null or new.dt_stop is null)
+      and (dt_stop >= new.dt_start or dt_stop is null or new.dt_start is null))
+    then
+      raise 'Конфликт в истории RDA';
+    end if;
+  end if;
+  return new;
+end$$;
+
+
+ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
+
+--
 -- Name: tf_cfm_qsl_qso_bu(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -491,6 +522,22 @@ CREATE TABLE activators (
 
 
 ALTER TABLE activators OWNER TO postgres;
+
+--
+-- Name: callsigns_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE callsigns_rda (
+    callsign character varying(64) NOT NULL,
+    dt_start date,
+    dt_stop date,
+    source character varying(64),
+    ts timestamp without time zone DEFAULT now() NOT NULL,
+    rda character(5) NOT NULL
+);
+
+
+ALTER TABLE callsigns_rda OWNER TO postgres;
 
 --
 -- Name: cfm_qsl_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -959,6 +1006,13 @@ CREATE INDEX activators_activator_idx ON activators USING btree (activator);
 
 
 --
+-- Name: callsigns_rda_callsign_dt_start_dt_stop_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX callsigns_rda_callsign_dt_start_dt_stop_idx ON callsigns_rda USING btree (callsign, dt_start, dt_stop);
+
+
+--
 -- Name: cfm_qsl_qso_status_date_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1127,6 +1181,13 @@ CREATE INDEX rda_hunter_hunter_mode_band_rda_idx ON rda_hunter USING btree (hunt
 
 
 --
+-- Name: unique_callsigns_rda_qrz; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX unique_callsigns_rda_qrz ON callsigns_rda USING btree (callsign) WHERE ((source)::text = 'QRZ.ru'::text);
+
+
+--
 -- Name: uploads_enabled_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1242,6 +1303,17 @@ GRANT ALL ON FUNCTION tf_activators_bi() TO "www-group";
 
 
 --
+-- Name: tf_callsigns_rda_bi(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION tf_callsigns_rda_bi() FROM PUBLIC;
+REVOKE ALL ON FUNCTION tf_callsigns_rda_bi() FROM postgres;
+GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO postgres;
+GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO PUBLIC;
+GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO "www-group";
+
+
+--
 -- Name: tf_qso_bi(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1260,6 +1332,16 @@ REVOKE ALL ON TABLE activators FROM PUBLIC;
 REVOKE ALL ON TABLE activators FROM postgres;
 GRANT ALL ON TABLE activators TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE activators TO "www-group";
+
+
+--
+-- Name: callsigns_rda; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE callsigns_rda FROM PUBLIC;
+REVOKE ALL ON TABLE callsigns_rda FROM postgres;
+GRANT ALL ON TABLE callsigns_rda TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE callsigns_rda TO "www-group";
 
 
 --
