@@ -192,17 +192,18 @@ class QRZRuLink:
                         self.session_id + '&callsign=' + callsign)
                 r_body = req.text
                 r_dict = xmltodict.parse(r_body)
+                if req.status_code == 404:
+                    return None
+                elif req.status_code == 403:
+                    self.get_session_id()
+                    return self.get_data(callsign)
+                req.raise_for_status()
                 if 'Callsign' in r_dict['QRZDatabase']:
                     return r_dict['QRZDatabase']['Callsign']
                 else:
                     raise Exception('Wrong QRZ response')
             except Exception:
-                if req:
-                    if req.status_code == 404:
-                        return None
-                    elif req.status_code == 403:
-                        self.get_session_id()
-                        return self.get_data(callsign)
+                logging.debug(req)
                 logging.exception('QRZ query error')
                 if req:
                     logging.error('Http result code: ' + str(req.status_code))

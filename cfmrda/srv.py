@@ -339,6 +339,12 @@ class CfmRdaServer():
             select json_agg(json_build_object(
                 'id', id,
                 'callsign', callsign,
+                'callsignRda', 
+                (select rda 
+                    from callsigns_rda 
+                    where callsigns_rda.callsign = station_callsign and
+                        source = 'QRZ.ru'
+                    limit 1),
                 'stationCallsign', station_callsign,
                 'rda', rda,
                 'band', band,
@@ -587,12 +593,13 @@ class CfmRdaServer():
                 delete from uploads where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
-            del_uploads_path = CONF.get('web', 'root') + '/json/del_uploads.json'
-            del_uploads = load_json(del_uploads_path) or []
-            del_uploads.insert(0, upload_data)
-            if len(del_uploads) > 20:
-                del_uploads = del_uploads[:20]
-            save_json(del_uploads, del_uploads_path)
+            if upload_data['rda']:
+                del_uploads_path = CONF.get('web', 'root') + '/json/del_uploads.json'
+                del_uploads = load_json(del_uploads_path) or []
+                del_uploads.insert(0, upload_data)
+                if len(del_uploads) > 20:
+                    del_uploads = del_uploads[:20]
+                save_json(del_uploads, del_uploads_path)
         elif 'enabled' in data:
             if callsign not in self._site_admins:
                 return CfmRdaServer.response_error_default()
@@ -1144,8 +1151,8 @@ support@cfmrda.ru"""
             data = yield from self._qrzru.query(callsign)
             if data and 'state' in data and data['state']:
                 yield from self._db.execute("""
-                insert into rda_callsigns (callsign, source, rda)
-                values (%(callsign), 'QRZ.ru', %(rda)s)""",\
+                insert into callsigns_rda (callsign, source, rda)
+                values (%(callsign)s, 'QRZ.ru', %(rda)s)""",\
                 {'callsign': callsign, 'rda': data['state']})
 
 
