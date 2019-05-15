@@ -344,16 +344,48 @@ CREATE FUNCTION tf_activators_bi() RETURNS trigger
 ALTER FUNCTION public.tf_activators_bi() OWNER TO postgres;
 
 --
--- Name: tf_cfm_qsl_qso_au(); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: tf_callsigns_rda_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_cfm_qsl_qso_au() RETURNS trigger
+CREATE FUNCTION tf_callsigns_rda_bi() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  if (new.source = 'QRZ.ru')
+  then
+    if exists (select from callsigns_rda where source = 'QRZ.ru' and callsign = new.callsign)
+    then
+      update callsigns_rda 
+      set rda = new.rda, ts = now() 
+      where callsign = new.callsign and source = 'QRZ.ru';
+      return null;
+    end if;
+  else
+    if exists (select from callsigns_rda where source != 'QRZ.ru' and callsign = new.callsign 
+      and (dt_start <= new.dt_stop or dt_start is null or new.dt_stop is null)
+      and (dt_stop >= new.dt_start or dt_stop is null or new.dt_start is null))
+    then
+      raise 'Конфликт в истории RDA';
+    end if;
+  end if;
+  return new;
+end$$;
+
+
+ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
+
+--
+-- Name: tf_cfm_qsl_qso_bu(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_cfm_qsl_qso_bu() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   if new.state and (not old.state or old.state is null) then
     insert into qso (callsign, station_callsign, rda, band, mode, tstamp)
       values (coalesce(new.new_callsign, new.callsign), new.station_callsign, new.rda,
         new.band, new.mode, new.tstamp);
+    new.status_date = now();
   end if;
   return new;
 end;
@@ -361,7 +393,7 @@ end;
    $$;
 
 
-ALTER FUNCTION public.tf_cfm_qsl_qso_au() OWNER TO postgres;
+ALTER FUNCTION public.tf_cfm_qsl_qso_bu() OWNER TO postgres;
 
 --
 -- Name: tf_cfm_request_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -374,15 +406,14 @@ CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
 	where upload_id = uploads.id and enabled
 	and callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
-	and band = new.band and mode = new.mode 
-	and qso.tstamp = new.tstamp) then
+	and band = new.band and mode = new.mode
+	and abs(extract(epoch from new.tstamp - qso.tstamp)) < 180) then
     return null;
    end if;
   if exists (select 1 from cfm_request_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
-	and band = new.band and mode = new.mode 
-	and tstamp = new.tstamp) then
+	and band = new.band and mode = new.mode) then
     return null;
    end if;   
    return new;
@@ -493,6 +524,22 @@ CREATE TABLE activators (
 ALTER TABLE activators OWNER TO postgres;
 
 --
+-- Name: callsigns_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE callsigns_rda (
+    callsign character varying(64) NOT NULL,
+    dt_start date,
+    dt_stop date,
+    source character varying(64),
+    ts timestamp without time zone DEFAULT now() NOT NULL,
+    rda character(5) NOT NULL
+);
+
+
+ALTER TABLE callsigns_rda OWNER TO postgres;
+
+--
 -- Name: cfm_qsl_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -508,7 +555,9 @@ CREATE TABLE cfm_qsl_qso (
     image character varying(128) NOT NULL,
     user_cs character varying(32) NOT NULL,
     state boolean,
-    comment character varying(256)
+    comment character varying(256),
+    admin character varying(64),
+    status_date timestamp without time zone
 );
 
 
@@ -957,6 +1006,20 @@ CREATE INDEX activators_activator_idx ON activators USING btree (activator);
 
 
 --
+-- Name: callsigns_rda_callsign_dt_start_dt_stop_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX callsigns_rda_callsign_dt_start_dt_stop_idx ON callsigns_rda USING btree (callsign, dt_start, dt_stop);
+
+
+--
+-- Name: cfm_qsl_qso_status_date_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX cfm_qsl_qso_status_date_idx ON cfm_qsl_qso USING btree (status_date);
+
+
+--
 -- Name: cfm_qsl_qso_user_cs_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1118,6 +1181,13 @@ CREATE INDEX rda_hunter_hunter_mode_band_rda_idx ON rda_hunter USING btree (hunt
 
 
 --
+-- Name: unique_callsigns_rda_qrz; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE UNIQUE INDEX unique_callsigns_rda_qrz ON callsigns_rda USING btree (callsign) WHERE ((source)::text = 'QRZ.ru'::text);
+
+
+--
 -- Name: uploads_enabled_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1153,10 +1223,10 @@ CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE
 
 
 --
--- Name: tr_cfm_qsl_qso; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: tr_cfm_qsl_qso_bu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_cfm_qsl_qso AFTER UPDATE ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_au();
+CREATE TRIGGER tr_cfm_qsl_qso_bu BEFORE UPDATE ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_bu();
 
 
 --
@@ -1233,6 +1303,17 @@ GRANT ALL ON FUNCTION tf_activators_bi() TO "www-group";
 
 
 --
+-- Name: tf_callsigns_rda_bi(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION tf_callsigns_rda_bi() FROM PUBLIC;
+REVOKE ALL ON FUNCTION tf_callsigns_rda_bi() FROM postgres;
+GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO postgres;
+GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO PUBLIC;
+GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO "www-group";
+
+
+--
 -- Name: tf_qso_bi(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1251,6 +1332,16 @@ REVOKE ALL ON TABLE activators FROM PUBLIC;
 REVOKE ALL ON TABLE activators FROM postgres;
 GRANT ALL ON TABLE activators TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE activators TO "www-group";
+
+
+--
+-- Name: callsigns_rda; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE callsigns_rda FROM PUBLIC;
+REVOKE ALL ON TABLE callsigns_rda FROM postgres;
+GRANT ALL ON TABLE callsigns_rda TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE callsigns_rda TO "www-group";
 
 
 --

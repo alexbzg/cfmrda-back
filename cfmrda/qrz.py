@@ -145,13 +145,13 @@ class QRZRuLink:
             r_body = req.text
             req.raise_for_status()
             r_dict = xmltodict.parse(r_body)
-            logging.warning(r_dict)
             if 'session_id' in r_dict['QRZDatabase']['Session']:
                 self.session_id = r_dict['QRZDatabase']['Session']['session_id']
-#                self.start_queue_task()
+                self.start_queue_task()
                 self.session_task = \
                     self.loop.call_later(self._session_interval_success,\
                     self.get_session_id)
+                logging.debug('New qrz.ru session id:' + self.session_id)
             else:
                 if 'error' in r_dict['QRZDatabase']['Session']:
                     logging.error('QRZ returned error: ' + \
@@ -170,6 +170,20 @@ class QRZRuLink:
                 self.loop.call_later(self.session_interval_failure,\
                     self.get_session_id)
 
+    @asyncio.coroutine
+    def query(self, callsign):
+        _complete = asyncio.Event(loop=self.loop)
+        _data = None
+
+        def callback(data):
+            nonlocal _data
+            _data = data
+            _complete.set()
+
+        yield from self.cs_queue.put({'cs': callsign, 'cb': callback})
+        yield from _complete.wait()
+        return _data
+
     def get_data(self, callsign):
         if self.session_id:
             req, r_body = None, None
@@ -178,17 +192,18 @@ class QRZRuLink:
                         self.session_id + '&callsign=' + callsign)
                 r_body = req.text
                 r_dict = xmltodict.parse(r_body)
+                if req.status_code == 404:
+                    return None
+                elif req.status_code == 403:
+                    self.get_session_id()
+                    return self.get_data(callsign)
+                req.raise_for_status()
                 if 'Callsign' in r_dict['QRZDatabase']:
                     return r_dict['QRZDatabase']['Callsign']
                 else:
                     raise Exception('Wrong QRZ response')
             except Exception:
-                if req:
-                    if req.status_code == 404:
-                        return None
-                    elif req.status_code == 403:
-                        self.get_session_id()
-                        return self.get_data(callsign)
+                logging.debug(req)
                 logging.exception('QRZ query error')
                 if req:
                     logging.error('Http result code: ' + str(req.status_code))

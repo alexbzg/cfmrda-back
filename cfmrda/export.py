@@ -80,6 +80,34 @@ def export_msc(conf):
         select count(*) as qso_count
         from qso;    
     """, None, False))
+
+    data['userActivity'] = (yield from _db.execute("""
+        select json_agg(data) from
+            (select json_build_object('callsign', 
+                coalesce(qsl_wait.callsign, qsl_today.callsign, email.callsign), 
+                'qslWait', qsl_wait, 'qslToday', qsl_today, 
+                'email', email) as data 
+            from
+                (select user_cs as callsign, count(*) as qsl_wait 
+                from cfm_qsl_qso 
+                where state is null 
+                group by user_cs) as qsl_wait 
+                full join
+                (select user_cs as callsign, count(*) as qsl_today 
+                from cfm_qsl_qso 
+                where state
+                group by user_cs) as qsl_today 
+                on qsl_wait.callsign = qsl_today.callsign 
+                full join
+                (select user_cs as callsign, count(*) as email 
+                from cfm_request_qso 
+                where not sent and user_cs is not null  
+                group by user_cs) as email 
+                on coalesce(qsl_wait.callsign, qsl_today.callsign) = email.callsign
+                order by coalesce(qsl_wait.callsign, qsl_today.callsign, 
+                    email.callsign)
+            )  as data""", None, False))
+
     save_json(data, conf.get('web', 'root') + '/json/msc.json')
     logging.debug('export misc finished')
 

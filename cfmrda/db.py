@@ -4,6 +4,7 @@
 import logging
 import json
 import asyncio
+import hashlib
 
 import aiopg
 from psycopg2.extensions import TRANSACTION_STATUS_IDLE
@@ -53,6 +54,18 @@ def init_connection(conn):
     conn.set_client_encoding('UTF8')
     logging.debug('new db connection')
 
+@asyncio.coroutine
+def exec_cur(cur, sql, params=None):
+    try:
+        yield from cur.execute(sql, params)
+        return True
+    except Exception:
+        logging.exception("Error executing: " + sql + "\n",\
+            exc_info=True)
+        if params:
+            logging.error("Params: ")
+            logging.error(params)
+        return False
 
 class DBConn:
 
@@ -66,7 +79,7 @@ class DBConn:
     def connect(self):
         try:
             self.pool = yield from aiopg.create_pool(self.dsn, \
-                    timeout=10800,\
+                    timeout=18000,\
                     on_connect=init_connection)
             logging.debug('db connections pool created')
         except Exception:
@@ -129,10 +142,11 @@ class DBConn:
                     yield from cur.execute('rollback transaction;')
                 logging.exception("Error executing: " + sql + "\n",\
                     exc_info=True)
-                if params:
+                if params and not isinstance(params, dict):
                     logging.error("Params: ")
                     logging.error(params)
         return res
+
 
     @asyncio.coroutine
     def get_object(self, table, params, create=False, never_create=False):
@@ -157,32 +171,100 @@ class DBConn:
         return res
 
     @asyncio.coroutine
-    def insert_upload(self, callsign=None, date_start=None, date_end=None,\
-        file_hash=None, upload_type='adif', activators=None):
-        upl_id = yield from self.execute("""
-            insert into uploads
-                (user_cs, date_start, date_end, hash,
-                upload_type)
-            values (%(callsign)s, 
-                %(date_start)s, %(date_end)s, %(hash)s,
-                %(upload_type)s)
-            returning id""",\
-            {'callsign': callsign,\
-            'date_start': date_start,\
-            'date_end': date_end,\
-            'hash': file_hash,\
-            'upload_type': upload_type})
-        if not upl_id:
-            raise Exception()
+    def check_upload_hash(self, hash_data):
+        file_hash = hashlib.md5(hash_data).hexdigest()
+        hash_check = yield from self.execute("""
+            select id from uploads where hash = %(hash)s
+            """, {'hash': file_hash})
+        logging.debug(hash_check)
+        if hash_check:
+            logging.error("Duplicate adif id: "  + str(hash_check))
+            return False
+        return file_hash
 
-        act_sql = """insert into activators
-            values (%(upload_id)s, %(activator)s)"""
-        act_params = [{'upload_id': upl_id,\
-            'activator': act} for act in activators]
-        res = yield from self.execute(act_sql, act_params)
-        if not res:
-            raise Exception()
-        return upl_id
+    @asyncio.coroutine
+    def create_upload(self, callsign=None, date_start=None, date_end=None,\
+        file_hash=None, upload_type='adif', activators=None, qsos=None):
+
+        res = {'message': 'Ошибка загрузки',
+               'qso': {\
+                    'ok': 0,\
+                    'error': 0\
+               }
+              }
+
+        logging.debug('create upload start')
+
+        with (yield from self.pool.cursor()) as cur:
+            try:
+                yield from exec_cur(cur, 'begin transaction')
+                logging.debug('transaction start')
+
+                upl_params = {'callsign': callsign,\
+                    'date_start': date_start,\
+                    'date_end': date_end,\
+                    'hash': file_hash,\
+                    'upload_type': upload_type}
+
+                upl_res = yield from exec_cur(cur, """
+                    insert into uploads
+                        (user_cs, date_start, date_end, hash,
+                        upload_type)
+                    values (%(callsign)s, 
+                        %(date_start)s, %(date_end)s, %(hash)s,
+                        %(upload_type)s)
+                    returning id""", upl_params)
+                if not upl_res or not cur.rowcount:
+                    logging.error('upload create failed! Params:')
+                    logging.error(upl_params)
+                    raise Exception()
+                upl_id = (yield from cur.fetchone())[0]
+                if not upl_id:
+                    logging.error('upload create failed! Params:')
+                    logging.error(upl_params)
+                    raise Exception()
+                logging.debug('upload created')
+
+                act_sql = """insert into activators
+                    values (%(upload_id)s, %(activator)s)"""
+                for act in activators:
+                    act_params = {'upload_id': upl_id, 'activator': act} 
+                    if not (yield from exec_cur(cur, act_sql, act_params)):
+                        logging.error('activators create failed! Params:')
+                        logging.error(act_params)
+                        raise Exception()
+                logging.debug('activators created')
+
+                qso_sql = """insert into qso
+                    (upload_id, callsign, station_callsign, rda,
+                        band, mode, tstamp)
+                    values (%(upload_id)s, %(callsign)s,
+                        %(station_callsign)s, %(rda)s, %(band)s,
+                        %(mode)s, %(tstamp)s)
+                    returning id"""
+                for qso in qsos:
+                    qso['upload_id'] = upl_id
+                    qso_res = yield from exec_cur(cur, qso_sql, qso)
+                    qso_id = None
+                    if qso_res and cur.rowcount:
+                        qso_id = (yield from cur.fetchone())[0]
+                    res['qso']['ok' if qso_id else 'error'] += 1
+
+                if res['qso']['ok']:
+                    res['message'] = 'OK'
+                else:
+                    res['message'] = 'Не найдено корректных qso.'
+                    raise Exception()
+
+                yield from exec_cur(cur, 'commit transaction')
+
+            except Exception:
+                logging.exception('create upload failed')
+                if cur.connection.get_transaction_status() !=\
+                        TRANSACTION_STATUS_IDLE:
+                    yield from exec_cur(cur, 'rollback transaction;')
+
+            return res
 
     @asyncio.coroutine
     def get_old_callsigns(self, callsign, confirmed=False):

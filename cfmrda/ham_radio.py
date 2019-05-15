@@ -65,7 +65,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
     """parse adif data"""
     adif = adif.upper().replace('\r', '').replace('\n', '')
     data = {'qso': [], 'date_start': None, 'date_end': None,\
-            'activator': None}
+            'activator': None, 'message': '', 'qso_errors': 0}
     missing_fields = set([])
     invalid_rda = set([])
     if '<EOH>' in adif:
@@ -90,10 +90,12 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 qso['callsign'] = strip_callsign(qso['callsign'])
             if not qso['callsign']:
                 missing_fields.add('callsign')
+                data['qso_errors'] += 1
                 continue
 
             if not qso['mode']:
                 missing_fields.add('mode')
+                data['qso_errors'] += 1
                 continue
             if qso['mode'] not in MODES:
                 for mode in MODES:
@@ -102,15 +104,18 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                         break
             if qso['mode'] not in MODES:
                 missing_fields.add('mode')
+                data['qso_errors'] += 1
                 continue
 
             qso_date = get_adif_field(line, 'QSO_DATE')
             qso_time = get_adif_field(line, 'TIME_ON')
             if not qso_date:
                 missing_fields.add('qso_date')
+                data['qso_errors'] += 1
                 continue
             if not qso_time:
                 missing_fields.add('time_on')
+                data['qso_errors'] += 1
                 continue
             qso['tstamp'] = qso_date + ' ' + qso_time
 
@@ -118,9 +123,11 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 qso['station_callsign'] = \
                     get_adif_field(line, station_callsign_field)
                 if not qso['station_callsign']:
+                    data['qso_errors'] += 1
                     continue
                 activator = strip_callsign(qso['station_callsign'])
                 if not activator:
+                    data['qso_errors'] += 1
                     continue
                 if data['activator']:
                     if data['activator'] != activator:
@@ -138,6 +145,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 if not qso['rda']:
                     logging.debug('Invalid RDA: ' + str(rda))
                     invalid_rda.add(rda)
+                    data['qso_errors'] += 1
                     continue
 
             if not data['date_start'] or data['date_start'] > qso['tstamp']:
@@ -146,13 +154,15 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 data['date_end'] = qso['tstamp']
 
             data['qso'].append(qso)
-    if data['qso']:
-        return data
-    else:
-        msg = "Не найдено корректных qso."
-        if missing_fields:
-            msg += "\nНе найдены или некорректно заполнены поля: " + ', '.join(missing_fields)
-        if invalid_rda:
-            msg += "\nНекорректные RDA: " + ', '.join(invalid_rda)
 
-        raise ADIFParseException(msg)
+    if missing_fields:
+        data['message'] += "\nНе найдены или некорректно заполнены поля: " + ', '.join(missing_fields)
+    if invalid_rda:
+        data['message'] += "\nНекорректные RDA: " + ', '.join(invalid_rda)
+
+    if not data['qso']:
+        data['message'] = "Не найдено корректных qso." + \
+            (' ' + data['message'] if data['message'] else '')
+        raise ADIFParseException(data['message'])
+
+    return data
