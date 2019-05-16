@@ -476,7 +476,7 @@ declare new_callsign character varying(32);
 begin
   new.callsign = strip_callsign(new.callsign);
   new.dt = date(new.tstamp);  
-  if new.callsign is null
+  if new.callsign is null or new.callsign = strip_callsign(new.station_callsign)
   then
     return null;
   end if;
