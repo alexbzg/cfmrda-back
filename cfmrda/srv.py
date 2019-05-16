@@ -561,7 +561,7 @@ class CfmRdaServer():
 
             upload_data = yield from self._db.execute("""
                 select json_build_object('activators', activators,
-                    'rda', rda,
+                    'rda', rda, 'qso', qsos,
                     'delDate', to_char(now(), 'DD mon YYYY'),
                     'delTime', to_char(now(), 'HH24:MI'),
                     'uploadType', upload_type,
@@ -577,7 +577,11 @@ class CfmRdaServer():
                 lateral 
                 (select array_agg(distinct rda) as rda   
                     from qso 
-                    where upload_id = %(id)s) as rdas 
+                    where upload_id = %(id)s) as rdas, 
+                lateral
+                (select count(*) as qsos
+                    from qso
+                    where upload_id = %(id)s) as qsos
                 """, data, False)
             upload_data['delBy'] = callsign
                
