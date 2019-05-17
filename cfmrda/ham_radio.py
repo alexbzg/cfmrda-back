@@ -29,6 +29,46 @@ RE_STRIP_CALLSIGN = re.compile(r"\d?[A-Z]+\d+[A-Z]+")
 
 RE_RDA_VALUE = re.compile(r"([a-zA-Z][a-zA-Z])[\d-]*(\d\d)")
 
+class Pfx():
+    """class for determining prefix/country by callsign"""
+
+    def __init__(self, cty_dat_path):
+        re_country = re.compile(r"\s\*?(\S+):$")
+        re_pfx = re.compile(r"(\(.*\))?(\[.*\])?")
+        prefixes = [{}, {}]
+        with open(cty_dat_path, 'r') as f_cty:
+            for line in f_cty.readlines():
+                line = line.rstrip('\r\n')
+                m_country = re_country.search(line)
+                if m_country:
+                    country = m_country.group(1)
+                else:
+                    pfxs = line.lstrip(' ').rstrip(';,').split(',')
+                    for pfx in pfxs:
+                        pfx_type = 0
+                        pfx0 = re_pfx.sub(pfx, "")
+                        if pfx0.startswith("="):
+                            pfx0 = pfx0.lstrip('=')
+                            pfx_type = 1
+                        if pfx0 in prefixes[pfx_type]:
+                            prefixes[pfx_type][pfx0] += "; " + country
+                        else:
+                            prefixes[pfx_type][pfx0] = country
+        self.prefixes = prefixes
+
+    def get(self, callsign):
+        """returns cs pfx"""
+        dx_cty = None
+
+        if callsign in self.prefixes[1]:
+            dx_cty = self.prefixes[1][callsign]
+        else:
+            for cnt in range(1, len(callsign)):
+                if callsign[:cnt] in self.prefixes[0]:
+                    dx_cty = self.prefixes[0][callsign[:cnt]]
+
+        return dx_cty
+
 def detect_rda(val):
     """get valid rda value"""
     rda_match = RE_RDA_VALUE.search(val)
