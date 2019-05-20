@@ -37,7 +37,6 @@ def main():
             if data and 'state' in data and data['state']:
                 params.append({'callsign': _cs, 'rda': data['state']})
                 logging.debug(_cs + ' found')
-                break
             else:
                 logging.debug(_cs + ' not found')
     logging.debug('qrz query complete')

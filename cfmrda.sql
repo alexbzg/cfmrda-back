@@ -1223,6 +1223,13 @@ CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE
 
 
 --
+-- Name: tr_callsigns_rda_bi; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_callsigns_rda_bi BEFORE INSERT ON callsigns_rda FOR EACH ROW EXECUTE PROCEDURE tf_callsigns_rda_bi();
+
+
+--
 -- Name: tr_cfm_qsl_qso_bu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
