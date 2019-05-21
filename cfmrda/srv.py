@@ -633,6 +633,28 @@ class CfmRdaServer():
         else:
             return callsign
 
+    @asyncio.coroutine
+    def _callsigns_rda_hndlr(self, callsign, data):
+        if 'delete' in data or 'new' in data:
+            db_rslt = False
+            if 'delete' in data:
+                db_rslt = yield from self._db.execute("""
+                    delete from callsigns_rda where id = %(delete)s""",\
+                    data)
+            else:
+                data['new']['source'] = callsign
+                db_rslt = yield from self._db.execute("""
+                    insert into callsigns_rda
+                    (callsign, dt_start, dt_stop, source, rda)
+                    values (%(callsign)s, %(dt_start)s, %(dt_stop)s,
+                        %(source)s, %(rda)s""", data['new'])
+            if not db_rslt:
+                return CfmRdaServer.response_error_default()
+        rsp = self._db.execute("""
+            select * from callsigns_rda where callsign = %(callsign)s
+            """, data, True)
+        return web.json_response(rsp)
+
     def handler_wrap(self, handler, validation_scheme=None, require_callsign=True,\
         require_admin=False):
 
@@ -1230,6 +1252,9 @@ if __name__ == '__main__':
         SRV.handler_wrap(SRV.old_callsigns_hndlr, 'oldCallsigns'))
     APP.router.add_post('/aiohttp/old_callsigns_admin',\
         SRV.handler_wrap(SRV.old_callsigns_admin_hndlr, require_admin=True))
+    APP.router.add_post('/aiohttp/callsigns_rda',\
+        SRV.handler_wrap(SRV._callsigns_rda_hndlr,\
+            validation_scheme='callsignsRda', require_admin=True))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)
