@@ -21,7 +21,8 @@ MODES = {'DIGI': ('DATA', 'HELL', 'MT63', 'THOR16', 'FAX', 'OPERA', 'PKT', 'RY',
                     'CONTEST', 'SSTV', 'PSK31', 'PSK63', 'PSK125', 'JT9', 'FT8', \
                     'MFSK16', 'MFSK', 'ARDOP', 'ATV', 'C4FM', 'CHIP', 'CLO',\
                     'DIGITALVOICE', 'DOMINO', 'DSTAR', 'ISCAT', 'Q15', 'QPSK31',\
-                    'QRA64', 'T10', 'THRB', 'VOI', 'WINMOR', 'WSPR'),\
+                    'QRA64', 'T10', 'THRB', 'VOI', 'WINMOR', 'WSPR', 'FT4', 'FT-8',\
+                    'FT-4'),\
          'CW': ('A1A'),\
          'SSB': ('USB', 'LSB', 'FM', 'AM', 'PHONE')}
 

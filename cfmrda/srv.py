@@ -16,7 +16,7 @@ import jwt
 import chardet
 
 from common import site_conf, start_logging, APP_ROOT, datetime_format
-from db import DBConn, typed_values_list
+from db import DBConn, typed_values_list, CfmrdaDbException
 import send_email
 from secret import get_secret, create_token
 import recaptcha
@@ -131,11 +131,11 @@ class CfmRdaServer():
     @asyncio.coroutine
     def cfm_request_qso_hndlr(self, request):
         data = yield from request.json()
-        error = None
         callsign = self.decode_token(data)
         if not isinstance(callsign, str):
             return callsign
         if 'qso' in data:
+            errors = []
             if self._json_validator.validate('cfmRequestQso', data):
                 user_data = yield from self.get_user_data(callsign)
                 email = user_data['email']
@@ -144,19 +144,23 @@ class CfmRdaServer():
                     qso['tstamp'] = (qso['date'].split('T'))[0] + ' ' +\
                         qso['time']
                     qso['user_cs'] = callsign
-                if not (yield from self._db.execute("""
-                    insert into cfm_request_qso 
-                    (correspondent, callsign, station_callsign, rda,
-                    band, mode, tstamp, hunter_email, user_cs,
-                    correspondent_email, rec_rst, sent_rst)
-                    values (%(correspondent)s, %(callsign)s, 
-                    %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
-                    %(tstamp)s, %(hunterEmail)s, %(user_cs)s, %(email)s,
-                    %(recRST)s, %(sentRST)s)""",\
-                    data['qso'], False)):
-                    return CfmRdaServer.response_error_default()
-            if error:
-                return web.HTTPBadRequest(text=error)
+                    try:
+                        if not (yield from self._db.execute("""
+                            insert into cfm_request_qso 
+                            (correspondent, callsign, station_callsign, rda,
+                            band, mode, tstamp, hunter_email, user_cs,
+                            correspondent_email, rec_rst, sent_rst)
+                            values (%(correspondent)s, %(callsign)s, 
+                            %(stationCallsign)s, %(rda)s, %(band)s, %(mode)s, 
+                            %(tstamp)s, %(hunterEmail)s, %(user_cs)s, %(email)s,
+                            %(recRST)s, %(sentRST)s)""", qso, False)):
+                            errors.append(\
+                                {'qso':qso,\
+                                'error': 'Ошибка сервера. Server error.'})
+                    except CfmrdaDbException as exc:
+                        errors.append({'qso': qso,\
+                            'error': str(exc)})
+                return web.json_response(errors)
             else:
                 return web.Response(text="OK")
         else:
@@ -296,18 +300,22 @@ class CfmRdaServer():
     def _cfm_qsl_qso_new(self, callsign, data):
         if self._json_validator.validate('cfmQslQso', data['qso']):
             asyncio.async(self._load_qrz_rda(data['qso']['stationCallsign']))
-            res = yield from self._db.get_object('cfm_qsl_qso',\
-                {'user_cs': callsign,\
-                'station_callsign': data['qso']['stationCallsign'],\
-                'rda': data['qso']['rda'],\
-                'tstamp': data['qso']['date'].split('T')[0] + ' ' +\
-                    data['qso']['time'],\
-                'band': data['qso']['band'],\
-                'mode': data['qso']['mode'],\
-                'callsign': data['qso']['callsign'],\
-                'new_callsign': data['qso']['newCallsign']\
-                    if 'newCallsign' in data['qso'] else None,\
-                'image': data['qso']['image']['name']}, True)
+            res = None
+            try:
+                res = yield from self._db.get_object('cfm_qsl_qso',\
+                    {'user_cs': callsign,\
+                    'station_callsign': data['qso']['stationCallsign'],\
+                    'rda': data['qso']['rda'],\
+                    'tstamp': data['qso']['date'].split('T')[0] + ' ' +\
+                        data['qso']['time'],\
+                    'band': data['qso']['band'],\
+                    'mode': data['qso']['mode'],\
+                    'callsign': data['qso']['callsign'],\
+                    'new_callsign': data['qso']['newCallsign']\
+                        if 'newCallsign' in data['qso'] else None,\
+                    'image': data['qso']['image']['name']}, True)
+            except CfmrdaDbException as exc:
+                return web.HTTPBadRequest(text=str(exc))
             if res:
                 image_bytes = \
                     base64.b64decode(\
@@ -634,7 +642,8 @@ class CfmRdaServer():
             return callsign
 
     @asyncio.coroutine
-    def _callsigns_rda_hndlr(self, callsign, data):
+    def callsigns_rda_hndlr(self, callsign, data):
+        rsp = {}
         if 'delete' in data or 'new' in data:
             db_rslt = False
             if 'delete' in data:
@@ -650,7 +659,13 @@ class CfmRdaServer():
                         %(source)s, %(rda)s""", data['new'])
             if not db_rslt:
                 return CfmRdaServer.response_error_default()
-        rsp = self._db.execute("""
+        elif not '/' in data['callsign']:
+            rsp['callsignVariants'] = yield from self._db.execute("""
+                select distinct callsign 
+                from callsigns_rda
+                where callsign like %(callsign)""",\
+                {'callsign': data['callsign'] + '/%'}, True)
+        rsp['rdaRecords'] = self._db.execute("""
             select * from callsigns_rda where callsign = %(callsign)s
             """, data, True)
         return web.json_response(rsp)
@@ -1253,7 +1268,7 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/old_callsigns_admin',\
         SRV.handler_wrap(SRV.old_callsigns_admin_hndlr, require_admin=True))
     APP.router.add_post('/aiohttp/callsigns_rda',\
-        SRV.handler_wrap(SRV._callsigns_rda_hndlr,\
+        SRV.handler_wrap(SRV.callsigns_rda_hndlr,\
             validation_scheme='callsignsRda', require_admin=True))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
