@@ -7,7 +7,13 @@ import asyncio
 import hashlib
 
 import aiopg
+import psycopg2
 from psycopg2.extensions import TRANSACTION_STATUS_IDLE
+
+class CfmrdaDbException(Exception):
+
+    def __init__(self, message):
+        super().__init__(message.split('cfmrda_db_error:')[1])
 
 @asyncio.coroutine
 def to_dict(cur, keys=None):
@@ -136,13 +142,17 @@ class DBConn:
                         yield from cur.execute(sql, item)
                     yield from cur.execute('commit transaction;')
                     res = True
-            except Exception:
+            except Exception as exc:
                 if cur.connection.get_transaction_status() !=\
                         TRANSACTION_STATUS_IDLE:
                     yield from cur.execute('rollback transaction;')
+                if isinstance(exc, psycopg2.InternalError):
+                    logging.debug(exc.pgerror)
+                    if 'cfmrda_db_error' in exc.pgerror:
+                        raise CfmrdaDbException(exc.pgerror)
                 logging.exception("Error executing: " + sql + "\n",\
                     exc_info=True)
-                if params and not isinstance(params, dict):
+                if params and isinstance(params, dict):
                     logging.error("Params: ")
                     logging.error(params)
         return res

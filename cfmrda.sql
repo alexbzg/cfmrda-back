@@ -375,6 +375,37 @@ end$$;
 ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
 
 --
+-- Name: tf_cfm_qsl_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION tf_cfm_qsl_qso_bi() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$begin
+  if (new.tstamp < '06-12-1991') 
+  then
+    raise 'cfmrda_db_error:Связь проведена до начала программы RDA. The QSO happened before the RDA program start (06-12-1991).';
+  end if;
+  if exists (select 1 from qso, uploads 
+	where ((upload_id = uploads.id and enabled) or upload_id is null)
+	and callsign = new.callsign and rda = new.rda
+	and station_callsign = new.station_callsign
+	and band = new.band and mode = new.mode
+	and abs(extract(epoch from new.tstamp - qso.tstamp)) < 180) then
+    raise 'cfmrda_db_error:Связь уже внесена в базу данных. The QSO is already in the database.';
+   end if;
+/*  if exists (select 1 from cfm_qsl_qso
+	where callsign = new.callsign and rda = new.rda
+	and station_callsign = new.station_callsign
+	and band = new.band and mode = new.mode) then
+    return null;
+   end if;   */
+   return new;
+ end$$;
+
+
+ALTER FUNCTION public.tf_cfm_qsl_qso_bi() OWNER TO postgres;
+
+--
 -- Name: tf_cfm_qsl_qso_bu(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -402,19 +433,23 @@ ALTER FUNCTION public.tf_cfm_qsl_qso_bu() OWNER TO postgres;
 CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
+  if (new.tstamp < '06-12-1991') 
+  then
+    raise 'cfmrda_db_error:Связь проведена до начала программы RDA. The QSO happened before the RDA program start. (06-12-1991)';
+  end if;
   if exists (select 1 from qso, uploads 
-	where upload_id = uploads.id and enabled
+	where ((upload_id = uploads.id and enabled) or upload_id is null)
 	and callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
 	and band = new.band and mode = new.mode
 	and abs(extract(epoch from new.tstamp - qso.tstamp)) < 180) then
-    return null;
+    raise 'cfmrda_db_error:Связь уже внесена в базу данных. The QSO is already in the database.';
    end if;
   if exists (select 1 from cfm_request_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
 	and band = new.band and mode = new.mode) then
-    return null;
+    raise 'cfmrda_db_error:Такой запрос уже существует. The request is already made.';
    end if;   
    return new;
  end$$;
@@ -476,7 +511,7 @@ declare new_callsign character varying(32);
 begin
   new.callsign = strip_callsign(new.callsign);
   new.dt = date(new.tstamp);  
-  if new.callsign is null
+  if new.callsign is null or new.callsign = strip_callsign(new.station_callsign)
   then
     return null;
   end if;
@@ -533,11 +568,33 @@ CREATE TABLE callsigns_rda (
     dt_stop date,
     source character varying(64),
     ts timestamp without time zone DEFAULT now() NOT NULL,
-    rda character(5) NOT NULL
+    rda character(5) NOT NULL,
+    id integer NOT NULL
 );
 
 
 ALTER TABLE callsigns_rda OWNER TO postgres;
+
+--
+-- Name: callsigns_rda_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE callsigns_rda_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE callsigns_rda_id_seq OWNER TO postgres;
+
+--
+-- Name: callsigns_rda_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE callsigns_rda_id_seq OWNED BY callsigns_rda.id;
+
 
 --
 -- Name: cfm_qsl_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -846,6 +903,13 @@ ALTER TABLE users OWNER TO postgres;
 -- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
+ALTER TABLE ONLY callsigns_rda ALTER COLUMN id SET DEFAULT nextval('callsigns_rda_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
 ALTER TABLE ONLY cfm_qsl_qso ALTER COLUMN id SET DEFAULT nextval('cfm_qsl_qso_id_seq'::regclass);
 
 
@@ -876,6 +940,14 @@ ALTER TABLE ONLY uploads ALTER COLUMN id SET DEFAULT nextval('uploads_id_seq'::r
 
 ALTER TABLE ONLY activators
     ADD CONSTRAINT activators_pkey PRIMARY KEY (upload_id, activator);
+
+
+--
+-- Name: callsigns_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY callsigns_rda
+    ADD CONSTRAINT callsigns_rda_pkey PRIMARY KEY (id);
 
 
 --
@@ -1223,6 +1295,13 @@ CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE
 
 
 --
+-- Name: tr_callsigns_rda_bi; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_callsigns_rda_bi BEFORE INSERT ON callsigns_rda FOR EACH ROW EXECUTE PROCEDURE tf_callsigns_rda_bi();
+
+
+--
 -- Name: tr_cfm_qsl_qso_bu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -1234,6 +1313,13 @@ CREATE TRIGGER tr_cfm_qsl_qso_bu BEFORE UPDATE ON cfm_qsl_qso FOR EACH ROW EXECU
 --
 
 CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON cfm_request_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_request_qso_bi();
+
+
+--
+-- Name: tr_cmf_qsl_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_cmf_qsl_qso_bi BEFORE INSERT ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_bi();
 
 
 --
@@ -1314,6 +1400,17 @@ GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO "www-group";
 
 
 --
+-- Name: tf_cfm_qsl_qso_bi(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION tf_cfm_qsl_qso_bi() FROM PUBLIC;
+REVOKE ALL ON FUNCTION tf_cfm_qsl_qso_bi() FROM postgres;
+GRANT ALL ON FUNCTION tf_cfm_qsl_qso_bi() TO postgres;
+GRANT ALL ON FUNCTION tf_cfm_qsl_qso_bi() TO PUBLIC;
+GRANT ALL ON FUNCTION tf_cfm_qsl_qso_bi() TO "www-group";
+
+
+--
 -- Name: tf_qso_bi(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1342,6 +1439,16 @@ REVOKE ALL ON TABLE callsigns_rda FROM PUBLIC;
 REVOKE ALL ON TABLE callsigns_rda FROM postgres;
 GRANT ALL ON TABLE callsigns_rda TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE callsigns_rda TO "www-group";
+
+
+--
+-- Name: callsigns_rda_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON SEQUENCE callsigns_rda_id_seq FROM PUBLIC;
+REVOKE ALL ON SEQUENCE callsigns_rda_id_seq FROM postgres;
+GRANT ALL ON SEQUENCE callsigns_rda_id_seq TO postgres;
+GRANT ALL ON SEQUENCE callsigns_rda_id_seq TO "www-group";
 
 
 --
