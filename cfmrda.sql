@@ -247,6 +247,46 @@ end$$;
 ALTER FUNCTION public.build_rankings() OWNER TO postgres;
 
 --
+-- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) RETURNS character varying
+    LANGUAGE plpgsql
+    AS $$
+declare 
+  str_callsign character varying(32);
+begin
+  str_callsign = strip_callsign(callsign);
+  if str_callsign is null or str_callsign = strip_callsign(station_callsign)
+  then
+    raise 'cfmrda_db_error:Позывной некорректен или совпадает с позывным корреспондента. The callsign is invalid or the same as correpondent''s.';
+  end if;
+  if (ts < '06-12-1991') 
+  then
+    raise 'cfmrda_db_error:Связь проведена до начала программы RDA. The QSO happened before the RDA program start (06-12-1991).';
+  end if;
+  if (band = '10' and mode = 'SSB')
+  then
+    raise 'cfmrda_db_error:Мода SSB некорректна на диапазоне 10MHz. The SSB mode is invalid on the 10MHz band.';
+  end if;
+  select old_callsigns.new into new_callsign
+    from old_callsigns 
+    where old_callsigns.old = new.callsign and confirmed;
+  if not found
+  then  
+    new_callsign = str_callsign;
+  end if;
+  if exists (select from qso where callsign = new.callsign and station_callsign = new.station_callsign 
+    and rda = new.rda and mode = new.mode and band = new.band and tstamp = new.tstamp)
+  then
+      raise 'cfmrda_db_error:Связь уже внесена в базу данных. The QSO is already in the database.';
+  end if;
+ end$$;
+
+
+ALTER FUNCTION public.check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) OWNER TO postgres;
+
+--
 -- Name: hunters_rdas(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -381,18 +421,7 @@ ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
 CREATE FUNCTION tf_cfm_qsl_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
-  if (new.tstamp < '06-12-1991') 
-  then
-    raise 'cfmrda_db_error:Связь проведена до начала программы RDA. The QSO happened before the RDA program start (06-12-1991).';
-  end if;
-  if exists (select 1 from qso, uploads 
-	where ((upload_id = uploads.id and enabled) or upload_id is null)
-	and callsign = new.callsign and rda = new.rda
-	and station_callsign = new.station_callsign
-	and band = new.band and mode = new.mode
-	and abs(extract(epoch from new.tstamp - qso.tstamp)) < 180) then
-    raise 'cfmrda_db_error:Связь уже внесена в базу данных. The QSO is already in the database.';
-   end if;
+  select from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
 /*  if exists (select 1 from cfm_qsl_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
@@ -433,18 +462,7 @@ ALTER FUNCTION public.tf_cfm_qsl_qso_bu() OWNER TO postgres;
 CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
-  if (new.tstamp < '06-12-1991') 
-  then
-    raise 'cfmrda_db_error:Связь проведена до начала программы RDA. The QSO happened before the RDA program start. (06-12-1991)';
-  end if;
-  if exists (select 1 from qso, uploads 
-	where ((upload_id = uploads.id and enabled) or upload_id is null)
-	and callsign = new.callsign and rda = new.rda
-	and station_callsign = new.station_callsign
-	and band = new.band and mode = new.mode
-	and abs(extract(epoch from new.tstamp - qso.tstamp)) < 180) then
-    raise 'cfmrda_db_error:Связь уже внесена в базу данных. The QSO is already in the database.';
-   end if;
+  select from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
   if exists (select 1 from cfm_request_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
@@ -509,33 +527,8 @@ CREATE FUNCTION tf_qso_bi() RETURNS trigger
     AS $$
 declare new_callsign character varying(32);
 begin
-  new.callsign = strip_callsign(new.callsign);
-  new.dt = date(new.tstamp);  
-  if new.callsign is null or new.callsign = strip_callsign(new.station_callsign)
-  then
-    return null;
-  end if;
-  if (new.tstamp < '06-12-1991') 
-  then
-    return null;
-  end if;
-  if (new.band = '10' and new.mode = 'SSB')
-  then
-    return null;
-  end if;
-  select old_callsigns.new into new_callsign
-    from old_callsigns 
-    where old_callsigns.old = new.callsign and confirmed;
-  if found
-  then  
-    new.old_callsign = new.callsign;
-    new.callsign = new_callsign;
-  end if;
-  if exists (select from qso where callsign = new.callsign and station_callsign = new.station_callsign 
-    and rda = new.rda and mode = new.mode and band = new.band and tstamp = new.tstamp)
-    then
-      return null;
-  end if;
+  select new_callsign from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
+    into new.callsign;
   return new;
  end$$;
 
@@ -1375,6 +1368,17 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON SCHEMA public FROM postgres;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO PUBLIC;
+
+
+--
+-- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) FROM PUBLIC;
+REVOKE ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) FROM postgres;
+GRANT ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) TO postgres;
+GRANT ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) TO PUBLIC;
+GRANT ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) TO "www-group";
 
 
 --

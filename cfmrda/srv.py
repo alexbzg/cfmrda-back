@@ -473,6 +473,15 @@ class CfmRdaServer():
                             response.append({'file': file['name'],\
                                 'message': str(exc)})
                             continue
+                        if not adif_data['qso']:
+                            response.append({\
+                                'file': file['name'],\
+                                'message' : 'Не найдено корректных qso. No valid qso were found.',\
+                                'qso': {\
+                                    'ok': 0,
+                                    'error': adif_data['qso_errors_count'],\
+                                    'errors': adif_data['qso_errors']}\
+                            })
 
                         for qso in adif_data['qso']:
                             qso['station_callsign'] = station_callsign or\
@@ -494,7 +503,8 @@ class CfmRdaServer():
                         db_res['message'] = adif_data['message'] + \
                             (' ' if adif_data['message'] and db_res['message'] else '') + \
                             db_res['message']
-                        db_res['qso']['error'] += adif_data['qso_errors']
+                        db_res['qso']['error'] += adif_data['qso_errors_count']
+                        db_res['qso']['errors'].update(adif_data['qso_errors'])
                         response.append(db_res)
 
                     logging.debug(response)

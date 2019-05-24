@@ -13,7 +13,8 @@ from psycopg2.extensions import TRANSACTION_STATUS_IDLE
 class CfmrdaDbException(Exception):
 
     def __init__(self, message):
-        super().__init__(message.split('cfmrda_db_error:')[1])
+        msg_trim = message.splitlines()[0].split('cfmrda_db_error:')[1]
+        super().__init__(msg_trim)
 
 @asyncio.coroutine
 def to_dict(cur, keys=None):
@@ -196,12 +197,15 @@ class DBConn:
     def create_upload(self, callsign=None, date_start=None, date_end=None,\
         file_hash=None, upload_type='adif', activators=None, qsos=None):
 
-        res = {'message': 'Ошибка загрузки',
-               'qso': {\
-                    'ok': 0,\
-                    'error': 0\
-               }
+        res = {'message': 'Ошибка загрузки',\
+               'qso': {'ok': 0, 'error': 0, 'errors': {}}
               }
+
+        def append_error(msg):
+            if msg not in res['qso']['errors']:
+                res['qso']['errors'][msg] = 0
+            res['qso']['errors'][msg] += 1
+            res['qso']['error'] += 1
 
         logging.debug('create upload start')
 
@@ -238,7 +242,7 @@ class DBConn:
                 act_sql = """insert into activators
                     values (%(upload_id)s, %(activator)s)"""
                 for act in activators:
-                    act_params = {'upload_id': upl_id, 'activator': act} 
+                    act_params = {'upload_id': upl_id, 'activator': act}
                     if not (yield from exec_cur(cur, act_sql, act_params)):
                         logging.error('activators create failed! Params:')
                         logging.error(act_params)
@@ -254,11 +258,17 @@ class DBConn:
                     returning id"""
                 for qso in qsos:
                     qso['upload_id'] = upl_id
-                    qso_res = yield from exec_cur(cur, qso_sql, qso)
-                    qso_id = None
-                    if qso_res and cur.rowcount:
-                        qso_id = (yield from cur.fetchone())[0]
-                    res['qso']['ok' if qso_id else 'error'] += 1
+                    try:
+                        qso_res = yield from exec_cur(cur, qso_sql, qso)
+                        qso_id = None
+                        if qso_res and cur.rowcount:
+                            qso_id = (yield from cur.fetchone())[0]
+                        if qso_id:
+                            res['qso']['ok'] += 1
+                        else:
+                            append_error('Ошибка базы данных. Database error.')
+                    except CfmrdaDbException as exc:
+                        append_error(str(exc))
 
                 if res['qso']['ok']:
                     res['message'] = 'OK'
