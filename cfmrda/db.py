@@ -63,13 +63,18 @@ def init_connection(conn):
 
 @asyncio.coroutine
 def exec_cur(cur, sql, params=None):
+    logging.debug(sql)
     try:
         yield from cur.execute(sql, params)
         return True
-    except Exception:
+    except Exception as exc:
+        if isinstance(exc, psycopg2.InternalError):
+            logging.debug(exc.pgerror)
+            if 'cfmrda_db_error' in exc.pgerror:
+                raise CfmrdaDbException(exc.pgerror)
         logging.exception("Error executing: " + sql + "\n",\
             exc_info=True)
-        if params:
+        if params and isinstance(params, dict):
             logging.error("Params: ")
             logging.error(params)
         return False
@@ -256,6 +261,16 @@ class DBConn:
                         %(station_callsign)s, %(rda)s, %(band)s,
                         %(mode)s, %(tstamp)s)
                     returning id"""
+
+                @asyncio.coroutine
+                def savepoint():
+                    yield from exec_cur(cur, "savepoint upl_savepoint;")
+
+                @asyncio.coroutine
+                def rollback_savepoint():
+                    yield from exec_cur(cur, "rollback to savepoint upl_savepoint;")
+
+                yield from savepoint()
                 for qso in qsos:
                     qso['upload_id'] = upl_id
                     try:
@@ -265,10 +280,13 @@ class DBConn:
                             qso_id = (yield from cur.fetchone())[0]
                         if qso_id:
                             res['qso']['ok'] += 1
+                            yield from savepoint()
                         else:
-                            append_error('Ошибка базы данных. Database error.')
+                            append_error('Некорректное QSO (не загружено)')
+                            yield from rollback_savepoint()
                     except CfmrdaDbException as exc:
                         append_error(str(exc))
+                        yield from rollback_savepoint()
 
                 if res['qso']['ok']:
                     res['message'] = 'OK'

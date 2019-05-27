@@ -250,41 +250,41 @@ ALTER FUNCTION public.build_rankings() OWNER TO postgres;
 -- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) RETURNS character varying
+CREATE FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) RETURNS character varying
     LANGUAGE plpgsql
     AS $$
 declare 
   str_callsign character varying(32);
 begin
-  str_callsign = strip_callsign(callsign);
-  if str_callsign is null or str_callsign = strip_callsign(station_callsign)
+  str_callsign = strip_callsign(_callsign);
+  if str_callsign is null or str_callsign = strip_callsign(_station_callsign)
   then
-    raise 'cfmrda_db_error:Позывной некорректен или совпадает с позывным корреспондента. The callsign is invalid or the same as correpondent''s.';
+    raise 'cfmrda_db_error:Позывной некорректен или совпадает с позывным корреспондента';
   end if;
-  if (ts < '06-12-1991') 
+  if (_ts < '06-12-1991') 
   then
-    raise 'cfmrda_db_error:Связь проведена до начала программы RDA. The QSO happened before the RDA program start (06-12-1991).';
+    raise 'cfmrda_db_error:Связь проведена до начала программы RDA (06-12-1991)';
   end if;
-  if (band = '10' and mode = 'SSB')
+  if (_band = '10' and _mode = 'SSB')
   then
-    raise 'cfmrda_db_error:Мода SSB некорректна на диапазоне 10MHz. The SSB mode is invalid on the 10MHz band.';
+    raise 'cfmrda_db_error:Мода SSB некорректна на диапазоне 10MHz';
   end if;
   select old_callsigns.new into new_callsign
     from old_callsigns 
-    where old_callsigns.old = new.callsign and confirmed;
+    where old_callsigns.old = _callsign and confirmed;
   if not found
   then  
     new_callsign = str_callsign;
   end if;
-  if exists (select from qso where callsign = new.callsign and station_callsign = new.station_callsign 
-    and rda = new.rda and mode = new.mode and band = new.band and tstamp = new.tstamp)
+  if exists (select from qso where qso.callsign = _callsign and qso.station_callsign = _station_callsign 
+    and qso.rda = _rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
   then
-      raise 'cfmrda_db_error:Связь уже внесена в базу данных. The QSO is already in the database.';
+      raise 'cfmrda_db_error:Связь уже внесена в базу данных';
   end if;
  end$$;
 
 
-ALTER FUNCTION public.check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) OWNER TO postgres;
+ALTER FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) OWNER TO postgres;
 
 --
 -- Name: hunters_rdas(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -525,7 +525,6 @@ ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
 CREATE FUNCTION tf_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
-declare new_callsign character varying(32);
 begin
   select new_callsign from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
     into new.callsign;
@@ -1374,11 +1373,11 @@ GRANT ALL ON SCHEMA public TO PUBLIC;
 -- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) FROM PUBLIC;
-REVOKE ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) FROM postgres;
-GRANT ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) TO postgres;
-GRANT ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) TO PUBLIC;
-GRANT ALL ON FUNCTION check_qso(callsign character varying, station_callsign character varying, rda character, band character, mode character, ts timestamp without time zone, OUT new_callsign character varying) TO "www-group";
+REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) FROM PUBLIC;
+REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) FROM postgres;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO postgres;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO PUBLIC;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO "www-group";
 
 
 --

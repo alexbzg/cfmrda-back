@@ -110,7 +110,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
     adif = adif.upper().replace('\r', '').replace('\n', '')
     data = {'qso': [], 'date_start': None, 'date_end': None,\
             'activator': None, 'message': '', 'qso_errors': {}, 
-            'qso_errors_count': {}}
+            'qso_errors_count': 0}
  
     def append_error(msg):
         if msg not in data['qso_errors']:
@@ -133,17 +133,17 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 if qso['band'] in BANDS_WL:
                     qso['band'] = BANDS_WL[qso['band']]
             if qso['band'] not in BANDS:
-                append_error('Поле не найдено или некорректно. Field is not found or invalid. (BAND)')
+                append_error('Поле не найдено или некорректно (BAND)')
                 continue
 
             if qso['callsign']:
                 qso['callsign'] = strip_callsign(qso['callsign'])
             if not qso['callsign']:
-                append_error('Поле не найдено или некорректно. Field is not found or invalid. (CALLSIGN)')
+                append_error('Поле не найдено или некорректно (CALLSIGN)')
                 continue
 
             if not qso['mode']:
-                append_error('Поле не найдено или некорректно. Field is not found or invalid. (MODE)')
+                append_error('Поле не найдено или некорректно (MODE)')
                 continue
             if qso['mode'] not in MODES:
                 for mode in MODES:
@@ -157,10 +157,10 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
             qso_date = get_adif_field(line, 'QSO_DATE')
             qso_time = get_adif_field(line, 'TIME_ON')
             if not qso_date:
-                append_error('Поле не найдено или некорректно. Field is not found or invalid. (QSO_DATE)')
+                append_error('Поле не найдено или некорректно (QSO_DATE)')
                 continue
             if not qso_time:
-                append_error('Поле не найдено или некорректно. Field is not found or invalid. (TIME_ON)')
+                append_error('Поле не найдено или некорректно (TIME_ON)')
                 continue
             qso['tstamp'] = qso_date + ' ' + qso_time
 
@@ -177,7 +177,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 if data['activator']:
                     if data['activator'] != activator:
                         raise ADIFParseException(\
-                            "Различные активаторы в одном файле. Multiple activators in the same file. (" +\
+                            "Различные активаторы в одном файле (" +\
                             data['activator'] + ', ' + activator + ")")
                 else:
                     data['activator'] = activator
@@ -188,12 +188,12 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 if rda:
                     qso['rda'] = detect_rda(rda)
                 else:
-                    append_error('Поле не найдено или некорректно. Field is not found or invalid. ('\
+                    append_error('Поле не найдено или некорректно ('\
                         + rda_field.upper() + ')')
                     continue
                 if not qso['rda']:
                     logging.debug('Invalid RDA: ' + str(rda))
-                    append_error('Некорректное значение RDA. Invalid RDA value. (' + str(rda) + ')')
+                    append_error('Некорректное значение RDA (' + str(rda) + ')')
                     continue
 
             if not data['date_start'] or data['date_start'] > qso['tstamp']:
@@ -204,7 +204,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
             data['qso'].append(qso)
 
     if not data['qso']:
-        data['message'] = "Не найдено корректных qso." + \
+        data['message'] = "Не найдено корректных qso" + \
             (' ' + data['message'] if data['message'] else '')
 
     return data
