@@ -665,18 +665,29 @@ class CfmRdaServer():
                 db_rslt = yield from self._db.execute("""
                     insert into callsigns_rda
                     (callsign, dt_start, dt_stop, source, rda)
-                    values (%(callsign)s, %(dt_start)s, %(dt_stop)s,
+                    values (%(callsign)s, %(dtStart)s, %(dtStop)s,
                         %(source)s, %(rda)s""", data['new'])
             if not db_rslt:
                 return CfmRdaServer.response_error_default()
         elif not '/' in data['callsign']:
-            rsp['callsignVariants'] = yield from self._db.execute("""
+            rsp['suffixes'] = yield from self._db.execute("""
                 select distinct callsign 
                 from callsigns_rda
                 where callsign like %(callsign)""",\
                 {'callsign': data['callsign'] + '/%'}, True)
         rsp['rdaRecords'] = self._db.execute("""
-            select * from callsigns_rda where callsign = %(callsign)s
+            select id, source,  
+                to_char(ts, 'YYYY-MM-DD') as ts,
+                case when dt_start is null and dt_stop is null tnen null
+                    when dt_start is null and dt_stop is not null then
+                        'till' || to_char(dt_stop, 'DD mon YYYY')
+                    when dt_stop is null and dt_start is not null then
+                        'from' || to_char(dt_start, 'DD mon YYYY')
+                    else to_char(dt_stop, 'DD mon YYYY') || '-' ||
+                        to_char(dt_stop, 'DD mon YYYY')
+                end as period
+            from callsigns_rda where callsign = %(callsign)s
+            order by dt_start
             """, data, True)
         return web.json_response(rsp)
 
