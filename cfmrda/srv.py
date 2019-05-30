@@ -654,7 +654,12 @@ class CfmRdaServer():
     @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
+        logging.debug('callsigns_rda_handler')
+        logging.debug(data)
         if 'delete' in data or 'new' in data:
+            callsign = self._require_callsign(data, True)
+            if not isinstance(callsign, str):
+                return callsign
             db_rslt = False
             if 'delete' in data:
                 db_rslt = yield from self._db.execute("""
@@ -662,34 +667,52 @@ class CfmRdaServer():
                     data)
             else:
                 data['new']['source'] = callsign
+                data['new']['callsign'] = data['callsign']
                 db_rslt = yield from self._db.execute("""
                     insert into callsigns_rda
                     (callsign, dt_start, dt_stop, source, rda)
                     values (%(callsign)s, %(dtStart)s, %(dtStop)s,
-                        %(source)s, %(rda)s""", data['new'])
+                        %(source)s, %(rda)s)""", data['new'])
             if not db_rslt:
                 return CfmRdaServer.response_error_default()
-        elif not '/' in data['callsign']:
-            rsp['suffixes'] = yield from self._db.execute("""
-                select distinct callsign 
-                from callsigns_rda
-                where callsign like %(callsign)""",\
-                {'callsign': data['callsign'] + '/%'}, True)
-        rsp['rdaRecords'] = self._db.execute("""
-            select id, source,  
+        else:
+            search = {'base': strip_callsign(data['callsign']),\
+                    'selected': data['callsign']}
+            if search['base']:
+                search['search'] = search['base'] + '/%'
+                rsp['suffixes'] = yield from self._db.execute("""
+                    select distinct callsign 
+                    from callsigns_rda
+                    where callsign != %(selected)s and
+                        (callsign like %(search)s or callsign = %(base)s)""",\
+                    search, True)
+        rsp['rdaRecords'] = yield from self._db.execute("""
+            select id, source, rda, 
                 to_char(ts, 'YYYY-MM-DD') as ts,
-                case when dt_start is null and dt_stop is null tnen null
+                case when dt_start is null and dt_stop is null then null
                     when dt_start is null and dt_stop is not null then
-                        'till' || to_char(dt_stop, 'DD mon YYYY')
+                        'till ' || to_char(dt_stop, 'DD mon YYYY')
                     when dt_stop is null and dt_start is not null then
-                        'from' || to_char(dt_start, 'DD mon YYYY')
-                    else to_char(dt_stop, 'DD mon YYYY') || '-' ||
+                        'from ' || to_char(dt_start, 'DD mon YYYY')
+                    else to_char(dt_stop, 'DD mon YYYY') || ' - ' ||
                         to_char(dt_stop, 'DD mon YYYY')
                 end as period
             from callsigns_rda where callsign = %(callsign)s
             order by dt_start
             """, data, True)
+        logging.debug(rsp)
         return web.json_response(rsp)
+
+            
+    def _require_callsign(self, data, require_admin=False):
+        callsign = self.decode_token(data)
+        if isinstance(callsign, str):
+            if require_admin:
+                if not self.is_admin(callsign):
+                    return CfmRdaServer.response_error_admin_required()
+            return callsign
+        else:
+            return callsign
 
     def handler_wrap(self, handler, validation_scheme=None, require_callsign=True,\
         require_admin=False):
@@ -700,15 +723,12 @@ class CfmRdaServer():
             if validation_scheme:
                 if not self._json_validator.validate(validation_scheme, data):
                     return CfmRdaServer.response_error_default()
+            callsign = None
             if require_callsign:
-                callsign = self.decode_token(data)
-                if isinstance(callsign, str):
-                    if require_admin:
-                        if not self.is_admin(callsign):
-                            return CfmRdaServer.response_error_admin_required()
-                    return (yield from handler(callsign, data))
-                else:
+                callsign = self._require_callsign(data, require_admin)
+                if not isinstance(callsign, str):
                     return callsign
+            return (yield from handler(callsign, data))
 
         return handler_wrapped
 
@@ -1290,7 +1310,7 @@ if __name__ == '__main__':
         SRV.handler_wrap(SRV.old_callsigns_admin_hndlr, require_admin=True))
     APP.router.add_post('/aiohttp/callsigns_rda',\
         SRV.handler_wrap(SRV.callsigns_rda_hndlr,\
-            validation_scheme='callsignsRda', require_admin=True))
+            validation_scheme='callsignsRda', require_callsign=False))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)

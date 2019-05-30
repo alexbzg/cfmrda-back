@@ -261,10 +261,16 @@ class DBConn:
                         %(station_callsign)s, %(rda)s, %(band)s,
                         %(mode)s, %(tstamp)s)
                     returning id"""
+                
+                savepoint_fl = False
 
                 @asyncio.coroutine
                 def savepoint():
+                    nonlocal savepoint_fl
+                    if savepoint_fl:
+                        yield from exec_cur(cur, "release savepoint upl_savepoint;")
                     yield from exec_cur(cur, "savepoint upl_savepoint;")
+                    savepoint_fl = True
 
                 @asyncio.coroutine
                 def rollback_savepoint():
