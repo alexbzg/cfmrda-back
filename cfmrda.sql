@@ -279,7 +279,9 @@ begin
   if exists (select from qso where qso.callsign = _callsign and qso.station_callsign = _station_callsign 
     and qso.rda = _rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
   then
-      raise 'cfmrda_db_error:Связь уже внесена в базу данных';
+      raise exception using
+            errcode='CR001',
+            message='cfmrda_db_error:Связь уже внесена в базу данных';
   end if;
  end$$;
 
@@ -439,12 +441,16 @@ CREATE FUNCTION tf_cfm_qsl_qso_bu() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   if new.state and (not old.state or old.state is null) then
+    perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
     insert into qso (callsign, station_callsign, rda, band, mode, tstamp)
       values (coalesce(new.new_callsign, new.callsign), new.station_callsign, new.rda,
         new.band, new.mode, new.tstamp);
     new.status_date = now();
   end if;
   return new;
+exception
+  when sqlstate 'CR001' then
+     return new;
 end;
   
    $$;

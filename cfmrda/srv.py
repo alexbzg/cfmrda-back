@@ -694,7 +694,7 @@ class CfmRdaServer():
                         'till ' || to_char(dt_stop, 'DD mon YYYY')
                     when dt_stop is null and dt_start is not null then
                         'from ' || to_char(dt_start, 'DD mon YYYY')
-                    else to_char(dt_stop, 'DD mon YYYY') || ' - ' ||
+                    else to_char(dt_start, 'DD mon YYYY') || ' - ' ||
                         to_char(dt_stop, 'DD mon YYYY')
                 end as period
             from callsigns_rda where callsign = %(callsign)s
