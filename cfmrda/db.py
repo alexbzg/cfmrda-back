@@ -68,16 +68,20 @@ def exec_cur(cur, sql, params=None):
         yield from cur.execute(sql, params)
         return True
     except Exception as exc:
-        if isinstance(exc, psycopg2.InternalError):
-            logging.debug(exc.pgerror)
-            if 'cfmrda_db_error' in exc.pgerror:
-                raise CfmrdaDbException(exc.pgerror)
-        logging.exception("Error executing: " + sql + "\n",\
-            exc_info=True)
-        if params and isinstance(params, dict):
-            logging.error("Params: ")
-            logging.error(params)
+        trap_db_exception(exc, sql, params)
         return False
+
+def trap_db_exception(exc, sql, params=None):
+    if isinstance(exc, psycopg2.InternalError) or\
+        isinstance(exc, psycopg2.DatabaseError):
+        logging.debug(exc.pgerror)
+        if 'cfmrda_db_error' in exc.pgerror:
+            raise CfmrdaDbException(exc.pgerror)
+    logging.exception("Error executing: " + sql + "\n",\
+        exc_info=True)
+    if params and isinstance(params, dict):
+        logging.error("Params: ")
+        logging.error(params)
 
 class DBConn:
 
@@ -152,15 +156,7 @@ class DBConn:
                 if cur.connection.get_transaction_status() !=\
                         TRANSACTION_STATUS_IDLE:
                     yield from cur.execute('rollback transaction;')
-                if isinstance(exc, psycopg2.InternalError):
-                    logging.debug(exc.pgerror)
-                    if 'cfmrda_db_error' in exc.pgerror:
-                        raise CfmrdaDbException(exc.pgerror)
-                logging.exception("Error executing: " + sql + "\n",\
-                    exc_info=True)
-                if params and isinstance(params, dict):
-                    logging.error("Params: ")
-                    logging.error(params)
+                trap_db_exception(exc, sql, params)
         return res
 
 
