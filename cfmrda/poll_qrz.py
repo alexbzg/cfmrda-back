@@ -42,7 +42,7 @@ def main():
     logging.debug('qrz query complete')
     yield from _db.execute("""
             insert into callsigns_rda (callsign, source, rda)
-            values (%(callsign)s, 'QRZ.ru', %(rda)s)""", params)
+            values (%(callsign)s, 'QRZ.ru', %(rda)s)""", params, progress=True)
 
 asyncio.get_event_loop().run_until_complete(main())
 

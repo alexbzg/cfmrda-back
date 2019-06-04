@@ -135,7 +135,7 @@ class DBConn:
         return res
 
     @asyncio.coroutine
-    def execute(self, sql, params=None, keys=None):
+    def execute(self, sql, params=None, keys=None, progress=None):
         res = False
         with (yield from self.pool.cursor()) as cur:
             try:
@@ -148,8 +148,16 @@ class DBConn:
                         if cur.description != None else True
                 else:
                     yield from cur.execute('begin transaction;')
+                    cnt = 0
+                    cnt0 = 0
                     for item in params:
+                        cnt0 += 1
                         yield from cur.execute(sql, item)
+                        if cnt0 == 100:
+                            cnt += cnt0
+                            cnt0 = 0
+                        if progress:
+                            logging.debug(str(cnt) + '/' + str(len(params)))
                     yield from cur.execute('commit transaction;')
                     res = True
             except Exception as exc:
