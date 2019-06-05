@@ -68,16 +68,20 @@ def exec_cur(cur, sql, params=None):
         yield from cur.execute(sql, params)
         return True
     except Exception as exc:
-        if isinstance(exc, psycopg2.InternalError):
-            logging.debug(exc.pgerror)
-            if 'cfmrda_db_error' in exc.pgerror:
-                raise CfmrdaDbException(exc.pgerror)
-        logging.exception("Error executing: " + sql + "\n",\
-            exc_info=True)
-        if params and isinstance(params, dict):
-            logging.error("Params: ")
-            logging.error(params)
+        trap_db_exception(exc, sql, params)
         return False
+
+def trap_db_exception(exc, sql, params=None):
+    if isinstance(exc, psycopg2.InternalError) or\
+        isinstance(exc, psycopg2.DatabaseError):
+        logging.debug(exc.pgerror)
+        if 'cfmrda_db_error' in exc.pgerror:
+            raise CfmrdaDbException(exc.pgerror)
+    logging.exception("Error executing: " + sql + "\n",\
+        exc_info=True)
+    if params and isinstance(params, dict):
+        logging.error("Params: ")
+        logging.error(params)
 
 class DBConn:
 
@@ -131,7 +135,7 @@ class DBConn:
         return res
 
     @asyncio.coroutine
-    def execute(self, sql, params=None, keys=None):
+    def execute(self, sql, params=None, keys=None, progress=None):
         res = False
         with (yield from self.pool.cursor()) as cur:
             try:
@@ -144,23 +148,23 @@ class DBConn:
                         if cur.description != None else True
                 else:
                     yield from cur.execute('begin transaction;')
+                    cnt = 0
+                    cnt0 = 0
                     for item in params:
+                        cnt0 += 1
                         yield from cur.execute(sql, item)
+                        if cnt0 == 100:
+                            cnt += cnt0
+                            cnt0 = 0
+                        if progress:
+                            logging.debug(str(cnt) + '/' + str(len(params)))
                     yield from cur.execute('commit transaction;')
                     res = True
             except Exception as exc:
                 if cur.connection.get_transaction_status() !=\
                         TRANSACTION_STATUS_IDLE:
                     yield from cur.execute('rollback transaction;')
-                if isinstance(exc, psycopg2.InternalError):
-                    logging.debug(exc.pgerror)
-                    if 'cfmrda_db_error' in exc.pgerror:
-                        raise CfmrdaDbException(exc.pgerror)
-                logging.exception("Error executing: " + sql + "\n",\
-                    exc_info=True)
-                if params and isinstance(params, dict):
-                    logging.error("Params: ")
-                    logging.error(params)
+                trap_db_exception(exc, sql, params)
         return res
 
 
@@ -261,10 +265,16 @@ class DBConn:
                         %(station_callsign)s, %(rda)s, %(band)s,
                         %(mode)s, %(tstamp)s)
                     returning id"""
+                
+                savepoint_fl = False
 
                 @asyncio.coroutine
                 def savepoint():
+                    nonlocal savepoint_fl
+                    if savepoint_fl:
+                        yield from exec_cur(cur, "release savepoint upl_savepoint;")
                     yield from exec_cur(cur, "savepoint upl_savepoint;")
+                    savepoint_fl = True
 
                 @asyncio.coroutine
                 def rollback_savepoint():

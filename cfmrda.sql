@@ -279,7 +279,9 @@ begin
   if exists (select from qso where qso.callsign = _callsign and qso.station_callsign = _station_callsign 
     and qso.rda = _rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
   then
-      raise 'cfmrda_db_error:Связь уже внесена в базу данных';
+      raise exception using
+            errcode='CR001',
+            message='cfmrda_db_error:Связь уже внесена в базу данных';
   end if;
  end$$;
 
@@ -391,22 +393,19 @@ CREATE FUNCTION tf_callsigns_rda_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
+  if exists (select from callsigns_rda 
+    where callsign = new.callsign and source = new.source and 
+      rda = new.rda and
+      (dt_start is null or dt_start <= new.dt_start) and
+      (dt_stop is null or dt_stop >= new.dt_stop))
+  then
+    return null;
+  end if;      
   if (new.source = 'QRZ.ru')
   then
-    if exists (select from callsigns_rda where source = 'QRZ.ru' and callsign = new.callsign)
-    then
-      update callsigns_rda 
-      set rda = new.rda, ts = now() 
-      where callsign = new.callsign and source = 'QRZ.ru';
-      return null;
-    end if;
-  else
-    if exists (select from callsigns_rda where source != 'QRZ.ru' and callsign = new.callsign 
-      and (dt_start <= new.dt_stop or dt_start is null or new.dt_stop is null)
-      and (dt_stop >= new.dt_start or dt_stop is null or new.dt_start is null))
-    then
-      raise 'Конфликт в истории RDA';
-    end if;
+    update callsigns_rda 
+      set dt_stop = now() 
+      where callsign = new.callsign and source = 'QRZ.ru' and dt_stop is null;
   end if;
   return new;
 end$$;
@@ -421,7 +420,7 @@ ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
 CREATE FUNCTION tf_cfm_qsl_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
-  select from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
+  perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
 /*  if exists (select 1 from cfm_qsl_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
@@ -442,12 +441,16 @@ CREATE FUNCTION tf_cfm_qsl_qso_bu() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   if new.state and (not old.state or old.state is null) then
+    perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
     insert into qso (callsign, station_callsign, rda, band, mode, tstamp)
       values (coalesce(new.new_callsign, new.callsign), new.station_callsign, new.rda,
         new.band, new.mode, new.tstamp);
     new.status_date = now();
   end if;
   return new;
+exception
+  when sqlstate 'CR001' then
+     return new;
 end;
   
    $$;
@@ -462,7 +465,7 @@ ALTER FUNCTION public.tf_cfm_qsl_qso_bu() OWNER TO postgres;
 CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
-  select from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
+  perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
   if exists (select 1 from cfm_request_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
