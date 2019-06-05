@@ -346,13 +346,14 @@ class CfmRdaServer():
         sql = """
             select json_agg(json_build_object(
                 'id', id,
-                'callsign', callsign,
-                'callsignRda', 
-                (select rda 
+                'callsign', callsign,""" +\
+                ('' if callsign else """'callsignRda',
+                (select json_agg(distinct rda)
                     from callsigns_rda 
                     where callsigns_rda.callsign = station_callsign and
-                        source = 'QRZ.ru'
-                    limit 1),
+                        (dt_start is null or dt_start <= tstamp) and
+                        (dt_stop is null or dt_stop >= date(tstamp))
+                    ),""") + """
                 'stationCallsign', station_callsign,
                 'rda', rda,
                 'band', band,
@@ -370,7 +371,9 @@ class CfmRdaServer():
             sql += "user_cs = %(callsign)s"
         else:
             sql += "state is null"
+        logging.debug(sql)
         qsl_list = yield from self._db.execute(sql, {'callsign': callsign})
+        logging.debug(qsl_list)
         if not qsl_list:
             qsl_list = []
         return qsl_list
@@ -698,7 +701,7 @@ class CfmRdaServer():
                         to_char(dt_stop, 'DD mon YYYY')
                 end as period
             from callsigns_rda where callsign = %(callsign)s
-            order by dt_start
+            order by dt_start desc
             """, data, True)
         logging.debug(rsp)
         return web.json_response(rsp)
