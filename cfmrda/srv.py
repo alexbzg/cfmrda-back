@@ -15,7 +15,7 @@ from aiohttp import web
 import jwt
 import chardet
 
-from common import site_conf, start_logging, APP_ROOT, datetime_format
+from common import site_conf, start_logging, APP_ROOT, datetime_format, date_format
 from db import DBConn, typed_values_list, CfmrdaDbException
 import send_email
 from secret import get_secret, create_token
@@ -655,10 +655,28 @@ class CfmRdaServer():
             return callsign
 
     @asyncio.coroutine
+    def ann_hndlr(self, callsign, data):
+        site_root = CONF.get('web', 'root')
+        ann_path = site_root + '/json/ann.json'
+        ann = load_json(ann_path)
+        if not ann:
+            ann = []
+        if 'new' in data:
+            ts = time.time()
+            data['new']['ts'] = ts
+            data['new']['date'] = date_format(ts)
+            ann.insert(0, data['new'])
+        if 'delete' in data:
+            callsign = self._require_callsign(data, True)
+            if not isinstance(callsign, str):
+                return callsign
+            ann = [x for x in ann if x['ts'] != data['delete']]
+        save_json(ann, ann_path)
+        return CfmRdaServer.response_ok()
+
+    @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
-        logging.debug('callsigns_rda_handler')
-        logging.debug(data)
         if 'delete' in data or 'new' in data:
             callsign = self._require_callsign(data, True)
             if not isinstance(callsign, str):
@@ -703,7 +721,6 @@ class CfmRdaServer():
             from callsigns_rda where callsign = %(callsign)s
             order by dt_start desc
             """, data, True)
-        logging.debug(rsp)
         return web.json_response(rsp)
 
             
@@ -1314,6 +1331,9 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/callsigns_rda',\
         SRV.handler_wrap(SRV.callsigns_rda_hndlr,\
             validation_scheme='callsignsRda', require_callsign=False))
+    APP.router.add_post('/aiohttp/ann',\
+        SRV.handler_wrap(SRV.ann_hndlr,\
+            validation_scheme='ann', require_callsign=False))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)

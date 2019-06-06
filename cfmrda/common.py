@@ -33,5 +33,8 @@ def datetime_format(dtime):
     """return formatted date/time string tuple"""
     return dtime.strftime('%d %b').lower(), dtime.strftime('%H:%Mz')
 
+def date_format(dtime):
+    """return formatted date string"""
+    return dtime.strftime('%d %b %Y').lower()
 
 
