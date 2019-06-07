@@ -663,8 +663,9 @@ class CfmRdaServer():
             ann = []
         if 'new' in data:
             ts = time.time()
+            data['new']['callsign'] = callsign
             data['new']['ts'] = ts
-            data['new']['date'] = date_format(ts)
+            data['new']['date'] = date_format(datetime.utcnow())
             ann.insert(0, data['new'])
         if 'delete' in data:
             callsign = self._require_callsign(data, True)
@@ -1333,7 +1334,7 @@ if __name__ == '__main__':
             validation_scheme='callsignsRda', require_callsign=False))
     APP.router.add_post('/aiohttp/ann',\
         SRV.handler_wrap(SRV.ann_hndlr,\
-            validation_scheme='ann', require_callsign=False))
+            validation_scheme='ann'))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)
