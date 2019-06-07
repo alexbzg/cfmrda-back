@@ -156,8 +156,8 @@ class DBConn:
                         if cnt0 == 100:
                             cnt += cnt0
                             cnt0 = 0
-                        if progress:
-                            logging.debug(str(cnt) + '/' + str(len(params)))
+                            if progress:
+                                logging.debug(str(cnt) + '/' + str(len(params)))
                     yield from cur.execute('commit transaction;')
                     res = True
             except Exception as exc:
