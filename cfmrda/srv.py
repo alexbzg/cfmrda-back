@@ -16,7 +16,7 @@ import jwt
 import chardet
 
 from common import site_conf, start_logging, APP_ROOT, datetime_format, date_format
-from db import DBConn, typed_values_list, CfmrdaDbException
+from db import DBConn, typed_values_list, CfmrdaDbException, params_str, splice_params
 import send_email
 from secret import get_secret, create_token
 import recaptcha
@@ -678,38 +678,51 @@ class CfmRdaServer():
     @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
-        if 'delete' in data or 'new' in data:
+        if 'delete' in data or 'new' in data or 'conflict' in data:
             callsign = self._require_callsign(data, True)
             if not isinstance(callsign, str):
                 return callsign
             db_rslt = False
-            if 'delete' in data:
+            if 'conflict' in data:
                 db_rslt = yield from self._db.execute("""
-                    delete from callsigns_rda where id = %(delete)s""",\
-                    data)
+                    select cr0.callsign 
+                    from callsigns_rda as cr0 join callsigns_rda as cr1 on
+                        cr0.callsign = cr1.callsign and cr0.rda <> cr1.rda and
+                        cr0.dt_start is null and cr0.dt_stop is null and 
+                        cr1.dt_start is null and cr1.dt_stop is null and 
+                        cr1.id > cr0.id
+                    order by cr0.callsign""", {}, True)
+                return web.json_response(db_rslt)
             else:
-                data['new']['source'] = callsign
-                data['new']['callsign'] = data['callsign']
-                db_rslt = yield from self._db.execute("""
-                    insert into callsigns_rda
-                    (callsign, dt_start, dt_stop, source, rda)
-                    values (%(callsign)s, %(dtStart)s, %(dtStop)s,
-                        %(source)s, %(rda)s)""", data['new'])
-            if not db_rslt:
-                return CfmRdaServer.response_error_default()
+                if 'delete' in data:
+                    db_rslt = yield from self._db.execute("""
+                        delete from callsigns_rda where id = %(delete)s""",\
+                        data)
+                else:
+                    data['new']['source'] = callsign
+                    data['new']['callsign'] = data['callsign']
+                    db_rslt = yield from self._db.execute("""
+                        insert into callsigns_rda
+                        (callsign, dt_start, dt_stop, source, rda)
+                        values (%(callsign)s, %(dtStart)s, %(dtStop)s,
+                            %(source)s, %(rda)s)""", data['new'])
+                if not db_rslt:
+                    return CfmRdaServer.response_error_default()
+        
         else:
-            search = {'base': strip_callsign(data['callsign']),\
-                    'selected': data['callsign']}
-            if search['base']:
-                search['search'] = search['base'] + '/%'
-                rsp['suffixes'] = yield from self._db.execute("""
-                    select distinct callsign 
-                    from callsigns_rda
-                    where callsign != %(selected)s and
-                        (callsign like %(search)s or callsign = %(base)s)""",\
-                    search, True)
+            if 'callsign' in data:
+                search = {'base': strip_callsign(data['callsign']),\
+                        'selected': data['callsign']}
+                if search['base']:
+                    search['search'] = search['base'] + '/%'
+                    rsp['suffixes'] = yield from self._db.execute("""
+                        select distinct callsign 
+                        from callsigns_rda
+                        where callsign != %(selected)s and
+                            (callsign like %(search)s or callsign = %(base)s)""",\
+                        search, True)
         rsp['rdaRecords'] = yield from self._db.execute("""
-            select id, source, rda, 
+            select id, source, rda, callsign,
                 to_char(ts, 'YYYY-MM-DD') as ts,
                 case when dt_start is null and dt_stop is null then null
                     when dt_start is null and dt_stop is not null then
@@ -719,7 +732,9 @@ class CfmRdaServer():
                     else to_char(dt_start, 'DD mon YYYY') || ' - ' ||
                         to_char(dt_stop, 'DD mon YYYY')
                 end as period
-            from callsigns_rda where callsign = %(callsign)s
+            from callsigns_rda where """ +\
+            params_str(splice_params(data, ('callsign', 'rda')), ' and ') +\
+            """
             order by dt_start desc
             """, data, True)
         return web.json_response(rsp)
@@ -1244,6 +1259,7 @@ support@cfmrda.ru"""
 
     @asyncio.coroutine
     def _load_qrz_rda(self, callsign):
+        return
         check = yield from self._db.execute("""
             select rda 
             from callsigns_rda
