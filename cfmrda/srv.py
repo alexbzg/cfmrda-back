@@ -703,9 +703,9 @@ class CfmRdaServer():
                     data['new']['callsign'] = data['callsign']
                     db_rslt = yield from self._db.execute("""
                         insert into callsigns_rda
-                        (callsign, dt_start, dt_stop, source, rda)
+                        (callsign, dt_start, dt_stop, source, rda, comment)
                         values (%(callsign)s, %(dtStart)s, %(dtStop)s,
-                            %(source)s, %(rda)s)""", data['new'])
+                            %(source)s, %(rda)s, %(comment)s)""", data['new'])
                 if not db_rslt:
                     return CfmRdaServer.response_error_default()
         
@@ -722,7 +722,7 @@ class CfmRdaServer():
                             (callsign like %(search)s or callsign = %(base)s)""",\
                         search, True)
         rsp['rdaRecords'] = yield from self._db.execute("""
-            select id, source, rda, callsign,
+            select id, source, rda, callsign, comment,
                 to_char(ts, 'YYYY-MM-DD') as ts,
                 case when dt_start is null and dt_stop is null then null
                     when dt_start is null and dt_stop is not null then

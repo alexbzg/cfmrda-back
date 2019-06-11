@@ -564,7 +564,8 @@ CREATE TABLE callsigns_rda (
     source character varying(64),
     ts timestamp without time zone DEFAULT now() NOT NULL,
     rda character(5) NOT NULL,
-    id integer NOT NULL
+    id integer NOT NULL,
+    comment character varying(256)
 );
 
 
