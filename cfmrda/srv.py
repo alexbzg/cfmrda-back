@@ -685,11 +685,11 @@ class CfmRdaServer():
             db_rslt = False
             if 'conflict' in data:
                 db_rslt = yield from self._db.execute("""
-                    select cr0.callsign 
+                    select distinct cr0.callsign 
                     from callsigns_rda as cr0 join callsigns_rda as cr1 on
                         cr0.callsign = cr1.callsign and cr0.rda <> cr1.rda and
-                        cr0.dt_start is null and cr0.dt_stop is null and 
-                        cr1.dt_start is null and cr1.dt_stop is null and 
+                        cr0.rda <> '***' and cr1.rda <> '***' and
+                        cr0.dt_stop is null and cr1.dt_stop is null and 
                         cr1.id > cr0.id
                     order by cr0.callsign""", {}, True)
                 return web.json_response(db_rslt)
