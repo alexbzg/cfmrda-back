@@ -710,6 +710,22 @@ CREATE TABLE cfm_requests (
 ALTER TABLE cfm_requests OWNER TO postgres;
 
 --
+-- Name: ext_loggers; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE ext_loggers (
+    callsign character varying(32) NOT NULL,
+    logger character varying(8) NOT NULL,
+    login_data json,
+    state integer,
+    qso_count integer,
+    last_updated date
+);
+
+
+ALTER TABLE ext_loggers OWNER TO postgres;
+
+--
 -- Name: list_bands; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -968,6 +984,14 @@ ALTER TABLE ONLY cfm_request_blacklist
 
 ALTER TABLE ONLY cfm_request_qso
     ADD CONSTRAINT cfm_request_qso_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ext_loggers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY ext_loggers
+    ADD CONSTRAINT ext_loggers_pkey PRIMARY KEY (callsign, logger);
 
 
 --
@@ -1356,6 +1380,14 @@ ALTER TABLE ONLY cfm_qsl_qso
 
 
 --
+-- Name: ext_loggers_callsign_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY ext_loggers
+    ADD CONSTRAINT ext_loggers_callsign_fkey FOREIGN KEY (callsign) REFERENCES users(callsign);
+
+
+--
 -- Name: qso_upload_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1516,6 +1548,16 @@ REVOKE ALL ON TABLE cfm_requests FROM PUBLIC;
 REVOKE ALL ON TABLE cfm_requests FROM postgres;
 GRANT ALL ON TABLE cfm_requests TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_requests TO "www-group";
+
+
+--
+-- Name: ext_loggers; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE ext_loggers FROM PUBLIC;
+REVOKE ALL ON TABLE ext_loggers FROM postgres;
+GRANT ALL ON TABLE ext_loggers TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE ext_loggers TO "www-group";
 
 
 --
