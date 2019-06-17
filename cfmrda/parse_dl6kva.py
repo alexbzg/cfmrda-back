@@ -71,10 +71,10 @@ def main():
     with open('/var/www/cfmrda-dev/DL6KVA.txt', 'r', encoding='cp437') as f_data:
         params = []
         for line in f_data.readlines():
-            fields = line.split('\t')
+            fields = [x.strip() for x in line.split('\t')]
+            if fields[3] == 'DELETED':
+                del fields[2]
             parsed_dt_start, parsed_dt_stop = None, None
-            fields[1] = fields[1].strip()
-            fields[2] = fields[2].strip()
             date = parse_date(fields[2])
             if date:
                 parsed_dt_start = date
@@ -112,12 +112,14 @@ def main():
                 continue
 
             params.append({'callsign': fields[0], 'rda': fields[1], 'dt_start': dt_start,\
-                    'dt_stop': dt_stop})
+                    'dt_stop': dt_stop,\
+                    'source': fields[4] if fields[4] else 'RDAWARD.org',\
+                    'ts': fields[5] if fields[5] else '2019-06-17'})
 
         yield from _db.execute("""insert into callsigns_rda
-            (callsign, rda, dt_start, dt_stop, source)
+            (callsign, rda, dt_start, dt_stop, source, ts)
             values
-            (%(callsign)s, %(rda)s, %(dt_start)s, %(dt_stop)s, 'DL6KVA')""",\
+            (%(callsign)s, %(rda)s, %(dt_start)s, %(dt_stop)s, %(source)s, %(ts)s)""",\
             params, progress=True)
 
 asyncio.get_event_loop().run_until_complete(main())

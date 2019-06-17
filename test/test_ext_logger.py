@@ -14,6 +14,11 @@ def test_lotw_login():
     logging.warning('test LOTW login')
     login_ssn = lotw.login(LOTW_LOGIN)
     assert login_ssn
+    lotw = ExtLogger('LOTW')
+    bad_login = {}
+    bad_login.update(LOTW_LOGIN)
+    bad_login['password'] += '_'
+    bad_login_ssn = lotw.login(bad_login)
 
 def test_lotw_dowload():
     lotw = ExtLogger('LOTW')

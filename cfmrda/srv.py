@@ -14,6 +14,7 @@ from datetime import datetime
 from aiohttp import web
 import jwt
 import chardet
+import requests
 
 from common import site_conf, start_logging, APP_ROOT, datetime_format, date_format
 from db import DBConn, typed_values_list, CfmrdaDbException, params_str, splice_params
@@ -23,6 +24,7 @@ import recaptcha
 from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink, QRZRuLink
 from ham_radio import load_adif, strip_callsign, ADIFParseException
+from ext_logger import ExtLogger
 
 CONF = site_conf()
 start_logging('srv', level=CONF.get('logs', 'srv_level'))
@@ -674,6 +676,37 @@ class CfmRdaServer():
             ann = [x for x in ann if x['ts'] != data['delete']]
         save_json(ann, ann_path)
         return CfmRdaServer.response_ok()
+
+    @asyncio.coroutine
+    def ext_loggers_handler(self, callsign, data):
+        if 'update' in data:
+            logger = ExtLogger(data['update']['logger'])
+            login_check = None
+            try:
+                login_check = logger.login()
+            except requests.exception.HTTPError as e:
+                logging.exception(e)
+            params = splice_params(data['logger'],\
+                ['callsign', 'logger', 'loginData', 'state'])
+            params['state'] = 1 if login_check else 2
+            params['callsign'] = callsign
+            if (yield from self._db.execute("""\
+                update ext_loggers 
+                    set login_data = %(loginData)s, state = %(state)s
+                    where callsign = %(callsign)s and logger = %(logger)s;
+                insert into ext_loggers (callsign, logger, login_data, state)
+                    select %(callsign), %(logger)s, %(loginData)s, %(state)
+                        where not exists 
+                            (select from ext_loggers
+                                where callsign = %(callsign) and 
+                                    logger = %(logger))""", params)):
+                return web.json_response(login_check)
+            else:
+                return CfmRdaServer.response_error_default()
+        else:
+            return web.json_response(None)    
+
+
 
     @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):

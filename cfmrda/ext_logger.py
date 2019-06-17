@@ -3,6 +3,7 @@
 """class for working with web-loggers. Currenly supported: LOTW"""
 
 import requests
+import logging
 
 class ExtLogger():
 
@@ -21,6 +22,7 @@ class ExtLogger():
             data.update(login_data)
 
             rsp = ssn.post('https://lotw.arrl.org/lotwuser/login', data=data)
+        logging.debug(rsp.text)
         rsp.raise_for_status()
 
         return ssn
