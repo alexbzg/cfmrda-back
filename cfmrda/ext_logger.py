@@ -3,9 +3,19 @@
 """class for working with web-loggers. Currenly supported: LOTW"""
 
 import requests
-import logging
+
+class ExtLoggerException(Exception):
+    """Login failed"""
+    pass
 
 class ExtLogger():
+
+    default_login_data = {'login': None, 'password': None}
+
+    types = {'LOTW': {}}
+
+    states = {0: 'OK',\
+            1: 'Не удалось войти на сайт. Login attempt failed'}
 
     def __init__(self, logger_type):
         self.type = logger_type
@@ -22,8 +32,9 @@ class ExtLogger():
             data.update(login_data)
 
             rsp = ssn.post('https://lotw.arrl.org/lotwuser/login', data=data)
-        logging.debug(rsp.text)
-        rsp.raise_for_status()
+            rsp.raise_for_status()
+            if 'Username/password incorrect' in rsp.text:
+                raise ExtLoggerException("Login failed.")
 
         return ssn
 

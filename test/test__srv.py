@@ -726,6 +726,40 @@ def test_old_callsigns_admin():
     old_callsigns = ['RN6BN', 'R6AUV']
     rsp = request(True)
 
+def test_ext_loggers():
+    callsign = 'R7AB'
+
+    def request(update=None):
+        data = {'token': create_token({'callsign': callsign})}
+        if update:
+            data['update'] = update
+        return requests.post(API_URI + '/loggers',\
+            data=json.dumps(data))
+
+    logging.debug('Old callsigns -- ext_loggers update')
+    lotw_login = load_json(path.dirname(path.abspath(__file__)) + '/lotw_login.json')
+    update = {'logger': 'LOTW', 'loginData': {}}
+    update['loginData'].update(lotw_login)
+    rsp = request(update)
+    assert rsp.status_code == 200
+    assert json.loads(rsp.text)
+
+    logging.debug('Old callsigns -- ext_loggers list')
+    rsp = request()
+    assert rsp.status_code == 200
+    data = json.loads(rsp.text)
+    assert data[0]
+    assert data[0]['logger'] == 'LOTW'
+    assert data[0]['loginData']
+    for k in update['loginData']:
+        assert data[0]['loginData'][k] == update['loginData'][k]
+    
+    logging.debug('Old callsigns -- ext_loggers update bad login')
+    update['loginData']['password'] += '_'
+    rsp = request(update)
+    assert rsp.status_code == 200
+    assert not json.loads(rsp.text)
+
 def check_hunter_data(conf, callsign, role='hunter', rda='HA-01'):
     rsp = requests.get(API_URI + '/hunter/' + callsign) 
     assert rsp.status_code == 200
