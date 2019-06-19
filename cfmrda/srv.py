@@ -695,7 +695,7 @@ class CfmRdaServer():
             except (requests.exceptions.HTTPError, ExtLoggerException) as ext:
                 logging.exception(ext)
             params = splice_params(data['update'],\
-                ['callsign', 'logger', 'loginData', 'state'])
+                ['callsign', 'logger', 'loginData'])
             params['state'] = 0 if login_check else 1
             params['callsign'] = callsign
             if (yield from self._db.execute("""\
@@ -708,7 +708,7 @@ class CfmRdaServer():
                             (select from ext_loggers
                                 where callsign = %(callsign)s and 
                                     logger = %(logger)s)""", params)):
-                return web.json_response(login_check)
+                return web.json_response(params['state'])
             else:
                 return CfmRdaServer.response_error_default()
         else:
