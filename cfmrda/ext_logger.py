@@ -12,7 +12,7 @@ class ExtLogger():
 
     default_login_data = {'login': None, 'password': None}
 
-    types = {'LOTW': {}}
+    types = {'LoTW': {}}
 
     states = {0: 'OK',\
             1: 'Не удалось войти на сайт. Login attempt failed'}
@@ -23,7 +23,7 @@ class ExtLogger():
     def login(self, login_data):
         ssn = requests.Session()
         rsp = None
-        if self.type == 'LOTW':
+        if self.type == 'LoTW':
             ssn.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.131 Safari/537.36'})
             data = {\
                 'acct_sel': '',\
@@ -38,11 +38,13 @@ class ExtLogger():
 
         return ssn
 
-    def download(self, login_data, **kwparams):
+    def load(self, login_data, **kwparams):
         ssn = self.login(login_data)
 
-        rsp = ssn.get('https://lotw.arrl.org/lotwuser/lotwreport.adi?qso_query=1&qso_withown=yes&qso_qslsince=' +\
-                kwparams['date_from'] +'&qso_owncall=')
+        rsp = ssn.get('https://lotw.arrl.org/lotwuser/lotwreport.adi?qso_query=1&qso_withown=yes' +\
+            ('&qso_qslsince=' + kwparams['date_from']\
+                if 'date_from' in kwparams and kwparams['date_from']\
+                else '') + '&qso_owncall=')
         rsp.raise_for_status()
 
         return rsp.text
