@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 #coding=utf-8
-"""script for sending cfm requests to activators"""
+"""script for downloading web loggers data and storing it into db"""
 import asyncio
 import logging
-import base64
 from datetime import datetime
+import fcntl
+import sys
 
 from common import site_conf, start_logging
 from db import DBConn, exec_cur, splice_params
@@ -12,11 +13,8 @@ from ham_radio import load_adif
 from ext_logger import ExtLogger
 
 @asyncio.coroutine
-def main():
-    """sends cfm requests"""
-    start_logging('loggers')
-    logging.debug('start loading loggers')
-    conf = site_conf()
+def main(conf):
+    """does the job"""
     db_params = conf.items('db')
 
     _db = DBConn(db_params)
@@ -38,9 +36,9 @@ def main():
         adif = None
         try:
             adif = logger.load(row['login_data'], date_from=row['last_updated']).upper()
-            logging.debug(row['callsign'] + ' data was downloaded.')
+            logging.debug(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
         except Exception:
-            logging.exception()
+            logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
             update_params['state'] = 1
         if adif:
 
@@ -70,29 +68,41 @@ def main():
                         qsos.append(qso)
 
             if qsos:
-                logging.debug(str(len(qsos)) + ' qso found.')
-                file_hash = yield from _db.check_upload_hash(adif)
+                logging.debug(str(len(qsos)) + ' rda qso found.')
+                file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
 
-                yield from _db.create_upload(\
-                    callsign=loggers['callsign'],\
-                    upload_type=loggers['logger'],\
+                db_res = yield from _db.create_upload(\
+                    callsign=row['callsign'],\
+                    upload_type=row['logger'],\
                     date_start=date_start,\
                     date_end=date_end,\
                     file_hash=file_hash,\
                     activators=set([]),
                     qsos=qsos)
 
-            logging.debug('qso saved into db.')
+                logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
 
             update_params = {\
-                'qso_count': row['qso_count'] + qso_count,\
+                'qso_count': (row['qso_count'] if row['qso_count'] else 0) + qso_count,\
                 'state': 0,\
                 'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
-        _db.param_update('ext_loggers', splice_params(row, ('logger', 'callsign')),\
+        yield from _db.param_update('ext_loggers', splice_params(row, ('logger', 'callsign')),\
             update_params)
         logging.debug('logger data updated')
 
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(main())
+    start_logging('loggers')
+    logging.debug('start loading loggers')
+    CONF = site_conf()
+
+    PID_FILENAME = CONF.get('files', 'loggers_pid')
+    PID_FILE = open(PID_FILENAME, 'w')
+    try:
+        fcntl.lockf(PID_FILE, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError:
+        logging.error('another instance is running')
+        sys.exit(0)
+
+    asyncio.get_event_loop().run_until_complete(main(CONF))
 
