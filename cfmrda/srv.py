@@ -14,6 +14,7 @@ from datetime import datetime
 from aiohttp import web
 import jwt
 import chardet
+import requests
 
 from common import site_conf, start_logging, APP_ROOT, datetime_format, date_format
 from db import DBConn, typed_values_list, CfmrdaDbException, params_str, splice_params
@@ -23,6 +24,7 @@ import recaptcha
 from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink, QRZRuLink
 from ham_radio import load_adif, strip_callsign, ADIFParseException
+from ext_logger import ExtLogger, ExtLoggerException
 
 CONF = site_conf()
 start_logging('srv', level=CONF.get('logs', 'srv_level'))
@@ -64,7 +66,8 @@ class CfmRdaServer():
         self._loop = loop
         self._db = DBConn(CONF.items('db'))
         self._qrzcom = QRZComLink(loop)
-        self._qrzru = QRZRuLink(loop)
+        if CONF.has_option('QRZRu', 'login'):
+            self._qrzru = QRZRuLink(loop)
         asyncio.async(self._db.connect())
         self._secret = get_secret(CONF.get('files', 'secret'))
         self._site_admins = str(CONF.get('web', 'admins')).split(' ')
@@ -662,9 +665,9 @@ class CfmRdaServer():
         if not ann:
             ann = []
         if 'new' in data:
-            ts = time.time()
+            _ts = time.time()
             data['new']['callsign'] = callsign
-            data['new']['ts'] = ts
+            data['new']['ts'] = _ts
             data['new']['date'] = date_format(datetime.utcnow())
             ann.insert(0, data['new'])
         if 'delete' in data:
@@ -674,6 +677,64 @@ class CfmRdaServer():
             ann = [x for x in ann if x['ts'] != data['delete']]
         save_json(ann, ann_path)
         return CfmRdaServer.response_ok()
+
+    @asyncio.coroutine
+    def ext_loggers_hndlr(self, callsign, data):
+        if 'update' in data:
+            logger_type = data['update']['logger']
+            logger_params = ExtLogger.types[logger_type]
+            schema = logger_params['schema'] if 'schema' in logger_params\
+                else 'extLoggersLoginDefault'
+            if not self._json_validator.validate(schema, data['update']['loginData']):
+                return CfmRdaServer.response_error_default()
+            logger = ExtLogger(data['update']['logger'])
+            login_check = False
+            try:
+                logger.login(data['update']['loginData'])
+                login_check = True
+            except (requests.exceptions.HTTPError, ExtLoggerException) as ext:
+                logging.exception(ext)
+            params = splice_params(data['update'],\
+                ['callsign', 'logger', 'loginData'])
+            params['state'] = 0 if login_check else 1
+            params['callsign'] = callsign
+            if (yield from self._db.execute("""\
+                update ext_loggers 
+                    set login_data = %(loginData)s, state = %(state)s
+                    where callsign = %(callsign)s and logger = %(logger)s;
+                insert into ext_loggers (callsign, logger, login_data, state)
+                    select %(callsign)s, %(logger)s, %(loginData)s, %(state)s
+                        where not exists 
+                            (select from ext_loggers
+                                where callsign = %(callsign)s and 
+                                    logger = %(logger)s)""", params)):
+                return web.json_response(params['state'])
+            else:
+                return CfmRdaServer.response_error_default()
+        else:
+            rsp = yield from self._db.execute("""
+                select json_build_object('logger', logger, 
+                    'loginData', login_data, 
+                    'state', state,
+                    'lastUpdated', to_char(last_updated, 'YYYY-MM-DD'), 
+                    'qsoCount', qso_count)
+                from ext_loggers
+                where callsign = %(callsign)s""", {'callsign': callsign}, True)
+            if not rsp:
+                rsp = []
+            for (logger, params) in ExtLogger.types.items():
+                if not [x for x in rsp if x['logger'] == logger]:
+                    rsp.append({'logger': logger,\
+                            'loginData': params['loginData'] if 'loginData' in params\
+                                else ExtLogger.default_login_data})
+            for item in rsp:
+                logger_params = ExtLogger.types[item['logger']]
+                item['schema'] = logger_params['schema'] if 'schema' in logger_params\
+                    else 'extLoggersLoginDefault'
+                if 'state' in item and item['state'] is not None:
+                    item['stateDesc'] = ExtLogger.states[item['state']]
+
+            return web.json_response(rsp)    
 
     @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
@@ -1351,6 +1412,8 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/ann',\
         SRV.handler_wrap(SRV.ann_hndlr,\
             validation_scheme='ann'))
+    APP.router.add_post('/aiohttp/loggers',\
+        SRV.handler_wrap(SRV.ext_loggers_hndlr, validation_scheme='extLoggers'))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)

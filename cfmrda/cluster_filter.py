@@ -37,7 +37,7 @@ def perform(conf):
         rda_dx = []
     idx = 0
     for item in reversed(_dx):
-        if prev and item['ts'] < prev['ts']:
+        if prev and item['ts'] <= prev['ts']:
             break
         if 'RDA' in item['awards'] or item['cs'] in dxped:
             if item['cs'] in dxped:

@@ -63,7 +63,6 @@ def init_connection(conn):
 
 @asyncio.coroutine
 def exec_cur(cur, sql, params=None):
-    logging.debug(sql)
     try:
         yield from cur.execute(sql, params)
         return True
