@@ -105,7 +105,7 @@ class ADIFParseException(Exception):
     """
     pass
 
-def load_adif(adif, station_callsign_field=None, rda_field=None):
+def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activator=False):
     """parse adif data"""
     adif = adif.upper().replace('\r', '').replace('\n', '')
     data = {'qso': [], 'date_start': None, 'date_end': None,\
@@ -170,17 +170,18 @@ def load_adif(adif, station_callsign_field=None, rda_field=None):
                 if not qso['station_callsign']:
                     data['qso_errors'] += 1
                     continue
-                activator = strip_callsign(qso['station_callsign'])
-                if not activator:
-                    data['qso_errors'] += 1
-                    continue
-                if data['activator']:
-                    if data['activator'] != activator:
-                        raise ADIFParseException(\
-                            "Различные активаторы в одном файле (" +\
-                            data['activator'] + ', ' + activator + ")")
-                else:
-                    data['activator'] = activator
+                if not ignore_activator:
+                    activator = strip_callsign(qso['station_callsign'])
+                    if not activator:
+                        data['qso_errors'] += 1
+                        continue
+                    if data['activator']:
+                        if data['activator'] != activator:
+                            raise ADIFParseException(\
+                                "Различные активаторы в одном файле (" +\
+                                data['activator'] + ', ' + activator + ")")
+                    else:
+                        data['activator'] = activator
 
             if rda_field:
                 qso['rda'] = None

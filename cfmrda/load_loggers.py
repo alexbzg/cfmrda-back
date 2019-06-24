@@ -43,12 +43,12 @@ def main(conf):
         if adif:
 
             qso_count = adif.count('<EOR>')
-            parsed = load_adif(adif, 'STATION_CALLSIGN')
+            parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True)
             date_start, date_end = None, None
             sql_rda = """
                 select rda 
                 from callsigns_rda
-                where callsign = %(callsign)s and
+                where callsign = %(callsign)s and rda <> '***' and 
                     (dt_start is null or dt_start <= %(tstamp)s) and
                     (dt_stop is null or dt_stop >= %(tstamp)s)
             """
