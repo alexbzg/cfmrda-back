@@ -35,7 +35,7 @@ def main(conf):
         update_params = {}
         adif = None
         try:
-            adif = logger.load(row['login_data'], date_from=row['last_updated']).upper()
+            adif = logger.load(row['login_data']).upper()
             logging.debug(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
         except Exception:
             logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
@@ -46,7 +46,7 @@ def main(conf):
             parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True)
             date_start, date_end = None, None
             sql_rda = """
-                select rda 
+                select distinct rda 
                 from callsigns_rda
                 where callsign = %(callsign)s and rda <> '***' and 
                     (dt_start is null or dt_start <= %(tstamp)s) and
@@ -83,7 +83,7 @@ def main(conf):
                 logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
 
             update_params = {\
-                'qso_count': (row['qso_count'] if row['qso_count'] else 0) + qso_count,\
+                'qso_count': qso_count,\
                 'state': 0,\
                 'last_updated': datetime.now().strftime("%Y-%m-%d")}
 

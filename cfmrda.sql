@@ -250,7 +250,7 @@ ALTER FUNCTION public.build_rankings() OWNER TO postgres;
 -- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) RETURNS character varying
+CREATE FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) RETURNS record
     LANGUAGE plpgsql
     AS $$
 declare 
@@ -269,6 +269,7 @@ begin
   then
     raise 'cfmrda_db_error:Мода SSB некорректна на диапазоне 10MHz';
   end if;
+  /*check and replace obsolete callsign */
   select old_callsigns.new into new_callsign
     from old_callsigns 
     where old_callsigns.old = _callsign and confirmed;
@@ -276,6 +277,14 @@ begin
   then  
     new_callsign = str_callsign;
   end if;
+  /*check and replace obsolete rda*/
+  select old_rda.new into new_rda
+    from old_rda 
+    where old_rda.old = _rda;
+  if not found
+  then  
+    new_rda = _rda;
+  end if;  
   if exists (select from qso where qso.callsign = _callsign and qso.station_callsign = _station_callsign 
     and qso.rda = _rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
   then
@@ -286,7 +295,7 @@ begin
  end$$;
 
 
-ALTER FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) OWNER TO postgres;
+ALTER FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) OWNER TO postgres;
 
 --
 -- Name: hunters_rdas(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -400,7 +409,13 @@ begin
       (dt_stop is null or dt_stop >= new.dt_stop))
   then
     return null;
-  end if;      
+  end if;  
+  /*check and replace obsolete rda*/
+  if exists (select from old_rda where old_rda.old = new.rda)
+  then  
+    select old_rda.new from old_rda where old_rda.old = new.rda
+      into new.rda;
+  end if;     
   if (new.source = 'QRZ.ru')
   then
     update callsigns_rda 
@@ -529,8 +544,8 @@ CREATE FUNCTION tf_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
-  select new_callsign from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
-    into new.callsign;
+  select * from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
+    into new.callsign, new.rda;
   return new;
  end$$;
 
@@ -770,6 +785,18 @@ CREATE TABLE old_callsigns (
 
 
 ALTER TABLE old_callsigns OWNER TO postgres;
+
+--
+-- Name: old_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE old_rda (
+    old character varying(5) NOT NULL,
+    new character varying(5) NOT NULL
+);
+
+
+ALTER TABLE old_rda OWNER TO postgres;
 
 --
 -- Name: qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -1024,6 +1051,14 @@ ALTER TABLE ONLY list_rda
 
 ALTER TABLE ONLY old_callsigns
     ADD CONSTRAINT old_callsigns_pkey PRIMARY KEY (old, new);
+
+
+--
+-- Name: old_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY old_rda
+    ADD CONSTRAINT old_rda_pkey PRIMARY KEY (old);
 
 
 --
@@ -1409,11 +1444,11 @@ GRANT ALL ON SCHEMA public TO PUBLIC;
 -- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) FROM PUBLIC;
-REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) FROM postgres;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO postgres;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO PUBLIC;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO "www-group";
+REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) FROM PUBLIC;
+REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) FROM postgres;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO postgres;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO PUBLIC;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO "www-group";
 
 
 --
@@ -1598,6 +1633,16 @@ REVOKE ALL ON TABLE old_callsigns FROM PUBLIC;
 REVOKE ALL ON TABLE old_callsigns FROM postgres;
 GRANT ALL ON TABLE old_callsigns TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE old_callsigns TO "www-group";
+
+
+--
+-- Name: old_rda; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE old_rda FROM PUBLIC;
+REVOKE ALL ON TABLE old_rda FROM postgres;
+GRANT ALL ON TABLE old_rda TO postgres;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE old_rda TO "www-group";
 
 
 --
