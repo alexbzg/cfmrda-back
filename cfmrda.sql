@@ -284,7 +284,14 @@ begin
   if not found
   then  
     new_rda = _rda;
-  end if;  
+  elsif new_rda is null
+  then
+    raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
+  end if;
+  if not exists (select from rda where rda = _rda)
+  then  
+    raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
+  end if;
   if exists (select from qso where qso.callsign = _callsign and qso.station_callsign = _station_callsign 
     and qso.rda = _rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
   then
@@ -411,10 +418,14 @@ begin
     return null;
   end if;  
   /*check and replace obsolete rda*/
-  if exists (select from old_rda where old_rda.old = new.rda)
+  if exists (select from old_rda where old_rda.old = new.rda and old_rda.new is not null)
   then  
     select old_rda.new from old_rda where old_rda.old = new.rda
       into new.rda;
+  end if;  
+  if not exists (select from rda where rda = new.rda)
+  then  
+    raise 'cfmrda_db_error:Некорректный район RDA (%)', new.rda;    
   end if;     
   if (new.source = 'QRZ.ru')
   then
@@ -792,7 +803,7 @@ ALTER TABLE old_callsigns OWNER TO postgres;
 
 CREATE TABLE old_rda (
     old character varying(5) NOT NULL,
-    new character varying(5) NOT NULL
+    new character varying(5)
 );
 
 
@@ -855,6 +866,17 @@ CREATE TABLE rankings (
 
 
 ALTER TABLE rankings OWNER TO postgres;
+
+--
+-- Name: rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE rda (
+    rda character(5) NOT NULL
+);
+
+
+ALTER TABLE rda OWNER TO postgres;
 
 --
 -- Name: rda_activator; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -1099,6 +1121,14 @@ ALTER TABLE ONLY rda_activator
 
 ALTER TABLE ONLY rda_hunter
     ADD CONSTRAINT rda_hunter_uq UNIQUE (hunter, rda, band, mode);
+
+
+--
+-- Name: rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY rda
+    ADD CONSTRAINT rda_pkey PRIMARY KEY (rda);
 
 
 --
@@ -1673,6 +1703,16 @@ REVOKE ALL ON TABLE rankings FROM PUBLIC;
 REVOKE ALL ON TABLE rankings FROM postgres;
 GRANT ALL ON TABLE rankings TO postgres;
 GRANT SELECT,INSERT,DELETE,TRIGGER ON TABLE rankings TO "www-group";
+
+
+--
+-- Name: rda; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE rda FROM PUBLIC;
+REVOKE ALL ON TABLE rda FROM postgres;
+GRANT ALL ON TABLE rda TO postgres;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE rda TO "www-group";
 
 
 --
