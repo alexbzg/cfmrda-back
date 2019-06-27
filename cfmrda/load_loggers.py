@@ -33,54 +33,59 @@ def main(conf):
     for row in loggers:
         logger = ExtLogger(row['logger'])
         update_params = {}
-        adif = None
+        adifs = None
         try:
-            adif = logger.load(row['login_data']).upper()
+            adifs = logger.load(row['login_data'])
             logging.debug(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
         except Exception:
             logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
             update_params['state'] = 1
-        if adif:
 
-            qso_count = adif.count('<EOR>')
-            parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True)
-            date_start, date_end = None, None
-            sql_rda = """
-                select distinct rda 
-                from callsigns_rda
-                where callsign = %(callsign)s and rda <> '***' and 
-                    (dt_start is null or dt_start <= %(tstamp)s) and
-                    (dt_stop is null or dt_stop >= %(tstamp)s)
-            """
-            qsos = []
+        if adifs:
 
-            with (yield from _db.pool.cursor()) as cur:
-                for qso in parsed['qso']:
-                    yield from exec_cur(cur, sql_rda, qso)
-                    if cur.rowcount == 1:
-                        qso['rda'] = (yield from cur.fetchone())[0]
-                        qso['callsign'], qso['station_callsign'] = \
-                            qso['station_callsign'], qso['callsign']
-                        if not date_start or date_start > qso['tstamp']:
-                            date_start = qso['tstamp']
-                        if not date_end or date_end < qso['tstamp']:
-                            date_end = qso['tstamp']
-                        qsos.append(qso)
+            qso_count = 0
 
-            if qsos:
-                logging.debug(str(len(qsos)) + ' rda qso found.')
-                file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
+            for adif in adifs:
+                adif = adif.upper()
+                qso_count += adif.count('<EOR>')
+                parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True)
+                date_start, date_end = None, None
+                sql_rda = """
+                    select distinct rda 
+                    from callsigns_rda
+                    where callsign = %(callsign)s and rda <> '***' and 
+                        (dt_start is null or dt_start <= %(tstamp)s) and
+                        (dt_stop is null or dt_stop >= %(tstamp)s)
+                """
+                qsos = []
 
-                db_res = yield from _db.create_upload(\
-                    callsign=row['callsign'],\
-                    upload_type=row['logger'],\
-                    date_start=date_start,\
-                    date_end=date_end,\
-                    file_hash=file_hash,\
-                    activators=set([]),
-                    qsos=qsos)
+                with (yield from _db.pool.cursor()) as cur:
+                    for qso in parsed['qso']:
+                        yield from exec_cur(cur, sql_rda, qso)
+                        if cur.rowcount == 1:
+                            qso['rda'] = (yield from cur.fetchone())[0]
+                            qso['callsign'], qso['station_callsign'] = \
+                                qso['station_callsign'], qso['callsign']
+                            if not date_start or date_start > qso['tstamp']:
+                                date_start = qso['tstamp']
+                            if not date_end or date_end < qso['tstamp']:
+                                date_end = qso['tstamp']
+                            qsos.append(qso)
 
-                logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
+                if qsos:
+                    logging.debug(str(len(qsos)) + ' rda qso found.')
+                    file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
+
+                    db_res = yield from _db.create_upload(\
+                        callsign=row['callsign'],\
+                        upload_type=row['logger'],\
+                        date_start=date_start,\
+                        date_end=date_end,\
+                        file_hash=file_hash,\
+                        activators=set([]),
+                        qsos=qsos)
+
+                    logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
 
             update_params = {\
                 'qso_count': qso_count,\

@@ -722,13 +722,14 @@ class CfmRdaServer():
                 where callsign = %(callsign)s""", {'callsign': callsign}, True)
             if not rsp:
                 rsp = []
-            for (logger, params) in ExtLogger.types.items():
+            for logger in ExtLogger.types.keys():
                 if not [x for x in rsp if x['logger'] == logger]:
-                    rsp.append({'logger': logger,\
-                            'loginData': params['loginData'] if 'loginData' in params\
-                                else ExtLogger.default_login_data})
+                    rsp.append({'logger': logger})
             for item in rsp:
                 logger_params = ExtLogger.types[item['logger']]
+                item['loginDataFields'] = logger_params['loginDataFields']\
+                        if 'loginDataFields' in logger_params\
+                        else ExtLogger.default_login_data_fields
                 item['schema'] = logger_params['schema'] if 'schema' in logger_params\
                     else 'extLoggersLoginDefault'
                 if 'state' in item and item['state'] is not None:
