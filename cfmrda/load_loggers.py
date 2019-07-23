@@ -21,11 +21,11 @@ def main(conf):
     yield from _db.connect()
 
     loggers = yield from _db.execute("""
-        select callsign, logger, login_data, qso_count, 
+        select id, callsign, logger, login_data, qso_count, 
             to_char(last_updated, 'YYYY-MM-DD') as last_updated
         from ext_loggers
         where state = 0 and 
-            (last_updated is null or last_updated < now() - interval '30 days')
+            (last_updated is null or last_updated < now() - interval '14 days')
         """, None, True)
     if not loggers:
         logging.debug('No updates are due today.')
@@ -92,7 +92,7 @@ def main(conf):
                 'state': 0,\
                 'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
-        yield from _db.param_update('ext_loggers', splice_params(row, ('logger', 'callsign')),\
+        yield from _db.param_update('ext_loggers', splice_params(row, ('id')),\
             update_params)
         logging.debug('logger data updated')
 

@@ -695,36 +695,47 @@ class CfmRdaServer():
             except (requests.exceptions.HTTPError, ExtLoggerException) as ext:
                 logging.exception(ext)
             params = splice_params(data['update'],\
-                ['callsign', 'logger', 'loginData'])
+                ['callsign', 'logger', 'loginData', 'id'])
             params['state'] = 0 if login_check else 1
             params['callsign'] = callsign
-            if (yield from self._db.execute("""\
-                update ext_loggers 
-                    set login_data = %(loginData)s, state = %(state)s
-                    where callsign = %(callsign)s and logger = %(logger)s;
-                insert into ext_loggers (callsign, logger, login_data, state)
+            sql = ""
+            _id = None
+            if 'id' in params and params['id']:
+                sql = """update ext_loggers 
+                    set login_data = %(loginData)s, state = %(state)s, logger = %(logger)s 
+                    where id = %(id)s;"""
+                _id = params['id']
+            else:
+                sql = """insert into ext_loggers (callsign, logger, login_data, state)
                     select %(callsign)s, %(logger)s, %(loginData)s, %(state)s
-                        where not exists 
-                            (select from ext_loggers
-                                where callsign = %(callsign)s and 
-                                    logger = %(logger)s)""", params)):
-                return web.json_response(params['state'])
+                    returning id"""
+            db_res = yield from self._db.execute(sql, params)
+            if db_res:
+                if not _id:
+                    _id = db_res
+                return web.json_response({'state': params['state'], 'id': _id})
+            else:
+                return CfmRdaServer.response_error_default()
+        elif 'delete' in data:
+            db_res = yield from self._db.execute("""delete from ext_loggers
+                where id = %(id)s and callsign = %(callsign)s
+                returning id""", {'id': data['delete'], 'callsign': callsign})
+            if db_res and db_res == data['delete']:
+                return CfmRdaServer.response_ok()
             else:
                 return CfmRdaServer.response_error_default()
         else:
             rsp = yield from self._db.execute("""
-                select json_build_object('logger', logger, 
+                select json_build_object('id', id,
+                    'logger', logger, 
                     'loginData', login_data, 
                     'state', state,
                     'lastUpdated', to_char(last_updated, 'YYYY-MM-DD'), 
                     'qsoCount', qso_count)
                 from ext_loggers
-                where callsign = %(callsign)s""", {'callsign': callsign}, True)
+                    where callsign = %(callsign)s""", {'callsign': callsign}, True)
             if not rsp:
                 rsp = []
-            for logger in ExtLogger.types.keys():
-                if not [x for x in rsp if x['logger'] == logger]:
-                    rsp.append({'logger': logger})
             for item in rsp:
                 logger_params = ExtLogger.types[item['logger']]
                 item['loginDataFields'] = logger_params['loginDataFields']\

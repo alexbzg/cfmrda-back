@@ -745,11 +745,33 @@ CREATE TABLE ext_loggers (
     login_data json,
     state integer,
     qso_count integer,
-    last_updated date
+    last_updated date,
+    id integer NOT NULL
 );
 
 
 ALTER TABLE ext_loggers OWNER TO postgres;
+
+--
+-- Name: ext_loggers_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE ext_loggers_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE ext_loggers_id_seq OWNER TO postgres;
+
+--
+-- Name: ext_loggers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE ext_loggers_id_seq OWNED BY ext_loggers.id;
+
 
 --
 -- Name: list_bands; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -985,6 +1007,13 @@ ALTER TABLE ONLY cfm_request_qso ALTER COLUMN id SET DEFAULT nextval('cfm_reques
 -- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
+ALTER TABLE ONLY ext_loggers ALTER COLUMN id SET DEFAULT nextval('ext_loggers_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
 ALTER TABLE ONLY qso ALTER COLUMN id SET DEFAULT nextval('qso_id_seq'::regclass);
 
 
@@ -1040,7 +1069,7 @@ ALTER TABLE ONLY cfm_request_qso
 --
 
 ALTER TABLE ONLY ext_loggers
-    ADD CONSTRAINT ext_loggers_pkey PRIMARY KEY (callsign, logger);
+    ADD CONSTRAINT ext_loggers_pkey PRIMARY KEY (id);
 
 
 --
@@ -1623,6 +1652,16 @@ REVOKE ALL ON TABLE ext_loggers FROM PUBLIC;
 REVOKE ALL ON TABLE ext_loggers FROM postgres;
 GRANT ALL ON TABLE ext_loggers TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE ext_loggers TO "www-group";
+
+
+--
+-- Name: ext_loggers_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON SEQUENCE ext_loggers_id_seq FROM PUBLIC;
+REVOKE ALL ON SEQUENCE ext_loggers_id_seq FROM postgres;
+GRANT ALL ON SEQUENCE ext_loggers_id_seq TO postgres;
+GRANT ALL ON SEQUENCE ext_loggers_id_seq TO "www-group";
 
 
 --
