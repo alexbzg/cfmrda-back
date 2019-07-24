@@ -105,7 +105,8 @@ class ADIFParseException(Exception):
     """
     pass
 
-def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activator=False):
+def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activator=False,\
+    strip_callsign_flag=True):
     """parse adif data"""
     adif = adif.upper().replace('\r', '').replace('\n', '')
     data = {'qso': [], 'date_start': None, 'date_end': None,\
@@ -136,7 +137,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activato
                 append_error('Поле не найдено или некорректно (BAND)')
                 continue
 
-            if qso['callsign']:
+            if qso['callsign'] and strip_callsign_flag:
                 qso['callsign'] = strip_callsign(qso['callsign'])
             if not qso['callsign']:
                 append_error('Поле не найдено или некорректно (CALLSIGN)')

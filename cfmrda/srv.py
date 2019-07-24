@@ -679,6 +679,9 @@ class CfmRdaServer():
         return CfmRdaServer.response_ok()
 
     @asyncio.coroutine
+    def _ext_loggers_update(self, callsign, update)
+
+    @asyncio.coroutine
     def ext_loggers_hndlr(self, callsign, data):
         if 'update' in data:
             logger_type = data['update']['logger']

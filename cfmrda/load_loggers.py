@@ -48,7 +48,7 @@ def main(conf):
             for adif in adifs:
                 adif = adif.upper()
                 qso_count += adif.count('<EOR>')
-                parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True)
+                parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True, strip_callsign_flag=False)
                 date_start, date_end = None, None
                 sql_rda = """
                     select distinct rda 

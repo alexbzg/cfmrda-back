@@ -272,7 +272,7 @@ begin
   /*check and replace obsolete callsign */
   select old_callsigns.new into new_callsign
     from old_callsigns 
-    where old_callsigns.old = _callsign and confirmed;
+    where old_callsigns.old = str_callsign and confirmed;
   if not found
   then  
     new_callsign = str_callsign;
@@ -287,12 +287,8 @@ begin
   elsif new_rda is null
   then
     raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
-  end if;
-  if not exists (select from rda where rda = _rda)
-  then  
-    raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
-  end if;
-  if exists (select from qso where qso.callsign = _callsign and qso.station_callsign = _station_callsign 
+  end if;  
+  if exists (select from qso where qso.callsign = str_callsign and qso.station_callsign = _station_callsign 
     and qso.rda = _rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
   then
       raise exception using
@@ -554,9 +550,16 @@ ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
 CREATE FUNCTION tf_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
+declare 
+  new_callsign character varying(32);
 begin
   select * from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
-    into new.callsign, new.rda;
+    into new_callsign, new.rda;
+  if new_callsign <> strip_callsign(new.callsign)
+  then
+    new.old_callsign = strip_callsign(new.callsign);
+    new.callsign = new_callsign;
+  end if;
   return new;
  end$$;
 
