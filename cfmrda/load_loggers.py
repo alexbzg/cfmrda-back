@@ -43,12 +43,19 @@ def main(conf):
 
         if adifs:
 
+            prev_uploads = yield from _db.execute("""
+                select id from uploads where ext_logger_id = %(id)s""", row)
+            if prev_uploads:
+                for upload_id in prev_uploads:
+                    yield from _db.remove_upload(upload_id)
+
             qso_count = 0
 
             for adif in adifs:
                 adif = adif.upper()
                 qso_count += adif.count('<EOR>')
-                parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True, strip_callsign_flag=False)
+                parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True,\
+                    strip_callsign_flag=False)
                 date_start, date_end = None, None
                 sql_rda = """
                     select distinct rda 

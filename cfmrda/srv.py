@@ -679,54 +679,67 @@ class CfmRdaServer():
         return CfmRdaServer.response_ok()
 
     @asyncio.coroutine
-    def _ext_loggers_update(self, callsign, update)
+    def _ext_loggers_update(self, callsign, update):
+        """stores ext_logger record in db
+        update parameter format:
+        {id (null or absent if new record), logger, loginData}
+        response format:
+        {id, state: 0 if login was succefull else 1} if success else 
+        statndard error response
+        """
+        logger_type = update['logger']
+        logger_params = ExtLogger.types[logger_type]
+        schema = logger_params['schema'] if 'schema' in logger_params\
+            else 'extLoggersLoginDefault'
+        if not self._json_validator.validate(schema, update['loginData']):
+            return CfmRdaServer.response_error_default()
+        logger = ExtLogger(update['logger'])
+        login_check = False
+        try:
+            logger.login(update['loginData'])
+            login_check = True
+        except (requests.exceptions.HTTPError, ExtLoggerException) as ext:
+            logging.exception(ext)
+        params = splice_params(update,\
+            ['logger', 'loginData', 'id'])
+        params['state'] = 0 if login_check else 1
+        params['callsign'] = callsign
+        sql = ""
+        _id = None
+        if 'id' in params and params['id']:
+            sql = """update ext_loggers 
+                set login_data = %(loginData)s, state = %(state)s, logger = %(logger)s 
+                where id = %(id)s and callsign=%(callsign)s;"""
+            _id = params['id']
+        else:
+            sql = """insert into ext_loggers (callsign, logger, login_data, state)
+                select %(callsign)s, %(logger)s, %(loginData)s, %(state)s
+                returning id"""
+        db_res = yield from self._db.execute(sql, params)
+        if db_res:
+            if not _id:
+                _id = db_res
+            return web.json_response({'state': params['state'], 'id': _id})
+        else:
+            return CfmRdaServer.response_error_default()
+
+    @asyncio.coroutine
+    def _ext_loggers_delete(self, callsign, delete):
+        """deletes ext_logger record from db return standard ok/error responses"""
+        db_res = yield from self._db.execute("""delete from ext_loggers
+            where id = %(id)s and callsign = %(callsign)s
+            returning id""", {'id': delete, 'callsign': callsign})
+        if db_res and db_res == delete:
+            return CfmRdaServer.response_ok()
+        else:
+            return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
     def ext_loggers_hndlr(self, callsign, data):
         if 'update' in data:
-            logger_type = data['update']['logger']
-            logger_params = ExtLogger.types[logger_type]
-            schema = logger_params['schema'] if 'schema' in logger_params\
-                else 'extLoggersLoginDefault'
-            if not self._json_validator.validate(schema, data['update']['loginData']):
-                return CfmRdaServer.response_error_default()
-            logger = ExtLogger(data['update']['logger'])
-            login_check = False
-            try:
-                logger.login(data['update']['loginData'])
-                login_check = True
-            except (requests.exceptions.HTTPError, ExtLoggerException) as ext:
-                logging.exception(ext)
-            params = splice_params(data['update'],\
-                ['callsign', 'logger', 'loginData', 'id'])
-            params['state'] = 0 if login_check else 1
-            params['callsign'] = callsign
-            sql = ""
-            _id = None
-            if 'id' in params and params['id']:
-                sql = """update ext_loggers 
-                    set login_data = %(loginData)s, state = %(state)s, logger = %(logger)s 
-                    where id = %(id)s;"""
-                _id = params['id']
-            else:
-                sql = """insert into ext_loggers (callsign, logger, login_data, state)
-                    select %(callsign)s, %(logger)s, %(loginData)s, %(state)s
-                    returning id"""
-            db_res = yield from self._db.execute(sql, params)
-            if db_res:
-                if not _id:
-                    _id = db_res
-                return web.json_response({'state': params['state'], 'id': _id})
-            else:
-                return CfmRdaServer.response_error_default()
+            return (yield from self._ext_loggers_update(callsign, data['update']))
         elif 'delete' in data:
-            db_res = yield from self._db.execute("""delete from ext_loggers
-                where id = %(id)s and callsign = %(callsign)s
-                returning id""", {'id': data['delete'], 'callsign': callsign})
-            if db_res and db_res == data['delete']:
-                return CfmRdaServer.response_ok()
-            else:
-                return CfmRdaServer.response_error_default()
+            return (yield from self._ext_loggers_delete(callsign, data['delete']))
         else:
             rsp = yield from self._db.execute("""
                 select json_build_object('id', id,
