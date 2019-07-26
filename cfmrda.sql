@@ -944,7 +944,8 @@ CREATE TABLE uploads (
     date_end date NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
     hash character varying(64) DEFAULT ''::character varying NOT NULL,
-    upload_type character varying(32) DEFAULT 'adif'::character varying
+    upload_type character varying(32) DEFAULT 'adif'::character varying,
+    ext_logger_id integer
 );
 
 
@@ -1237,6 +1238,13 @@ CREATE INDEX cfm_request_qso_user_cs_idx ON cfm_request_qso USING btree (user_cs
 
 
 --
+-- Name: fki_uploads_ext_loggers_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX fki_uploads_ext_loggers_fkey ON uploads USING btree (ext_logger_id);
+
+
+--
 -- Name: old_callsigns_confirmed_new_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1490,6 +1498,14 @@ ALTER TABLE ONLY ext_loggers
 
 ALTER TABLE ONLY qso
     ADD CONSTRAINT qso_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES uploads(id);
+
+
+--
+-- Name: uploads_ext_loggers_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY uploads
+    ADD CONSTRAINT uploads_ext_loggers_fkey FOREIGN KEY (ext_logger_id) REFERENCES ext_loggers(id);
 
 
 --

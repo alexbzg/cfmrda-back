@@ -754,11 +754,13 @@ def test_ext_loggers():
     rsp = request()
     assert rsp.status_code == 200
     data = json.loads(rsp.text)
-    assert data[0]
-    assert data[0]['logger'] == 'LoTW'
-    assert data[0]['loginData']
+    assert data
+    assert 'loggers' in data
+    assert 'accounts' in data
+    assert data['accounts'][0]['logger'] == 'LoTW'
+    assert data['accounts'][0]['loginData']
     for k in update['loginData']:
-        assert data[0]['loginData'][k] == update['loginData'][k]
+        assert data['accounts'][0]['loginData'][k] == update['loginData'][k]
     
     logging.debug('ext_loggers update bad login')
     update['loginData']['password'] += '_'

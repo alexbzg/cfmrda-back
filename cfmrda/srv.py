@@ -182,7 +182,7 @@ class CfmRdaServer():
                         return CfmRdaServer.response_ok()
                     else:
                         return CfmRdaServer.response_error_default()
-                else:                        
+                else:
                     qso = yield from self._db.execute("""
                         select json_build_object(
                         'id', id,
@@ -608,7 +608,7 @@ class CfmRdaServer():
                     where upload_id = %(id)s) as qsos
                 """, data, False)
             upload_data['delBy'] = callsign
-               
+
             if not (yield from self._db.execute("""
                 delete from qso where upload_id = %(id)s
                 """, data)):
@@ -684,7 +684,7 @@ class CfmRdaServer():
         update parameter format:
         {id (null or absent if new record), logger, loginData}
         response format:
-        {id, state: 0 if login was succefull else 1} if success else 
+        {id, state: 0 if login was succefull else 1} if success else
         statndard error response
         """
         logger_type = update['logger']
@@ -707,7 +707,7 @@ class CfmRdaServer():
         sql = ""
         _id = None
         if 'id' in params and params['id']:
-            sql = """update ext_loggers 
+            sql = """update ext_loggers
                 set login_data = %(loginData)s, state = %(state)s, logger = %(logger)s 
                 where id = %(id)s and callsign=%(callsign)s;"""
             _id = params['id']
@@ -736,12 +736,32 @@ class CfmRdaServer():
 
     @asyncio.coroutine
     def ext_loggers_hndlr(self, callsign, data):
+        """handles loggers request
+        when data has no fields 'update' or 'delete'
+        returns
+        {'loggers': dict with supported loggers
+            {logger-name: {'loginDataFields': [list of fields in login request
+                to logger],
+                'schema': name of valdation schema for login data
+            }},
+            'accounts': array of user's logger accounts
+            [{'id', 'logger', 'loginData', 'state', 'lastUpdated', 'qsoCount'}]
+            }
+        """
         if 'update' in data:
             return (yield from self._ext_loggers_update(callsign, data['update']))
         elif 'delete' in data:
             return (yield from self._ext_loggers_delete(callsign, data['delete']))
         else:
-            rsp = yield from self._db.execute("""
+            loggers = {}
+            for (name, tmplt) in ExtLogger.types.items():
+                logger = dict(tmplt)
+                if 'loginDataFields' not in logger:
+                    logger['loginDataFields'] = ExtLogger.default_login_data_fields
+                if 'schema' not in logger:
+                    logger['schema'] = 'extLoggersLoginDefault'
+                loggers[name] = logger
+            accounts = yield from self._db.execute("""
                 select json_build_object('id', id,
                     'logger', logger, 
                     'loginData', login_data, 
@@ -750,19 +770,10 @@ class CfmRdaServer():
                     'qsoCount', qso_count)
                 from ext_loggers
                     where callsign = %(callsign)s""", {'callsign': callsign}, True)
-            if not rsp:
-                rsp = []
-            for item in rsp:
-                logger_params = ExtLogger.types[item['logger']]
-                item['loginDataFields'] = logger_params['loginDataFields']\
-                        if 'loginDataFields' in logger_params\
-                        else ExtLogger.default_login_data_fields
-                item['schema'] = logger_params['schema'] if 'schema' in logger_params\
-                    else 'extLoggersLoginDefault'
-                if 'state' in item and item['state'] is not None:
-                    item['stateDesc'] = ExtLogger.states[item['state']]
+            if not accounts:
+                accounts = []
 
-            return web.json_response(rsp)    
+            return web.json_response({'loggers': loggers, 'accounts': accounts})
 
     @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
@@ -797,7 +808,7 @@ class CfmRdaServer():
                             %(source)s, %(rda)s, %(comment)s)""", data['new'])
                 if not db_rslt:
                     return CfmRdaServer.response_error_default()
-        
+
         else:
             if 'callsign' in data:
                 search = {'base': strip_callsign(data['callsign']),\
@@ -828,7 +839,6 @@ class CfmRdaServer():
             """, data, True)
         return web.json_response(rsp)
 
-            
     def _require_callsign(self, data, require_admin=False):
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
@@ -1105,7 +1115,7 @@ support@cfmrda.ru"""
                     where_cond.append('date(tstamp) = %(date)s')
                     params['date'] = data['search']['uploadDate']
             if qso_where_cond:
-                where_cond.append("""id in 
+                where_cond.append("""id in
                     (select upload_id
                     from qso
                     where """ + ' and '.join(qso_where_cond) + ')')
@@ -1218,7 +1228,7 @@ support@cfmrda.ru"""
             val = request.match_info.get(param, params[param])
             if val:
                 params[param] = val
-        cond_tmplt = """role = ''{role}'' and mode = ''{mode}'' and 
+        cond_tmplt = """role = ''{role}'' and mode = ''{mode}'' and
             band = ''{band}'' and _row >= {from} and _row <= {to}"""
         condition = cond_tmplt.format_map(params)
         rankings = yield from self._db.execute("select rankings_json('" +\
