@@ -30,7 +30,7 @@ def main(conf):
     if not loggers:
         logging.debug('No updates are due today.')
         return
-    for row in loggers:
+    for row in loggers.values():
         logger = ExtLogger(row['logger'])
         update_params = {}
         adifs = None
@@ -44,7 +44,7 @@ def main(conf):
         if adifs:
 
             prev_uploads = yield from _db.execute("""
-                select id from uploads where ext_logger_id = %(id)s""", row)
+                select id from uploads where ext_logger_id = %(id)s""", row, True)
             if prev_uploads:
                 for upload_id in prev_uploads:
                     yield from _db.remove_upload(upload_id)
@@ -90,6 +90,7 @@ def main(conf):
                         date_end=date_end,\
                         file_hash=file_hash,\
                         activators=set([]),
+                        ext_logger_id=row['id'],
                         qsos=qsos)
 
                     logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
@@ -99,7 +100,7 @@ def main(conf):
                 'state': 0,\
                 'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
-        yield from _db.param_update('ext_loggers', splice_params(row, ('id')),\
+        yield from _db.param_update('ext_loggers', splice_params(row, ('id',)),\
             update_params)
         logging.debug('logger data updated')
 

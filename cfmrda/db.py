@@ -203,7 +203,7 @@ class DBConn:
 
     @asyncio.coroutine
     def create_upload(self, callsign=None, date_start=None, date_end=None,\
-        file_hash=None, upload_type='adif', activators=None, qsos=None, ext_loggers_id=None):
+        file_hash=None, upload_type='adif', activators=None, qsos=None, ext_logger_id=None):
 
         res = {'message': 'Ошибка загрузки',\
                'qso': {'ok': 0, 'error': 0, 'errors': {}}
@@ -227,15 +227,15 @@ class DBConn:
                     'date_end': date_end,\
                     'hash': file_hash,\
                     'upload_type': upload_type,\
-                    'ext_loggers_id': ext_loggers_id}
+                    'ext_logger_id': ext_logger_id}
 
                 upl_res = yield from exec_cur(cur, """
                     insert into uploads
                         (user_cs, date_start, date_end, hash,
-                        upload_type, ext_loggers_id)
+                        upload_type, ext_logger_id)
                     values (%(callsign)s, 
                         %(date_start)s, %(date_end)s, %(hash)s,
-                        %(upload_type)s, %(ext_loggers_id)s)
+                        %(upload_type)s, %(ext_logger_id)s)
                     returning id""", upl_params)
                 if not upl_res or not cur.rowcount:
                     logging.error('upload create failed! Params:')
