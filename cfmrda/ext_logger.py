@@ -17,6 +17,10 @@ class ExtLogger():
             'HAMLOG': {\
                 'loginDataFields': ['email', 'password'],\
                 'schema': 'extLoggersLoginHamLOG'\
+                },\
+            'eQSL': {\
+                 'loginDataFields': ['Callsign', 'EnteredPassword'],\
+                 'schema': 'extLoggersLoginEQSL'\
                 }\
             }
 
@@ -42,10 +46,21 @@ class ExtLogger():
             rsp.raise_for_status()
             if 'Username/password incorrect' in rsp.text:
                 raise ExtLoggerException("Login failed.")
+
         elif self.type == 'HAMLOG':
             rsp = ssn.post('https://hamlog.ru/lk/login.php', data=data)
             rsp.raise_for_status()
             if 'Ошибка! Неверный адрес и/или пароль' in rsp.text:
+                raise ExtLoggerException("Login failed.")
+
+        elif self.type == 'eQSL':
+            data.update({\
+                'Login': 'Go'\
+            })
+
+            rsp = ssn.post('https://www.eqsl.cc/QSLCard/LoginFinish.cfm', data=data)
+            rsp.raise_for_status()
+            if 'Callsign or Password Error!' in rsp.text:
                 raise ExtLoggerException("Login failed.")
 
         return ssn
