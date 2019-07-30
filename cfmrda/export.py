@@ -37,7 +37,8 @@ def export_recent_uploads(conf):
     yield from _db.connect()
 
     data = yield from _db.execute("""
-        select json_agg(json_build_object('activators', activators,
+        select json_agg(json_build_object(
+            'activators', activators,
             'rda', rda,
             'uploadDate', to_char(max_tstamp, 'DD mon YYYY'),
             'uploadTime', to_char(max_tstamp, 'HH24:MI'),
@@ -47,7 +48,8 @@ def export_recent_uploads(conf):
         (select  user_cs as uploader, upload_type,
                 max(tstamp) as max_tstamp,
                 array_agg(id) as ids
-            from uploads            
+            from uploads 
+            where ext_logger_id is null
             group by date(tstamp), user_cs, upload_type
             order by max_tstamp desc
             limit 20) as ru,

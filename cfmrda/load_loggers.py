@@ -21,73 +21,86 @@ def main(conf):
     yield from _db.connect()
 
     loggers = yield from _db.execute("""
-        select callsign, logger, login_data, qso_count, 
+        select id, callsign, logger, login_data, qso_count, 
             to_char(last_updated, 'YYYY-MM-DD') as last_updated
         from ext_loggers
         where state = 0 and 
-            (last_updated is null or last_updated < now() - interval '30 days')
+            (last_updated is null or last_updated < now() - interval '14 days')
         """, None, True)
     if not loggers:
         logging.debug('No updates are due today.')
         return
-    for row in loggers:
+    for row in loggers.values():
         logger = ExtLogger(row['logger'])
         update_params = {}
-        adif = None
+        adifs = None
         try:
-            adif = logger.load(row['login_data'], date_from=row['last_updated']).upper()
+            adifs = logger.load(row['login_data'])
             logging.debug(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
         except Exception:
             logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
             update_params['state'] = 1
-        if adif:
 
-            qso_count = adif.count('<EOR>')
-            parsed = load_adif(adif, 'STATION_CALLSIGN')
-            date_start, date_end = None, None
-            sql_rda = """
-                select rda 
-                from callsigns_rda
-                where callsign = %(callsign)s and
-                    (dt_start is null or dt_start <= %(tstamp)s) and
-                    (dt_stop is null or dt_stop >= %(tstamp)s)
-            """
-            qsos = []
+        if adifs:
 
-            with (yield from _db.pool.cursor()) as cur:
-                for qso in parsed['qso']:
-                    yield from exec_cur(cur, sql_rda, qso)
-                    if cur.rowcount == 1:
-                        qso['rda'] = (yield from cur.fetchone())[0]
-                        qso['callsign'], qso['station_callsign'] = \
-                            qso['station_callsign'], qso['callsign']
-                        if not date_start or date_start > qso['tstamp']:
-                            date_start = qso['tstamp']
-                        if not date_end or date_end < qso['tstamp']:
-                            date_end = qso['tstamp']
-                        qsos.append(qso)
+            prev_uploads = yield from _db.execute("""
+                select id from uploads where ext_logger_id = %(id)s""", row, True)
+            if prev_uploads:
+                for upload_id in prev_uploads:
+                    yield from _db.remove_upload(upload_id)
 
-            if qsos:
-                logging.debug(str(len(qsos)) + ' rda qso found.')
-                file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
+            qso_count = 0
 
-                db_res = yield from _db.create_upload(\
-                    callsign=row['callsign'],\
-                    upload_type=row['logger'],\
-                    date_start=date_start,\
-                    date_end=date_end,\
-                    file_hash=file_hash,\
-                    activators=set([]),
-                    qsos=qsos)
+            for adif in adifs:
+                adif = adif.upper()
+                qso_count += adif.count('<EOR>')
+                parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True,\
+                    strip_callsign_flag=False)
+                date_start, date_end = None, None
+                sql_rda = """
+                    select distinct rda 
+                    from callsigns_rda
+                    where callsign = %(callsign)s and rda <> '***' and 
+                        (dt_start is null or dt_start <= %(tstamp)s) and
+                        (dt_stop is null or dt_stop >= %(tstamp)s)
+                """
+                qsos = []
 
-                logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
+                with (yield from _db.pool.cursor()) as cur:
+                    for qso in parsed['qso']:
+                        yield from exec_cur(cur, sql_rda, qso)
+                        if cur.rowcount == 1:
+                            qso['rda'] = (yield from cur.fetchone())[0]
+                            qso['callsign'], qso['station_callsign'] = \
+                                qso['station_callsign'], qso['callsign']
+                            if not date_start or date_start > qso['tstamp']:
+                                date_start = qso['tstamp']
+                            if not date_end or date_end < qso['tstamp']:
+                                date_end = qso['tstamp']
+                            qsos.append(qso)
+
+                if qsos:
+                    logging.debug(str(len(qsos)) + ' rda qso found.')
+                    file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
+
+                    db_res = yield from _db.create_upload(\
+                        callsign=row['callsign'],\
+                        upload_type=row['logger'],\
+                        date_start=date_start,\
+                        date_end=date_end,\
+                        file_hash=file_hash,\
+                        activators=set([]),
+                        ext_logger_id=row['id'],
+                        qsos=qsos)
+
+                    logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
 
             update_params = {\
-                'qso_count': (row['qso_count'] if row['qso_count'] else 0) + qso_count,\
+                'qso_count': qso_count,\
                 'state': 0,\
                 'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
-        yield from _db.param_update('ext_loggers', splice_params(row, ('logger', 'callsign')),\
+        yield from _db.param_update('ext_loggers', splice_params(row, ('id',)),\
             update_params)
         logging.debug('logger data updated')
 

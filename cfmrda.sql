@@ -250,7 +250,7 @@ ALTER FUNCTION public.build_rankings() OWNER TO postgres;
 -- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) RETURNS character varying
+CREATE FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) RETURNS record
     LANGUAGE plpgsql
     AS $$
 declare 
@@ -269,14 +269,26 @@ begin
   then
     raise 'cfmrda_db_error:Мода SSB некорректна на диапазоне 10MHz';
   end if;
+  /*check and replace obsolete callsign */
   select old_callsigns.new into new_callsign
     from old_callsigns 
-    where old_callsigns.old = _callsign and confirmed;
+    where old_callsigns.old = str_callsign and confirmed;
   if not found
   then  
     new_callsign = str_callsign;
   end if;
-  if exists (select from qso where qso.callsign = _callsign and qso.station_callsign = _station_callsign 
+  /*check and replace obsolete rda*/
+  select old_rda.new into new_rda
+    from old_rda 
+    where old_rda.old = _rda;
+  if not found
+  then  
+    new_rda = _rda;
+  elsif new_rda is null
+  then
+    raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
+  end if;  
+  if exists (select from qso where qso.callsign = str_callsign and qso.station_callsign = _station_callsign 
     and qso.rda = _rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
   then
       raise exception using
@@ -286,7 +298,7 @@ begin
  end$$;
 
 
-ALTER FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) OWNER TO postgres;
+ALTER FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) OWNER TO postgres;
 
 --
 -- Name: hunters_rdas(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -400,7 +412,17 @@ begin
       (dt_stop is null or dt_stop >= new.dt_stop))
   then
     return null;
-  end if;      
+  end if;  
+  /*check and replace obsolete rda*/
+  if exists (select from old_rda where old_rda.old = new.rda and old_rda.new is not null)
+  then  
+    select old_rda.new from old_rda where old_rda.old = new.rda
+      into new.rda;
+  end if;  
+  if not exists (select from rda where rda = new.rda)
+  then  
+    raise 'cfmrda_db_error:Некорректный район RDA (%)', new.rda;    
+  end if;     
   if (new.source = 'QRZ.ru')
   then
     update callsigns_rda 
@@ -528,9 +550,16 @@ ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
 CREATE FUNCTION tf_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
+declare 
+  new_callsign character varying(32);
 begin
-  select new_callsign from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
-    into new.callsign;
+  select * from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
+    into new_callsign, new.rda;
+  if new_callsign <> strip_callsign(new.callsign)
+  then
+    new.old_callsign = strip_callsign(new.callsign);
+    new.callsign = new_callsign;
+  end if;
   return new;
  end$$;
 
@@ -719,11 +748,33 @@ CREATE TABLE ext_loggers (
     login_data json,
     state integer,
     qso_count integer,
-    last_updated date
+    last_updated date,
+    id integer NOT NULL
 );
 
 
 ALTER TABLE ext_loggers OWNER TO postgres;
+
+--
+-- Name: ext_loggers_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE ext_loggers_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE ext_loggers_id_seq OWNER TO postgres;
+
+--
+-- Name: ext_loggers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE ext_loggers_id_seq OWNED BY ext_loggers.id;
+
 
 --
 -- Name: list_bands; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -770,6 +821,18 @@ CREATE TABLE old_callsigns (
 
 
 ALTER TABLE old_callsigns OWNER TO postgres;
+
+--
+-- Name: old_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE old_rda (
+    old character varying(5) NOT NULL,
+    new character varying(5)
+);
+
+
+ALTER TABLE old_rda OWNER TO postgres;
 
 --
 -- Name: qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -830,6 +893,17 @@ CREATE TABLE rankings (
 ALTER TABLE rankings OWNER TO postgres;
 
 --
+-- Name: rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE rda (
+    rda character(5) NOT NULL
+);
+
+
+ALTER TABLE rda OWNER TO postgres;
+
+--
 -- Name: rda_activator; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -870,7 +944,8 @@ CREATE TABLE uploads (
     date_end date NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
     hash character varying(64) DEFAULT ''::character varying NOT NULL,
-    upload_type character varying(32) DEFAULT 'adif'::character varying
+    upload_type character varying(32) DEFAULT 'adif'::character varying,
+    ext_logger_id integer
 );
 
 
@@ -936,6 +1011,13 @@ ALTER TABLE ONLY cfm_request_qso ALTER COLUMN id SET DEFAULT nextval('cfm_reques
 -- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
+ALTER TABLE ONLY ext_loggers ALTER COLUMN id SET DEFAULT nextval('ext_loggers_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
 ALTER TABLE ONLY qso ALTER COLUMN id SET DEFAULT nextval('qso_id_seq'::regclass);
 
 
@@ -991,7 +1073,7 @@ ALTER TABLE ONLY cfm_request_qso
 --
 
 ALTER TABLE ONLY ext_loggers
-    ADD CONSTRAINT ext_loggers_pkey PRIMARY KEY (callsign, logger);
+    ADD CONSTRAINT ext_loggers_pkey PRIMARY KEY (id);
 
 
 --
@@ -1024,6 +1106,14 @@ ALTER TABLE ONLY list_rda
 
 ALTER TABLE ONLY old_callsigns
     ADD CONSTRAINT old_callsigns_pkey PRIMARY KEY (old, new);
+
+
+--
+-- Name: old_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY old_rda
+    ADD CONSTRAINT old_rda_pkey PRIMARY KEY (old);
 
 
 --
@@ -1064,6 +1154,14 @@ ALTER TABLE ONLY rda_activator
 
 ALTER TABLE ONLY rda_hunter
     ADD CONSTRAINT rda_hunter_uq UNIQUE (hunter, rda, band, mode);
+
+
+--
+-- Name: rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY rda
+    ADD CONSTRAINT rda_pkey PRIMARY KEY (rda);
 
 
 --
@@ -1137,6 +1235,13 @@ CREATE INDEX cfm_request_qso_sent_idx ON cfm_request_qso USING btree (sent);
 --
 
 CREATE INDEX cfm_request_qso_user_cs_idx ON cfm_request_qso USING btree (user_cs);
+
+
+--
+-- Name: fki_uploads_ext_loggers_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX fki_uploads_ext_loggers_fkey ON uploads USING btree (ext_logger_id);
 
 
 --
@@ -1396,6 +1501,14 @@ ALTER TABLE ONLY qso
 
 
 --
+-- Name: uploads_ext_loggers_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY uploads
+    ADD CONSTRAINT uploads_ext_loggers_fkey FOREIGN KEY (ext_logger_id) REFERENCES ext_loggers(id);
+
+
+--
 -- Name: public; Type: ACL; Schema: -; Owner: postgres
 --
 
@@ -1409,11 +1522,11 @@ GRANT ALL ON SCHEMA public TO PUBLIC;
 -- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) FROM PUBLIC;
-REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) FROM postgres;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO postgres;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO PUBLIC;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying) TO "www-group";
+REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) FROM PUBLIC;
+REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) FROM postgres;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO postgres;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO PUBLIC;
+GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO "www-group";
 
 
 --
@@ -1561,6 +1674,16 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE ext_loggers TO "ww
 
 
 --
+-- Name: ext_loggers_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON SEQUENCE ext_loggers_id_seq FROM PUBLIC;
+REVOKE ALL ON SEQUENCE ext_loggers_id_seq FROM postgres;
+GRANT ALL ON SEQUENCE ext_loggers_id_seq TO postgres;
+GRANT ALL ON SEQUENCE ext_loggers_id_seq TO "www-group";
+
+
+--
 -- Name: list_bands; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1601,6 +1724,16 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE old_callsigns TO "www-grou
 
 
 --
+-- Name: old_rda; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE old_rda FROM PUBLIC;
+REVOKE ALL ON TABLE old_rda FROM postgres;
+GRANT ALL ON TABLE old_rda TO postgres;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE old_rda TO "www-group";
+
+
+--
 -- Name: qso; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1628,6 +1761,16 @@ REVOKE ALL ON TABLE rankings FROM PUBLIC;
 REVOKE ALL ON TABLE rankings FROM postgres;
 GRANT ALL ON TABLE rankings TO postgres;
 GRANT SELECT,INSERT,DELETE,TRIGGER ON TABLE rankings TO "www-group";
+
+
+--
+-- Name: rda; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE rda FROM PUBLIC;
+REVOKE ALL ON TABLE rda FROM postgres;
+GRANT ALL ON TABLE rda TO postgres;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE rda TO "www-group";
 
 
 --
