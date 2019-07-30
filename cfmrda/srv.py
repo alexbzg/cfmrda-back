@@ -1064,6 +1064,7 @@ support@cfmrda.ru"""
                     'uploadDate', to_char(tstamp, 'DD mon YYYY'), 
                     'uploader', user_cs,
                     'uploadType', upload_type,
+                    'extLoggerId', ext_logger_id,
                     'rda', qsos->'rda', 
                     'stations', qsos->'stations', 
                     'qsoCount', qsos->'qsoCount', 
@@ -1072,7 +1073,7 @@ support@cfmrda.ru"""
                     (
                     select * from
                     (select id, enabled, date_start, date_end, tstamp, user_cs,
-                        upload_type
+                        upload_type, ext_logger_id
                     from uploads
                     {}
                     order by tstamp desc

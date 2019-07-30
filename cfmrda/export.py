@@ -49,7 +49,7 @@ def export_recent_uploads(conf):
                 max(tstamp) as max_tstamp,
                 array_agg(id) as ids
             from uploads 
-            where upload_type in ('adif', 'email CFM')
+            where ext_logger_id is null
             group by date(tstamp), user_cs, upload_type
             order by max_tstamp desc
             limit 20) as ru,
