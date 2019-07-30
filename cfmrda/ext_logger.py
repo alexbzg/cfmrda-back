@@ -14,7 +14,7 @@ class ExtLogger():
     default_login_data_fields = ['login', 'password']
 
     types = {'LoTW': {},\
-            'HamLOG': {\
+            'HAMLOG': {\
                 'loginDataFields': ['email', 'password'],\
                 'schema': 'extLoggersLoginHamLOG'\
                 }\
@@ -42,7 +42,7 @@ class ExtLogger():
             rsp.raise_for_status()
             if 'Username/password incorrect' in rsp.text:
                 raise ExtLoggerException("Login failed.")
-        elif self.type == 'HamLOG':
+        elif self.type == 'HAMLOG':
             rsp = ssn.post('https://hamlog.ru/lk/login.php', data=data)
             rsp.raise_for_status()
             if 'Ошибка! Неверный адрес и/или пароль' in rsp.text:
@@ -62,7 +62,7 @@ class ExtLogger():
 
             return (rsp.text,)
 
-        elif self.type == 'HamLOG':
+        elif self.type == 'HAMLOG':
             rsp = ssn.get('https://hamlog.ru/lk/calls.php')
             rsp.raise_for_status()
 

@@ -1096,7 +1096,9 @@ support@cfmrda.ru"""
             qso_where_cond = []
             limit_cl = 'limit 100'
             where_cl = ''
-            if not admin:
+            if admin:
+                where_cond.append('ext_logger_id is null')
+            else:
                 where_cond.append('user_cs = %(callsign)s')
                 params['callsign'] = callsign
             if 'search' in data and data['search']:
