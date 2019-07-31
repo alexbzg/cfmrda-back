@@ -288,8 +288,12 @@ begin
   then
     raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
   end if;  
+  if not exists (select from rda where rda = new_rda)
+  then
+    raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
+  end if;    
   if exists (select from qso where qso.callsign = str_callsign and qso.station_callsign = _station_callsign 
-    and qso.rda = _rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
+    and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
   then
       raise exception using
             errcode='CR001',
