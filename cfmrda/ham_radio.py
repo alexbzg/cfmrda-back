@@ -3,6 +3,7 @@
 """various constants and functions for working with ham radio data"""
 import logging
 import re
+from datetime import date
 from rda import RDA_VALUES
 
 BANDS_WL = {'160M': '1.8', '80M': '3.5', '40M': '7', \
@@ -29,6 +30,8 @@ MODES = {'DIGI': ('DATA', 'HELL', 'MT63', 'THOR16', 'FAX', 'OPERA', 'PKT', 'RY',
 RE_STRIP_CALLSIGN = re.compile(r"\d?[A-Z]+\d+[A-Z]+")
 
 RE_RDA_VALUE = re.compile(r"([a-zA-Z][a-zA-Z])[\d-]*(\d\d)")
+
+RDA_START_DATE = date(1991, 12, 6)
 
 class Pfx():
     """class for determining prefix/country by callsign"""
