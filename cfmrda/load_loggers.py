@@ -50,11 +50,13 @@ def main(conf):
                     yield from _db.remove_upload(upload_id)
 
             qso_count = 0
+            station_callsign_field = None if row['logger'] == 'eQSL'\
+                else 'STATION_CALLSIGN'
 
             for adif in adifs:
                 adif = adif.upper()
                 qso_count += adif.count('<EOR>')
-                parsed = load_adif(adif, 'STATION_CALLSIGN', ignore_activator=True,\
+                parsed = load_adif(adif, station_callsign_field, ignore_activator=True,\
                     strip_callsign_flag=False)
                 date_start, date_end = None, None
                 sql_rda = """
@@ -70,9 +72,12 @@ def main(conf):
                     for qso in parsed['qso']:
                         yield from exec_cur(cur, sql_rda, qso)
                         if cur.rowcount == 1:
+                            callsign = row['login_data']['Callsign'].upper()\
+                                if row['logger'] == 'eQSL'\
+                                else qso['station_callsign']
                             qso['rda'] = (yield from cur.fetchone())[0]
                             qso['callsign'], qso['station_callsign'] = \
-                                qso['station_callsign'], qso['callsign']
+                                callsign, qso['callsign']
                             if not date_start or date_start > qso['tstamp']:
                                 date_start = qso['tstamp']
                             if not date_end or date_end < qso['tstamp']:

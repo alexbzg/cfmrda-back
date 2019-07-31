@@ -2,12 +2,20 @@
 #coding=utf-8
 """class for working with web-loggers. Currenly supported: LOTW"""
 import re
+import datetime
+import logging
 
 import requests
+
+from ham_radio import RDA_START_DATE
 
 class ExtLoggerException(Exception):
     """Login failed"""
     pass
+
+def eqsl_date_format(_dt):
+    """formats date for eqsl url params: mm%2Fdd%2Fyyyy"""
+    return _dt.strftime('%m%%2F%d%%2F%Y')
 
 class ExtLogger():
 
@@ -17,6 +25,10 @@ class ExtLogger():
             'HAMLOG': {\
                 'loginDataFields': ['email', 'password'],\
                 'schema': 'extLoggersLoginHamLOG'\
+                },\
+            'eQSL': {\
+                 'loginDataFields': ['Callsign', 'EnteredPassword'],\
+                 'schema': 'extLoggersLoginEQSL'\
                 }\
             }
 
@@ -42,16 +54,27 @@ class ExtLogger():
             rsp.raise_for_status()
             if 'Username/password incorrect' in rsp.text:
                 raise ExtLoggerException("Login failed.")
+
         elif self.type == 'HAMLOG':
             rsp = ssn.post('https://hamlog.ru/lk/login.php', data=data)
             rsp.raise_for_status()
             if 'Ошибка! Неверный адрес и/или пароль' in rsp.text:
                 raise ExtLoggerException("Login failed.")
 
+        elif self.type == 'eQSL':
+            data.update({\
+                'Login': 'Go'\
+            })
+            rsp = ssn.post('https://www.eqsl.cc/QSLCard/LoginFinish.cfm', data=data)
+            rsp.raise_for_status()
+            if 'Callsign or Password Error!' in rsp.text:
+                raise ExtLoggerException("Login failed.")
+
         return ssn
 
     def load(self, login_data, **kwparams):
         ssn = self.login(login_data)
+        adifs = []
 
         if self.type == 'LoTW':
             rsp = ssn.get('https://lotw.arrl.org/lotwuser/lotwreport.adi?qso_query=1&qso_withown=yes' +\
@@ -60,13 +83,12 @@ class ExtLogger():
                     else '') + '&qso_owncall=')
             rsp.raise_for_status()
 
-            return (rsp.text,)
+            adifs.append(rsp.text)
 
         elif self.type == 'HAMLOG':
             rsp = ssn.get('https://hamlog.ru/lk/calls.php')
             rsp.raise_for_status()
 
-            adifs = []
             re_adif = re.compile(r'dl\.php\?c=(\d+)')
             data = {'dluser': 0, 'dlmode': 'ANY', 'edit': 'Скачать лог'}
             for mo_adif in re_adif.finditer(rsp.text):
@@ -75,6 +97,27 @@ class ExtLogger():
                 rsp_adif.raise_for_status()
                 adifs.append(rsp_adif.text)
 
-            return adifs
+        elif self.type == 'eQSL':
+            dates_delta = datetime.timedelta(days=100)
+            date_from = kwparams['date_from'] if 'date_from' in kwparams and kwparams['date_from']\
+                    else RDA_START_DATE
+            date_till = date_from + dates_delta
+            today = datetime.date.today()
+            re_adif = re.compile(r'downloadedfiles/(.*)\.adi')
 
+            while date_from < today:
+                rsp = ssn.get('https://www.eqsl.cc/QSLCard/DownloadADIF.cfm?LimitDateLo=' +\
+                        eqsl_date_format(date_from) + '&LimitDateHi=' +\
+                        eqsl_date_format(date_till))
+                rsp.raise_for_status()
+                mo_adif = re_adif.search(rsp.text)
+                if mo_adif:
+                    rsp_adif = ssn.get('https://www.eqsl.cc/QSLCard/downloadedfiles/' +\
+                        mo_adif.group(1) + '.adi')
+                    rsp_adif.raise_for_status()
+                    adifs.append(rsp_adif.text)
 
+                date_from = date_till
+                date_till = date_from + dates_delta
+
+        return adifs
