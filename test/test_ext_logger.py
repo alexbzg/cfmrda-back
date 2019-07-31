@@ -9,36 +9,21 @@ from json_utils import load_json
 
 LOGINS = load_json(path.dirname(path.abspath(__file__)) + '/loggers_logins.json')
 
-def test_lotw_login():
-    lotw = ExtLogger('LoTW')
-    logging.warning('test LOTW login')
-    login_ssn = lotw.login(LOGINS['LoTW'])
-    assert login_ssn
-    logging.warning('test LOTW bad login')
-    lotw = ExtLogger('LoTW')
-    bad_login = {}
-    bad_login.update(LOGINS['LoTW'])
-    bad_login['password'] += '_'
-    try:
-        bad_login_ssn = lotw.login(bad_login)
-    except ExtLoggerException as e:
-        assert str(e) == 'Login failed.'
-
-def test_hamlog_login():
-    lotw = ExtLogger('HamLOG')
-    logging.warning('test HamLOG login')
-    login_ssn = lotw.login(LOGINS['HamLOG'])
-    assert login_ssn
-    logging.warning('test HamLOG bad login')
-    lotw = ExtLogger('HamLOG')
-    bad_login = {}
-    bad_login.update(LOGINS['HamLOG'])
-    bad_login['password'] += '_'
-    try:
-        bad_login_ssn = lotw.login(bad_login)
-    except ExtLoggerException as e:
-        assert str(e) == 'Login failed.'
-
+def test_login():
+    for logger_type, login in LOGINS.items():
+        logger = ExtLogger(logger_type)
+        logging.warning('test ' + logger_type + ' login')
+        login_ssn = logger.login(login)
+        assert login_ssn
+        logging.warning('OK')
+        logger = ExtLogger(logger_type)
+        logging.warning('test ' + logger_type + ' bad login')
+        bad_login = {field: value + '_' for field, value in login.items()}
+        try:
+            bad_login_ssn = logger.login(bad_login)
+        except ExtLoggerException as e:
+            assert str(e) == 'Login failed.'
+            logging.warning('OK')
 
 def test_lotw_load():
     lotw = ExtLogger('LoTW')
