@@ -172,12 +172,14 @@ def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activato
                 qso['station_callsign'] = \
                     get_adif_field(line, station_callsign_field)
                 if not qso['station_callsign']:
-                    data['qso_errors'] += 1
+                    append_error('Поле не найдено или некорректно (' +\
+                        station_callsign_field +')')
                     continue
                 if not ignore_activator:
                     activator = strip_callsign(qso['station_callsign'])
                     if not activator:
-                        data['qso_errors'] += 1
+                        append_error('Поле не найдено или некорректно (' +\
+                            station_callsign_field +')')
                         continue
                     if data['activator']:
                         if data['activator'] != activator:
