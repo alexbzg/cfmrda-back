@@ -2,30 +2,18 @@
 #coding=utf-8
 """class for working with web-loggers. Currenly supported: LOTW"""
 import re
-import datetime
-import logging
 
 import requests
-
-from ham_radio import RDA_START_DATE
 
 class ExtLoggerException(Exception):
     """Login failed"""
     pass
-
-def eqsl_date_format(_dt):
-    """formats date for eqsl url params: mm%2Fdd%2Fyyyy"""
-    return _dt.strftime('%m%%2F%d%%2F%Y')
 
 class ExtLogger():
 
     default_login_data_fields = ['login', 'password']
 
     types = {'LoTW': {},\
-            'HAMLOG': {\
-                'loginDataFields': ['email', 'password'],\
-                'schema': 'extLoggersLoginHamLOG'\
-                },\
             'eQSL': {\
                  'loginDataFields': ['Callsign', 'EnteredPassword'],\
                  'schema': 'extLoggersLoginEQSL'\
@@ -98,26 +86,15 @@ class ExtLogger():
                 adifs.append(rsp_adif.text)
 
         elif self.type == 'eQSL':
-            dates_delta = datetime.timedelta(days=100)
-            date_from = kwparams['date_from'] if 'date_from' in kwparams and kwparams['date_from']\
-                    else RDA_START_DATE
-            date_till = date_from + dates_delta
-            today = datetime.date.today()
             re_adif = re.compile(r'downloadedfiles/(.*)\.adi')
 
-            while date_from < today:
-                rsp = ssn.get('https://www.eqsl.cc/QSLCard/DownloadADIF.cfm?LimitDateLo=' +\
-                        eqsl_date_format(date_from) + '&LimitDateHi=' +\
-                        eqsl_date_format(date_till))
-                rsp.raise_for_status()
-                mo_adif = re_adif.search(rsp.text)
-                if mo_adif:
-                    rsp_adif = ssn.get('https://www.eqsl.cc/QSLCard/downloadedfiles/' +\
-                        mo_adif.group(1) + '.adi')
-                    rsp_adif.raise_for_status()
-                    adifs.append(rsp_adif.text)
-
-                date_from = date_till
-                date_till = date_from + dates_delta
+            rsp = ssn.get('https://www.eqsl.cc/qslcard/DownloadInBox.cfm')
+            rsp.raise_for_status()
+            mo_adif = re_adif.search(rsp.text)
+            if mo_adif:
+                rsp_adif = ssn.get('https://www.eqsl.cc/qslcard/downloadedfiles/' +\
+                    mo_adif.group(1) + '.adi')
+                rsp_adif.raise_for_status()
+                adifs.append(rsp_adif.text)
 
         return adifs
