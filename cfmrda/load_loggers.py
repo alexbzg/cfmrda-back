@@ -105,9 +105,9 @@ def main(conf):
                 'state': 0,\
                 'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
-        yield from _db.param_update('ext_loggers', splice_params(row, ('id',)),\
-            update_params)
-        logging.debug('logger data updated')
+            yield from _db.param_update('ext_loggers', splice_params(row, ('id',)),\
+                update_params)
+            logging.debug('logger data updated')
 
 if __name__ == "__main__":
     start_logging('loggers')

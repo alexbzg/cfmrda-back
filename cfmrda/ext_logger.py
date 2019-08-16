@@ -2,12 +2,19 @@
 #coding=utf-8
 """class for working with web-loggers. Currenly supported: LOTW"""
 import re
+import datetime
 
 import requests
+
+from ham_radio import RDA_START_DATE
 
 class ExtLoggerException(Exception):
     """Login failed"""
     pass
+
+def eqsl_date_format(_dt):
+    """formats date for eqsl url params: mm%2Fdd%2Fyyyy"""
+    return _dt.strftime('%m%%2F%d%%2F%Y')
 
 class ExtLogger():
 
@@ -88,13 +95,23 @@ class ExtLogger():
         elif self.type == 'eQSL':
             re_adif = re.compile(r'downloadedfiles/(.*)\.adi')
 
-            rsp = ssn.get('https://www.eqsl.cc/qslcard/DownloadInBox.cfm')
-            rsp.raise_for_status()
-            mo_adif = re_adif.search(rsp.text)
-            if mo_adif:
-                rsp_adif = ssn.get('https://www.eqsl.cc/qslcard/downloadedfiles/' +\
-                    mo_adif.group(1) + '.adi')
-                rsp_adif.raise_for_status()
-                adifs.append(rsp_adif.text)
+            def get_eqsl_adifs(date_from, date_till):
+                rsp = ssn.get('https://www.eqsl.cc/QSLCard/DownloadInbox.cfm?LimitDateLo=' +\
+                   eqsl_date_format(date_from) + '&LimitDateHi=' +\
+                   eqsl_date_format(date_till))
+                rsp.raise_for_status()
+                if 'You can only download 50000 records at one time' in rsp.text:
+                    date_mid = date_from + (date_till - date_from) / 2
+                    get_eqsl_adifs(date_from, date_mid)
+                    get_eqsl_adifs(date_mid, date_till)
+                else:
+                    mo_adif = re_adif.search(rsp.text)
+                    if mo_adif:
+                        rsp_adif = ssn.get('https://www.eqsl.cc/qslcard/downloadedfiles/' +\
+                            mo_adif.group(1) + '.adi')
+                        rsp_adif.raise_for_status()
+                        adifs.append(rsp_adif.text)
+
+            get_eqsl_adifs(RDA_START_DATE, datetime.date.today())
 
         return adifs
