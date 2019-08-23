@@ -729,8 +729,9 @@ class CfmRdaServer():
         params = {'id': delete, 'callsign': callsign}
         uploads = yield from self._db.execute("""select id as uid from uploads 
             where ext_logger_id = %(id)s and user_cs = %(callsign)s""", params, True)
-        for id in uploads:
-            yield from self._db.remove_upload(id)
+        if uploads:
+            for id in uploads:
+                yield from self._db.remove_upload(id)
         db_res = yield from self._db.execute("""delete from ext_loggers
             where id = %(id)s and callsign = %(callsign)s
             returning id""", {'id': delete, 'callsign': callsign})
