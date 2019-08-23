@@ -492,13 +492,7 @@ CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
-  if exists (select 1 from cfm_request_qso
-	where callsign = new.callsign and rda = new.rda
-	and station_callsign = new.station_callsign
-	and band = new.band and mode = new.mode) then
-    raise 'cfmrda_db_error:Такой запрос уже существует. The request is already made.';
-   end if;   
-   return new;
+  return new;
  end$$;
 
 
