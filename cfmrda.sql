@@ -41,14 +41,16 @@ delete from rda_activator;
 delete from rda_hunter;
 
 insert into rda_hunter (hunter, mode, band, rda)
-select distinct callsign, mode, band, rda from qso
-where upload_id is null or (select enabled from uploads where id = upload_id);
+select distinct callsign, mode, band, rda from qso;
 
 insert into rda_activator 
-select activator, rda, band, mode, count(distinct callsign) as callsigns
-from activators, qso
-where (select enabled from uploads where id = activators.upload_id) and activators.upload_id = qso.upload_id
-group by activator, rda, band, mode;
+select activator, mode, band, rda, count(*) as callsigns
+from
+	(select distinct activator, mode, band, rda, callsign, dt
+	from
+		(select distinct upload_id, mode, band, rda, callsign, dt
+	from qso) as qso join activators on qso.upload_id = activators.upload_id) as act_qso
+group by activator, mode, band, rda;
 
 insert into rda_hunter
 select activator, rda, band, mode
@@ -216,7 +218,6 @@ group by hunter, band) as s
 group by hunter
 window w as (order by sum(points) desc);
 
-insert into stat_log values (now(), 'ranking table built');
 
 --- 9BANDS 900+---
 _9band_tr = 100;
@@ -237,9 +238,6 @@ while exists (select callsign from rankings where role = 'hunter' and mode = 'to
   _9band_tr = _9band_tr + 100;
 end loop;
 
-insert into stat_log values (now(), 'additional 9BAND loops');
-
-insert into stat_log values (now(), 'stats completed');
 
 end$$;
 
@@ -558,6 +556,7 @@ begin
     new.old_callsign = strip_callsign(new.callsign);
     new.callsign = new_callsign;
   end if;
+  new.dt = date(new.tstamp);
   return new;
  end$$;
 
@@ -1236,6 +1235,13 @@ CREATE INDEX cfm_request_qso_user_cs_idx ON cfm_request_qso USING btree (user_cs
 
 
 --
+-- Name: fki_qso_rda_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE INDEX fki_qso_rda_fkey ON qso USING btree (rda);
+
+
+--
 -- Name: fki_uploads_ext_loggers_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1264,13 +1270,6 @@ CREATE UNIQUE INDEX old_callsigns_uq ON old_callsigns USING btree (old) WHERE co
 
 
 --
--- Name: qso_callsign_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_callsign_band_rda_idx ON qso USING btree (callsign, band, rda);
-
-
---
 -- Name: qso_callsign_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1278,45 +1277,10 @@ CREATE INDEX qso_callsign_mode_band_rda_idx ON qso USING btree (callsign, mode, 
 
 
 --
--- Name: qso_callsign_mode_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: qso_upload_id_mode_band_rda_callsign_dt_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
-CREATE INDEX qso_callsign_mode_rda_idx ON qso USING btree (callsign, mode, rda);
-
-
---
--- Name: qso_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_mode_band_rda_idx ON qso USING btree (mode, band, rda);
-
-
---
--- Name: qso_upload_id_mode_band_rda_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_upload_id_mode_band_rda_callsign_idx ON qso USING btree (upload_id, mode, band, rda, callsign);
-
-
---
--- Name: qso_upload_id_mode_band_rda_dt_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_upload_id_mode_band_rda_dt_callsign_idx ON qso USING btree (upload_id, mode, band, rda, dt, callsign);
-
-
---
--- Name: qso_upload_id_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_upload_id_mode_band_rda_idx ON qso USING btree (upload_id, mode, band, rda);
-
-
---
--- Name: qso_upload_id_station_callsign_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX qso_upload_id_station_callsign_rda_idx ON qso USING btree (upload_id, station_callsign, rda);
+CREATE INDEX qso_upload_id_mode_band_rda_callsign_dt_idx ON qso USING btree (upload_id, mode, band, rda, callsign, dt);
 
 
 --
@@ -1488,6 +1452,14 @@ ALTER TABLE ONLY cfm_qsl_qso
 
 ALTER TABLE ONLY ext_loggers
     ADD CONSTRAINT ext_loggers_callsign_fkey FOREIGN KEY (callsign) REFERENCES users(callsign);
+
+
+--
+-- Name: qso_rda_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY qso
+    ADD CONSTRAINT qso_rda_fkey FOREIGN KEY (rda) REFERENCES rda(rda);
 
 
 --
