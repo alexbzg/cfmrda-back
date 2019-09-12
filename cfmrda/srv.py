@@ -9,6 +9,8 @@ import re
 import os
 import string
 import random
+import csv
+import io
 from datetime import datetime
 
 from aiohttp import web
@@ -1354,6 +1356,62 @@ support@cfmrda.ru"""
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
     @asyncio.coroutine
+    def dwnld_qso_hndlr(self, request):
+        callsign = request.match_info.get('callsign', None)
+        if callsign:
+            with (yield from self._db.pool.cursor()) as cur:
+                try:
+                    yield from cur.execute("""
+                        select 
+                                rda, 
+                                to_char(tstamp, 'DD Mon YYYY') as date, 
+                                to_char(tstamp, 'HH:MM:SS') as time, 
+                                band, 
+                                mode, 
+                                station_callsign, 
+                                coalesce(
+                                    (
+                                        select user_cs 
+                                        from uploads 
+                                        where uploads.id = qso.upload_id), 
+                                    '(QSL card)') as uploader, 
+                                'hunter' as role
+                            from qso 
+                            where callsign = %(callsign)s
+                        union all
+                        select 
+                                rda, 
+                                to_char(tstamp, 'DD Mon YYYY') as date, 
+                                to_char(tstamp, 'HH:MM:SS') as time, 
+                                band, 
+                                mode, 
+                                callsign, 
+                                (select 
+                                        user_cs 
+                                    from uploads 
+                                    where uploads.id = qso.upload_id) as uploader, 
+                                'activator' as role
+                            from qso inner join activators on 
+                                qso.upload_id = activators.upload_id 
+                            where activator = %(callsign)s
+                    """, {'callsign': callsign})
+                    data = yield from cur.fetchall()
+                    str_buf = io.StringIO()
+                    csv_writer = csv.writer(str_buf, quoting=csv.QUOTE_NONNUMERIC)
+                    for row in data:
+                        csv_writer.writerow(row)
+                    return web.Response(
+                        headers={'Content-Disposition': 'Attachment;filename=' +\
+                                callsign + datetime.now().strftime('_%d_%m_%Y') +\
+                                '.csv'},\
+                        body=str_buf.getvalue().encode())
+                except Exception:
+                    logging.exception('error while importing qso for callsign ' + callsign)
+                    return CfmRdaServer.response_error_default()
+        else:
+            return web.HTTPBadRequest(text='Необходимо ввести позывной')
+
+    @asyncio.coroutine
     def get_qrzru(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
@@ -1367,7 +1425,6 @@ support@cfmrda.ru"""
 
     @asyncio.coroutine
     def _load_qrz_rda(self, callsign):
-        return
         check = yield from self._db.execute("""
             select rda 
             from callsigns_rda
@@ -1469,5 +1526,6 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
             SRV.correspondent_email_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
+    APP.router.add_get('/aiohttp/download/qso/{callsign}', SRV.dwnld_qso_hndlr)
     APP.router.add_get('/aiohttp/qrzru/{callsign}', SRV.get_qrzru)
     web.run_app(APP, path=CONF.get('files', 'server_socket'))
