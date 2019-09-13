@@ -43,19 +43,16 @@ delete from rda_hunter;
 insert into rda_hunter (hunter, mode, band, rda)
 select distinct callsign, mode, band, rda from qso;
 
-insert into rda_activator 
-select activator, mode, band, rda, count(*) as callsigns
-from
-	(select distinct activator, mode, band, rda, callsign, dt
-	from
-		(select distinct upload_id, mode, band, rda, callsign, dt
-	from qso) as qso join activators on qso.upload_id = activators.upload_id) as act_qso
-group by activator, mode, band, rda;
+insert into rda_activator (activator, rda, mode, band, callsigns)
+select activator, rda, mode, band, count(distinct (callsign, dt)) as callsigns from
+(select upload_id, mode, band, rda, callsign, dt
+from qso) as qso join activators on qso.upload_id = activators.upload_id
+group by activator, rda, mode, band;
 
 insert into rda_hunter
 select activator, rda, band, mode
 from rda_activator
-where callsigns > 99 and not exists 
+where callsigns > 49 and not exists 
 (select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator.rda and rda_hunter.band = rda_activator.band and rda_hunter.mode = rda_activator.mode);
 
 insert into rda_hunter
@@ -64,7 +61,7 @@ from
 (select activator, rda, band
 from rda_activator
 group by activator, rda, band
-having sum(callsigns) > 99) as rda_activator_tm
+having sum(callsigns) > 49) as rda_activator_tm
 where not exists
 (select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tm.rda and rda_hunter.band = rda_activator_tm.band);
 
@@ -85,7 +82,7 @@ delete from rankings;
 with rda_act_m_b as 
 (select activator, mode, band, rda
 from rda_activator
-where callsigns > 99),
+where callsigns > 49),
 
 act_m_b as 
 (select activator, mode, band, count(rda), rank() over w, row_number() over w
@@ -99,7 +96,7 @@ from
 (select activator, rda, band
 from rda_activator
 group by activator, rda, band
-having sum(callsigns) > 99) as act_total_band_f
+having sum(callsigns) > 49) as act_total_band_f
 group by activator, band
 window w as (partition by band order by count(rda) desc)),
 
