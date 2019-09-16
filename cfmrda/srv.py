@@ -1378,7 +1378,8 @@ support@cfmrda.ru"""
                                         from uploads 
                                         where uploads.id = qso.upload_id), 
                                     '(QSL card)') as uploader, 
-                                'hunter' as role
+                                'hunter' as role,
+                                to_char(rec_ts, 'DD Mon YYYY') as rec_date
                             from qso 
                             where callsign = %(callsign)s
                         union all
@@ -1393,7 +1394,8 @@ support@cfmrda.ru"""
                                         user_cs 
                                     from uploads 
                                     where uploads.id = qso.upload_id) as uploader, 
-                                'activator' as role
+                                'activator' as role,
+                                to_char(rec_ts, 'DD Mon YYYY') as rec_date
                             from qso inner join activators on 
                                 qso.upload_id = activators.upload_id 
                             where activator = %(callsign)s
@@ -1401,6 +1403,8 @@ support@cfmrda.ru"""
                     data = yield from cur.fetchall()
                     str_buf = io.StringIO()
                     csv_writer = csv.writer(str_buf, quoting=csv.QUOTE_NONNUMERIC)
+                    csv_writer.writerow(['RDA', 'Date', 'Time', 'Band', 'Mode', 'Correspondent',\
+                        'Uploader', 'Role', 'DB date'])
                     for row in data:
                         csv_writer.writerow(row)
                     return web.Response(
