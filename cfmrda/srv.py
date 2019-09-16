@@ -1378,7 +1378,6 @@ support@cfmrda.ru"""
                                         from uploads 
                                         where uploads.id = qso.upload_id), 
                                     '(QSL card)') as uploader, 
-                                'hunter' as role,
                                 to_char(rec_ts, 'DD Mon YYYY') as rec_date
                             from qso 
                             where callsign = %(callsign)s
