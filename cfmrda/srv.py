@@ -11,7 +11,7 @@ import string
 import random
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiohttp import web
 import jwt
@@ -591,9 +591,10 @@ class CfmRdaServer():
                     'delDate', to_char(now(), 'DD mon YYYY'),
                     'delTime', to_char(now(), 'HH24:MI'),
                     'uploadType', upload_type,
-                    'uploader', uploader) as data
+                    'uploader', uploader, 
+                    'upload_ts', to_char(tstamp, 'DD MM YYYY HH24:MI:SS')) as data
                 from
-                (select user_cs as uploader, upload_type
+                (select user_cs as uploader, upload_type, tstamp
                     from uploads            
                     where id = %(id)s) as u,
                 lateral 
@@ -623,7 +624,9 @@ class CfmRdaServer():
                 delete from uploads where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
-            if upload_data['rda']:
+            if upload_data['rda'] and\
+                datetime.now() - datetime.strptime(upload_data['upload_ts'], '%d %m %Y %H:%M:%S') >\
+                timedelta(days=1):
                 del_uploads_path = CONF.get('web', 'root') + '/json/del_uploads.json'
                 del_uploads = load_json(del_uploads_path) or []
                 del_uploads.insert(0, upload_data)
@@ -1365,7 +1368,7 @@ support@cfmrda.ru"""
                         select 
                                 rda, 
                                 to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH:MM:SS') as time, 
+                                to_char(tstamp, 'HH24:MM:SS') as time, 
                                 band, 
                                 mode, 
                                 station_callsign, 
@@ -1382,7 +1385,7 @@ support@cfmrda.ru"""
                         select 
                                 rda, 
                                 to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH:MM:SS') as time, 
+                                to_char(tstamp, 'HH24:MM:SS') as time, 
                                 band, 
                                 mode, 
                                 callsign, 
