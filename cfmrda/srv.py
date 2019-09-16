@@ -11,7 +11,7 @@ import string
 import random
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from aiohttp import web
 import jwt
@@ -591,9 +591,10 @@ class CfmRdaServer():
                     'delDate', to_char(now(), 'DD mon YYYY'),
                     'delTime', to_char(now(), 'HH24:MI'),
                     'uploadType', upload_type,
-                    'uploader', uploader) as data
+                    'uploader', uploader, 
+                    'upload_ts', to_char(tstamp, 'DD MM YYYY HH24:MI:SS')) as data
                 from
-                (select user_cs as uploader, upload_type
+                (select user_cs as uploader, upload_type, tstamp
                     from uploads            
                     where id = %(id)s) as u,
                 lateral 
@@ -623,7 +624,9 @@ class CfmRdaServer():
                 delete from uploads where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
-            if upload_data['rda']:
+            if upload_data['rda'] and\
+                datetime.now() - datetime.strptime(upload_data['upload_ts'], '%d %m %Y %H:%M:%S') >\
+                timedelta(days=1):
                 del_uploads_path = CONF.get('web', 'root') + '/json/del_uploads.json'
                 del_uploads = load_json(del_uploads_path) or []
                 del_uploads.insert(0, upload_data)
@@ -1365,7 +1368,7 @@ support@cfmrda.ru"""
                         select 
                                 rda, 
                                 to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH:MM:SS') as time, 
+                                to_char(tstamp, 'HH24:MM:SS') as time, 
                                 band, 
                                 mode, 
                                 station_callsign, 
@@ -1375,14 +1378,15 @@ support@cfmrda.ru"""
                                         from uploads 
                                         where uploads.id = qso.upload_id), 
                                     '(QSL card)') as uploader, 
-                                'hunter' as role
+                                'hunter' as role,
+                                to_char(rec_ts, 'DD Mon YYYY') as rec_date
                             from qso 
                             where callsign = %(callsign)s
                         union all
                         select 
                                 rda, 
                                 to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH:MM:SS') as time, 
+                                to_char(tstamp, 'HH24:MM:SS') as time, 
                                 band, 
                                 mode, 
                                 callsign, 
@@ -1390,7 +1394,8 @@ support@cfmrda.ru"""
                                         user_cs 
                                     from uploads 
                                     where uploads.id = qso.upload_id) as uploader, 
-                                'activator' as role
+                                'activator' as role,
+                                to_char(rec_ts, 'DD Mon YYYY') as rec_date
                             from qso inner join activators on 
                                 qso.upload_id = activators.upload_id 
                             where activator = %(callsign)s
@@ -1398,11 +1403,13 @@ support@cfmrda.ru"""
                     data = yield from cur.fetchall()
                     str_buf = io.StringIO()
                     csv_writer = csv.writer(str_buf, quoting=csv.QUOTE_NONNUMERIC)
+                    csv_writer.writerow(['RDA', 'Date', 'Time', 'Band', 'Mode', 'Correspondent',\
+                        'Uploader', 'Role', 'DB date'])
                     for row in data:
                         csv_writer.writerow(row)
                     return web.Response(
                         headers={'Content-Disposition': 'Attachment;filename=' +\
-                                callsign + datetime.now().strftime('_%d_%m_%Y') +\
+                                callsign + datetime.now().strftime('_%d_%b_%Y') +\
                                 '.csv'},\
                         body=str_buf.getvalue().encode())
                 except Exception:
