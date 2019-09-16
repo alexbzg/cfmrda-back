@@ -1402,7 +1402,7 @@ support@cfmrda.ru"""
                         csv_writer.writerow(row)
                     return web.Response(
                         headers={'Content-Disposition': 'Attachment;filename=' +\
-                                callsign + datetime.now().strftime('_%d_%m_%Y') +\
+                                callsign + datetime.now().strftime('_%d_%b_%Y') +\
                                 '.csv'},\
                         body=str_buf.getvalue().encode())
                 except Exception:
