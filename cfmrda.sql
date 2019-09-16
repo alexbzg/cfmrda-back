@@ -842,7 +842,8 @@ CREATE TABLE qso (
     mode character varying(16) NOT NULL,
     tstamp timestamp without time zone NOT NULL,
     dt date DEFAULT date(now()) NOT NULL,
-    old_callsign character varying(32)
+    old_callsign character varying(32),
+    rec_ts timestamp without time zone DEFAULT now()
 );
 
 
