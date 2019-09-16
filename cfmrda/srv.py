@@ -1368,7 +1368,7 @@ support@cfmrda.ru"""
                         select 
                                 rda, 
                                 to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH24:MM:SS') as time, 
+                                to_char(tstamp, 'HH24:MI') as time, 
                                 band, 
                                 mode, 
                                 station_callsign, 
@@ -1382,23 +1382,6 @@ support@cfmrda.ru"""
                                 to_char(rec_ts, 'DD Mon YYYY') as rec_date
                             from qso 
                             where callsign = %(callsign)s
-                        union all
-                        select 
-                                rda, 
-                                to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH24:MM:SS') as time, 
-                                band, 
-                                mode, 
-                                callsign, 
-                                (select 
-                                        user_cs 
-                                    from uploads 
-                                    where uploads.id = qso.upload_id) as uploader, 
-                                'activator' as role,
-                                to_char(rec_ts, 'DD Mon YYYY') as rec_date
-                            from qso inner join activators on 
-                                qso.upload_id = activators.upload_id 
-                            where activator = %(callsign)s
                     """, {'callsign': callsign})
                     data = yield from cur.fetchall()
                     str_buf = io.StringIO()
