@@ -288,7 +288,8 @@ begin
     raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
   end if;    
   if exists (select from qso where qso.callsign = str_callsign and qso.station_callsign = _station_callsign 
-    and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
+    and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and 
+    qso.tstamp between (_ts - interval '5 min') and (_ts + interval '5 min'))
   then
       raise exception using
             errcode='CR001',
@@ -546,11 +547,12 @@ CREATE FUNCTION tf_qso_bi() RETURNS trigger
 declare 
   new_callsign character varying(32);
 begin
+  new.callsign = strip_callsign(new.callsign);
   select * from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
     into new_callsign, new.rda;
-  if new_callsign <> strip_callsign(new.callsign)
+  if new_callsign <> new.callsign
   then
-    new.old_callsign = strip_callsign(new.callsign);
+    new.old_callsign = new.callsign;
     new.callsign = new_callsign;
   end if;
   new.dt = date(new.tstamp);
