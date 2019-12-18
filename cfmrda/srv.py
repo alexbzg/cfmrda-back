@@ -789,7 +789,8 @@ class CfmRdaServer():
     @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
-        if 'delete' in data or 'new' in data or 'conflict' in data:
+        if 'delete' in data or 'new' in data or 'conflict' in data\
+            or 'meta' in data:
             callsign = self._require_callsign(data, True)
             if not isinstance(callsign, str):
                 return callsign
@@ -809,6 +810,22 @@ class CfmRdaServer():
                     db_rslt = yield from self._db.execute("""
                         delete from callsigns_rda where id = %(delete)s""",\
                         data)
+                elif 'meta' in data:
+                    db_rslt = yield from self._db.execute("""
+                        insert into callsigns_meta 
+                            (callsign, disable_autocfm, comments)
+                        select %(callsign)s, %(disableAutocfm)s, %(comments)s
+                        where not exists 
+                            (select from callsigns_meta
+                            where callsign = %(callsign)s);
+                        update callsigns_meta
+                        set disable_autocfm = %(disableAutocfm)s,
+                            comments = %(comments)s
+                        where callsign = %(callsign)s
+                        """,\
+                        {'callsign': data['callsign'],\
+                        'disableAutocfm': data['meta']['disableAutocfm'],\
+                        'comments': data['meta']['comments']})
                 else:
                     data['new']['source'] = callsign
                     data['new']['callsign'] = data['callsign']
@@ -832,6 +849,11 @@ class CfmRdaServer():
                         where callsign != %(selected)s and
                             (callsign like %(search)s or callsign = %(base)s)""",\
                         search, True)
+                admin = self._require_callsign(data, require_admin=True)
+                if isinstance(admin, str):
+                    rsp['meta'] = yield from self._db.execute("""
+                        select * from callsigns_meta 
+                        where callsign = %(callsign)s""", data)
         rsp['rdaRecords'] = yield from self._db.execute("""
             select id, source, rda, callsign, comment,
                 to_char(ts, 'YYYY-MM-DD') as ts,

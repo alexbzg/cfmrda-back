@@ -582,6 +582,19 @@ CREATE TABLE activators (
 ALTER TABLE activators OWNER TO postgres;
 
 --
+-- Name: callsigns_meta; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE callsigns_meta (
+    callsign character varying(64) NOT NULL,
+    disable_autocfm boolean,
+    comments character varying(512)
+);
+
+
+ALTER TABLE callsigns_meta OWNER TO postgres;
+
+--
 -- Name: callsigns_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1037,6 +1050,14 @@ ALTER TABLE ONLY activators
 
 
 --
+-- Name: callsigns_meta_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY callsigns_meta
+    ADD CONSTRAINT callsigns_meta_pkey PRIMARY KEY (callsign);
+
+
+--
 -- Name: callsigns_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -1322,24 +1343,10 @@ CREATE INDEX rda_hunter_callsign_rda_idx ON rda_hunter USING btree (hunter, rda)
 
 
 --
--- Name: rda_hunter_hunter_band_mode_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX rda_hunter_hunter_band_mode_idx ON rda_hunter USING btree (hunter, band, mode);
-
-
---
 -- Name: rda_hunter_hunter_mode_band_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
 CREATE INDEX rda_hunter_hunter_mode_band_idx ON rda_hunter USING btree (hunter, mode, band);
-
-
---
--- Name: rda_hunter_hunter_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX rda_hunter_hunter_mode_band_rda_idx ON rda_hunter USING btree (hunter, mode, band, rda);
 
 
 --
@@ -1554,6 +1561,16 @@ REVOKE ALL ON TABLE activators FROM PUBLIC;
 REVOKE ALL ON TABLE activators FROM postgres;
 GRANT ALL ON TABLE activators TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE activators TO "www-group";
+
+
+--
+-- Name: callsigns_meta; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE callsigns_meta FROM PUBLIC;
+REVOKE ALL ON TABLE callsigns_meta FROM postgres;
+GRANT ALL ON TABLE callsigns_meta TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE callsigns_meta TO "www-group";
 
 
 --
