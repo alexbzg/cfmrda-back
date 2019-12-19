@@ -803,6 +803,10 @@ class CfmRdaServer():
                         cr0.rda <> '***' and cr1.rda <> '***' and
                         cr0.dt_stop is null and cr1.dt_stop is null and 
                         cr1.id > cr0.id
+                    where not exists 
+                        (select from callsigns_meta
+                        where callsigns_meta.callsign = cr0.callsign
+                            and disable_autocfm)
                     order by cr0.callsign""", {}, True)
                 return web.json_response(db_rslt)
             else:
