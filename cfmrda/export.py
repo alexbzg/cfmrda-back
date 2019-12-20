@@ -101,6 +101,12 @@ def export_msc(conf):
         from qso;    
     """, None, False))
 
+    data['unsortedQsl'] = (yield from _db.execute("""
+        select count(*) as qsl_wait 
+        from cfm_qsl_qso 
+        where state is null;
+    """, None, False))
+
     data['userActivity'] = (yield from _db.execute("""
         select json_agg(data) from
             (select json_build_object('callsign', 
