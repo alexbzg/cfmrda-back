@@ -29,6 +29,24 @@ def export_rankings(conf):
     logging.debug('export rankings finished')
 
 @asyncio.coroutine
+def export_callsigns(conf):
+    """export distinct callsigns into json array"""
+    logging.debug('export callsigns')
+
+    _db = DBConn(conf.items('db'))
+    yield from _db.connect()
+
+
+    callsigns = yield from _db.execute("""
+                select array_agg(callsign) 
+                from (
+                    select distinct callsign
+                    from qso) as cs
+                """, None, False)
+    save_json(callsigns, conf.get('web', 'root') + '/json/callsigns.json')
+    logging.debug('export rankings finished')
+
+@asyncio.coroutine
 def export_recent_uploads(conf):
     """export 20 recent uploaded file batches to json file for web"""
     logging.debug('export recent uploads')
@@ -52,7 +70,7 @@ def export_recent_uploads(conf):
             where ext_logger_id is null
             group by date(tstamp), user_cs, upload_type
             order by max_tstamp desc
-            limit 20) as ru,
+            limit 40) as ru,
         lateral 
         (select array_agg(distinct station_callsign) as activators 
             from qso 
@@ -81,6 +99,12 @@ def export_msc(conf):
     data['qsoCount'] = (yield from _db.execute("""
         select count(*) as qso_count
         from qso;    
+    """, None, False))
+
+    data['unsortedQsl'] = (yield from _db.execute("""
+        select count(*) as qsl_wait 
+        from cfm_qsl_qso 
+        where state is null;
     """, None, False))
 
     data['userActivity'] = (yield from _db.execute("""
@@ -144,7 +168,7 @@ def export_stat(conf):
                 band_total += qso_count
                 if mode not in rda_total:
                     rda_total[mode] = 0
-                rda_total[mode] += qso_count                
+                rda_total[mode] += qso_count
             band_data['total'] = band_total
             rda_total['total'] += band_total
         rda_data['total'] = rda_total
@@ -168,6 +192,7 @@ def main():
     parser.add_argument('-u', action="store_true")
     parser.add_argument('-m', action="store_true")
     parser.add_argument('-s', action="store_true")
+    parser.add_argument('-c', action="store_true")
     args = parser.parse_args()
     export_all = not args.r and not args.u and not args.m and not args.s
     if args.r or export_all:
@@ -182,6 +207,9 @@ def main():
     if args.s or export_all:
         asyncio.get_event_loop().run_until_complete(export_stat(conf))
         set_local_owner('/json/stat.json')
+    if args.c:
+        asyncio.get_event_loop().run_until_complete(export_callsigns(conf))
+        set_local_owner('/json/callsigns.json')
 
 
 

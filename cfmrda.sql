@@ -288,7 +288,8 @@ begin
     raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
   end if;    
   if exists (select from qso where qso.callsign = str_callsign and qso.station_callsign = _station_callsign 
-    and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and qso.tstamp = _ts)
+    and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and 
+    qso.tstamp between (_ts - interval '5 min') and (_ts + interval '5 min'))
   then
       raise exception using
             errcode='CR001',
@@ -441,6 +442,9 @@ ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
 CREATE FUNCTION tf_cfm_qsl_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
+  if exists (select from qso where qso.callsign = new.callsign and qso.rda = new.rda and qso.band = new.band and qso.mode = new.mode) then
+    raise 'cfmrda_db_error:Этот район у вас уже активирован (%, %, %).', new.rda, new.mode, new.band || 'MHz';
+  end if;
   perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
 /*  if exists (select 1 from cfm_qsl_qso
 	where callsign = new.callsign and rda = new.rda
@@ -546,11 +550,12 @@ CREATE FUNCTION tf_qso_bi() RETURNS trigger
 declare 
   new_callsign character varying(32);
 begin
+  new.callsign = strip_callsign(new.callsign);
   select * from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
     into new_callsign, new.rda;
-  if new_callsign <> strip_callsign(new.callsign)
+  if new_callsign <> new.callsign
   then
-    new.old_callsign = strip_callsign(new.callsign);
+    new.old_callsign = new.callsign;
     new.callsign = new_callsign;
   end if;
   new.dt = date(new.tstamp);
@@ -575,6 +580,19 @@ CREATE TABLE activators (
 
 
 ALTER TABLE activators OWNER TO postgres;
+
+--
+-- Name: callsigns_meta; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE callsigns_meta (
+    callsign character varying(64) NOT NULL,
+    disable_autocfm boolean,
+    comments character varying(512)
+);
+
+
+ALTER TABLE callsigns_meta OWNER TO postgres;
 
 --
 -- Name: callsigns_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
@@ -842,7 +860,8 @@ CREATE TABLE qso (
     mode character varying(16) NOT NULL,
     tstamp timestamp without time zone NOT NULL,
     dt date DEFAULT date(now()) NOT NULL,
-    old_callsign character varying(32)
+    old_callsign character varying(32),
+    rec_ts timestamp without time zone DEFAULT now()
 );
 
 
@@ -1028,6 +1047,14 @@ ALTER TABLE ONLY uploads ALTER COLUMN id SET DEFAULT nextval('uploads_id_seq'::r
 
 ALTER TABLE ONLY activators
     ADD CONSTRAINT activators_pkey PRIMARY KEY (upload_id, activator);
+
+
+--
+-- Name: callsigns_meta_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY callsigns_meta
+    ADD CONSTRAINT callsigns_meta_pkey PRIMARY KEY (callsign);
 
 
 --
@@ -1316,24 +1343,10 @@ CREATE INDEX rda_hunter_callsign_rda_idx ON rda_hunter USING btree (hunter, rda)
 
 
 --
--- Name: rda_hunter_hunter_band_mode_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX rda_hunter_hunter_band_mode_idx ON rda_hunter USING btree (hunter, band, mode);
-
-
---
 -- Name: rda_hunter_hunter_mode_band_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
 --
 
 CREATE INDEX rda_hunter_hunter_mode_band_idx ON rda_hunter USING btree (hunter, mode, band);
-
-
---
--- Name: rda_hunter_hunter_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX rda_hunter_hunter_mode_band_rda_idx ON rda_hunter USING btree (hunter, mode, band, rda);
 
 
 --
@@ -1548,6 +1561,16 @@ REVOKE ALL ON TABLE activators FROM PUBLIC;
 REVOKE ALL ON TABLE activators FROM postgres;
 GRANT ALL ON TABLE activators TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE activators TO "www-group";
+
+
+--
+-- Name: callsigns_meta; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE callsigns_meta FROM PUBLIC;
+REVOKE ALL ON TABLE callsigns_meta FROM postgres;
+GRANT ALL ON TABLE callsigns_meta TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE callsigns_meta TO "www-group";
 
 
 --

@@ -789,7 +789,8 @@ class CfmRdaServer():
     @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
-        if 'delete' in data or 'new' in data or 'conflict' in data:
+        if 'delete' in data or 'new' in data or 'conflict' in data\
+            or 'meta' in data:
             callsign = self._require_callsign(data, True)
             if not isinstance(callsign, str):
                 return callsign
@@ -802,6 +803,10 @@ class CfmRdaServer():
                         cr0.rda <> '***' and cr1.rda <> '***' and
                         cr0.dt_stop is null and cr1.dt_stop is null and 
                         cr1.id > cr0.id
+                    where not exists 
+                        (select from callsigns_meta
+                        where callsigns_meta.callsign = cr0.callsign
+                            and disable_autocfm)
                     order by cr0.callsign""", {}, True)
                 return web.json_response(db_rslt)
             else:
@@ -809,6 +814,22 @@ class CfmRdaServer():
                     db_rslt = yield from self._db.execute("""
                         delete from callsigns_rda where id = %(delete)s""",\
                         data)
+                elif 'meta' in data:
+                    db_rslt = yield from self._db.execute("""
+                        insert into callsigns_meta 
+                            (callsign, disable_autocfm, comments)
+                        select %(callsign)s, %(disableAutocfm)s, %(comments)s
+                        where not exists 
+                            (select from callsigns_meta
+                            where callsign = %(callsign)s);
+                        update callsigns_meta
+                        set disable_autocfm = %(disableAutocfm)s,
+                            comments = %(comments)s
+                        where callsign = %(callsign)s
+                        """,\
+                        {'callsign': data['callsign'],\
+                        'disableAutocfm': data['meta']['disableAutocfm'],\
+                        'comments': data['meta']['comments']})
                 else:
                     data['new']['source'] = callsign
                     data['new']['callsign'] = data['callsign']
@@ -832,6 +853,11 @@ class CfmRdaServer():
                         where callsign != %(selected)s and
                             (callsign like %(search)s or callsign = %(base)s)""",\
                         search, True)
+                admin = self._require_callsign(data, require_admin=True)
+                if isinstance(admin, str):
+                    rsp['meta'] = yield from self._db.execute("""
+                        select * from callsigns_meta 
+                        where callsign = %(callsign)s""", data)
         rsp['rdaRecords'] = yield from self._db.execute("""
             select id, source, rda, callsign, comment,
                 to_char(ts, 'YYYY-MM-DD') as ts,
@@ -1368,7 +1394,7 @@ support@cfmrda.ru"""
                         select 
                                 rda, 
                                 to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH24:MM:SS') as time, 
+                                to_char(tstamp, 'HH24:MI') as time, 
                                 band, 
                                 mode, 
                                 station_callsign, 
@@ -1378,27 +1404,9 @@ support@cfmrda.ru"""
                                         from uploads 
                                         where uploads.id = qso.upload_id), 
                                     '(QSL card)') as uploader, 
-                                'hunter' as role,
                                 to_char(rec_ts, 'DD Mon YYYY') as rec_date
                             from qso 
                             where callsign = %(callsign)s
-                        union all
-                        select 
-                                rda, 
-                                to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH24:MM:SS') as time, 
-                                band, 
-                                mode, 
-                                callsign, 
-                                (select 
-                                        user_cs 
-                                    from uploads 
-                                    where uploads.id = qso.upload_id) as uploader, 
-                                'activator' as role,
-                                to_char(rec_ts, 'DD Mon YYYY') as rec_date
-                            from qso inner join activators on 
-                                qso.upload_id = activators.upload_id 
-                            where activator = %(callsign)s
                     """, {'callsign': callsign})
                     data = yield from cur.fetchall()
                     str_buf = io.StringIO()

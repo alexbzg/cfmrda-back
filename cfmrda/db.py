@@ -265,6 +265,13 @@ class DBConn:
                         %(station_callsign)s, %(rda)s, %(band)s,
                         %(mode)s, %(tstamp)s)
                     returning id"""
+                cfm_sql = """
+                    select
+                    from qso 
+                    where callsign = %(callsign)s and rda = %(rda)s and
+                        band = %(band)s and mode = %(mode)
+                    limit 1
+                """
 
                 savepoint_fl = False
 
@@ -284,6 +291,10 @@ class DBConn:
                 for qso in qsos:
                     qso['upload_id'] = upl_id
                     try:
+                        if ext_logger_id:
+                            cfm_res = yield from exec_cur(cur, cfm_sql, qso)
+                            if cfm_res and cur.rowcount:
+                                continue
                         qso_res = yield from exec_cur(cur, qso_sql, qso)
                         qso_id = None
                         if qso_res and cur.rowcount:

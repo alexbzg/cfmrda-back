@@ -60,28 +60,59 @@ def main(conf):
                     strip_callsign_flag=False)
                 date_start, date_end = None, None
                 sql_rda = """
-                    select distinct rda 
+                    select json_build_object('rda', rda, 'start', dt_start, 
+                        'stop', dt_stop)
                     from callsigns_rda
                     where callsign = %(callsign)s and rda <> '***' and 
                         (dt_start is null or dt_start <= %(tstamp)s) and
                         (dt_stop is null or dt_stop >= %(tstamp)s)
                 """
                 qsos = []
+                sql_meta = """
+                    select disable_autocfm 
+                    from callsigns_meta
+                    where callsign = %(callsign)s
+                """
 
                 with (yield from _db.pool.cursor()) as cur:
                     for qso in parsed['qso']:
                         yield from exec_cur(cur, sql_rda, qso)
                         if cur.rowcount == 1:
-                            callsign = row['login_data']['Callsign'].upper()\
-                                if row['logger'] == 'eQSL'\
-                                else qso['station_callsign']
                             qso['rda'] = (yield from cur.fetchone())[0]
-                            qso['callsign'], qso['station_callsign'] = \
-                                callsign, qso['callsign']
-                            if not date_start or date_start > qso['tstamp']:
-                                date_start = qso['tstamp']
-                            if not date_end or date_end < qso['tstamp']:
-                                date_end = qso['tstamp']
+                        else:
+                            rda_data = yield from cur.fetchall()
+                            yield from exec_cur(cur, sql_meta, qso)
+                            if cur.rowcount == 1:
+                                disable_autocfm = (yield from cur.fetchone())[0]
+                                if disable_autocfm:
+                                    continue
+                            rdas = {'def': [], 'undef': []}
+                            for row in rda_data:
+                                rda_entry = row[0]
+                                entry_type = rdas['def'] if rda_entry['start']\
+                                    and rda_entry['stop']\
+                                    else rdas['undef']
+                                if rda_entry['rda'] not in entry_type:
+                                    entry_type.append(rda_entry['rda'])
+                            entry_type = rdas['def'] if rdas['def']\
+                                else rdas['undef']
+                            if len(entry_type) == 1:
+                                qso['rda'] = entry_type[0]
+                            else:
+                                continue
+
+                        callsign = row['login_data']['Callsign'].upper()\
+                            if row['logger'] == 'eQSL'\
+                            else qso['station_callsign']
+                        qso['callsign'], qso['station_callsign'] = \
+                            callsign, qso['callsign']
+                        if not date_start or date_start > qso['tstamp']:
+                            date_start = qso['tstamp']
+                        if not date_end or date_end < qso['tstamp']:
+                            date_end = qso['tstamp']
+
+                        yield from exec_cur(cur, sql_cfm, qso)
+                        if cur.cowcount == 0:
                             qsos.append(qso)
 
                 if qsos:
