@@ -78,7 +78,7 @@ def main(conf):
                     for qso in parsed['qso']:
                         yield from exec_cur(cur, sql_rda, qso)
                         if cur.rowcount == 1:
-                            qso['rda'] = (yield from cur.fetchone())[0]
+                            qso['rda'] = (yield from cur.fetchone())[0]['rda']
                         else:
                             rda_data = yield from cur.fetchall()
                             yield from exec_cur(cur, sql_meta, qso)
@@ -87,8 +87,8 @@ def main(conf):
                                 if disable_autocfm:
                                     continue
                             rdas = {'def': [], 'undef': []}
-                            for row in rda_data:
-                                rda_entry = row[0]
+                            for rda_row in rda_data:
+                                rda_entry = rda_row[0]
                                 entry_type = rdas['def'] if rda_entry['start']\
                                     and rda_entry['stop']\
                                     else rdas['undef']
@@ -111,9 +111,7 @@ def main(conf):
                         if not date_end or date_end < qso['tstamp']:
                             date_end = qso['tstamp']
 
-                        yield from exec_cur(cur, sql_cfm, qso)
-                        if cur.cowcount == 0:
-                            qsos.append(qso)
+                        qsos.append(qso)
 
                 if qsos:
                     logging.debug(str(len(qsos)) + ' rda qso found.')

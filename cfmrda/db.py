@@ -269,7 +269,7 @@ class DBConn:
                     select
                     from qso 
                     where callsign = %(callsign)s and rda = %(rda)s and
-                        band = %(band)s and mode = %(mode)
+                        band = %(band)s and mode = %(mode)s
                     limit 1
                 """
 
