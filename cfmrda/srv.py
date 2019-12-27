@@ -873,7 +873,7 @@ class CfmRdaServer():
             params_str(splice_params(data, ('callsign', 'rda')), ' and ') +\
             """
             order by dt_start desc
-            """, data, True)
+            """, data, False)
         return web.json_response(rsp)
 
     def _require_callsign(self, data, require_admin=False):
