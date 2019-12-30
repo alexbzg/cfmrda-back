@@ -192,13 +192,6 @@ class DBConn:
     @asyncio.coroutine
     def check_upload_hash(self, hash_data):
         file_hash = hashlib.md5(hash_data).hexdigest()
-        hash_check = yield from self.execute("""
-            select id from uploads where hash = %(hash)s
-            """, {'hash': file_hash})
-        logging.debug(hash_check)
-        if hash_check:
-            logging.error("Duplicate adif id: "  + str(hash_check))
-            return False
         return file_hash
 
     @asyncio.coroutine

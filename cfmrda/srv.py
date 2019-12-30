@@ -858,7 +858,7 @@ class CfmRdaServer():
                     rsp['meta'] = yield from self._db.execute("""
                         select * from callsigns_meta 
                         where callsign = %(callsign)s""", data)
-        rsp['rdaRecords'] = yield from self._db.execute("""
+        rdaRecords = yield from self._db.execute("""
             select id, source, rda, callsign, comment,
                 to_char(ts, 'YYYY-MM-DD') as ts,
                 case when dt_start is null and dt_stop is null then null
@@ -874,6 +874,7 @@ class CfmRdaServer():
             """
             order by dt_start desc
             """, data, False)
+        rsp['rdaRecords'] = rdaRecords if isinstance(rdaRecords, list) else (rdaRecords,)
         return web.json_response(rsp)
 
     def _require_callsign(self, data, require_admin=False):
