@@ -26,7 +26,7 @@ def main():
     params_old = []
     params = []
     lines = rda_rus.split('\r\n')
-    re_rda_line = re.compile(r'(^[A-Z][A-Z]-\d\d)\s+[^\t]+\t*([A-Z][A-Z]-\d\d|\*\*\*)?')
+    re_rda_line = re.compile(r'(^[A-Z][A-Z]-\d\d)\s+[^\t]+\t*((?:\*\*\*)?[A-Z][A-Z]-\d\d|\*\*\*)?')
     for line in lines:
         match_rda_line = re_rda_line.match(line)
         if match_rda_line:
