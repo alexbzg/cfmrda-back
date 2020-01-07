@@ -3,19 +3,23 @@
 
 from json_utils import load_json, save_json
 
-rda = load_json('/var/www/cfmrda-dev/public/json/rda.json')
+
+awards = load_json('/var/www/adxc.73/awardsValues.json')
+rda = [x for x in awards if x['name'] == 'RDA'][0]
 
 new = []
 
-for group in rda:
-    new_group = {'group': group['group']}
-    last_value = int(group['values'][-1]['displayValue'])
-    if last_value != len(group['values']):
+for group in rda['groups'].keys():
+    new_group = {'group': group}
+    values = [x for x in rda['values'] if x['group'] == group]
+    values.sort(key=lambda x: x['displayValue'])
+    last_value = int(values[-1]['displayValue'])
+    if last_value != len(values):
         skip = []
         c_el = 1
         c_no = 1
         while c_no < last_value:
-            if int(group['values'][c_el - 1]['displayValue']) != c_no:
+            if int(values[c_el - 1]['displayValue']) != c_no:
                 skip.append(c_no)
             else:
                 c_el += 1
@@ -24,6 +28,7 @@ for group in rda:
     new_group['last'] = last_value
     new.append(new_group)
 
+new.sort(key=lambda group: group['group'])
 save_json(new, '/var/www/cfmrda-dev/src/rdaShort.json')
 
 

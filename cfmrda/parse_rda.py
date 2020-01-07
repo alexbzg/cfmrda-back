@@ -26,7 +26,7 @@ def main():
     params = []
     lines = rda_rus.split('\r\n')
     re_rda_line = re.compile(r'(^[A-Z][A-Z]-\d\d)\s+([^\t]+)\t*((?:\*\*\*)?[A-Z][A-Z]-\d\d|\*\*\*)?')
-    re_group_line = re.compile(r'\t(.*\(([A-Z][A-Z])\).*)$')
+    re_group_line = re.compile(r'\s*(\w.*\(([A-Z][A-Z])\)\s+\w\w\w\w)$')
     groups = []
     group = None
     for line in lines:
@@ -34,8 +34,9 @@ def main():
         if match_group_line:
             if group and group['values']:
                 groups.append(group)
+            group_id = 'RK' if 'UA6K' in line else match_group_line.group(2)
             group = {\
-                    'id': match_group_line.group(2),\
+                    'id': group_id,\
                     'title': match_group_line.group(1),\
                     'values': []}
         else:
@@ -52,19 +53,23 @@ def main():
                 else:
                     params.append({'rda': match_rda_line.group(1)})
                     group['values'].append({'id': match_rda_line.group(1),\
-                            'title': match_rda_line.group(2)})
+                            'title': match_rda_line.group(2),
+                            'val':match_rda_line.group(1)[-2:].lstrip('0')})
+    if group and group['values']:
+        groups.append(group)
 
-    with open('/var/www/adxc.test/csv/rda_new.csv', 'w') as fcsv:
+    with open('/var/www/adxc.test/csv/rda.csv', 'w') as fcsv:
         for group in groups:
             fcsv.write('{id};;{title};\n'.format_map(group))
             for val in group['values']:
-                fcsv.write(';;{title};{id}\n'.format_map(val))
+                fcsv.write(';{val};{title};{id}\n'.format_map(val))
 
     with open('/var/www/adxc.test/csv/rda_old_new_new.csv', 'w') as fcsv:
         for item in params_old:
             if item['new']:
                 fcsv.write('{old};{new}\n'.format_map(item))
     logging.debug('csv created')
+    return
 
     logging.debug('populating old_rda table')
     yield from _db.execute("""insert into old_rda
