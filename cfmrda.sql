@@ -276,8 +276,8 @@ begin
   select old_rda.new into new_rda
     from old_rda 
     where old_rda.old = _rda and 
-	(dt_start < ts or dt_start is null) and
-	(dt_stop > ts or dt_stop is null);
+	(dt_start < _ts or dt_start is null) and
+	(dt_stop > _ts or dt_stop is null);
   if not found
   then  
     new_rda = _rda;
