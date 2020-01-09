@@ -275,7 +275,9 @@ begin
   /*check and replace obsolete rda*/
   select old_rda.new into new_rda
     from old_rda 
-    where old_rda.old = _rda;
+    where old_rda.old = _rda and 
+	(dt_start < ts or dt_start is null) and
+	(dt_stop > ts or dt_stop is null);
   if not found
   then  
     new_rda = _rda;
@@ -414,12 +416,13 @@ begin
     return null;
   end if;  
   /*check and replace obsolete rda*/
-  if exists (select from old_rda where old_rda.old = new.rda and old_rda.new is not null)
+  if exists (select from old_rda where old_rda.old = new.rda and old_rda.new is not null 
+	and dt_start is null and dt_stop is null)
   then  
     select old_rda.new from old_rda where old_rda.old = new.rda
       into new.rda;
   end if;  
-  if not exists (select from rda where rda = new.rda)
+  if (new.rda <> '***') and not exists (select from rda where rda = new.rda)
   then  
     raise 'cfmrda_db_error:Некорректный район RDA (%)', new.rda;    
   end if;     
@@ -840,7 +843,9 @@ ALTER TABLE old_callsigns OWNER TO postgres;
 
 CREATE TABLE old_rda (
     old character varying(5) NOT NULL,
-    new character varying(5)
+    new character varying(5),
+    dt_start date,
+    dt_stop date
 );
 
 
@@ -1130,11 +1135,11 @@ ALTER TABLE ONLY old_callsigns
 
 
 --
--- Name: old_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: old_rda_old_dt_start_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
 --
 
 ALTER TABLE ONLY old_rda
-    ADD CONSTRAINT old_rda_pkey PRIMARY KEY (old);
+    ADD CONSTRAINT old_rda_old_dt_start_key UNIQUE (old, dt_start);
 
 
 --
