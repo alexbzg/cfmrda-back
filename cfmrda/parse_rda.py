@@ -69,7 +69,6 @@ def main():
             if item['new']:
                 fcsv.write('{old};{new}\n'.format_map(item))
     logging.debug('csv created')
-    return
 
     logging.debug('populating old_rda table')
     yield from _db.execute("""insert into old_rda

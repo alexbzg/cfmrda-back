@@ -25,8 +25,8 @@ def main(conf):
             to_char(last_updated, 'YYYY-MM-DD') as last_updated
         from ext_loggers
         where state = 0 and 
-            (last_updated is null or last_updated < now() - interval '14 days')
-        """, None, True)
+            (last_updated is null or last_updated < now() - interval %(int)s)
+        """, {'int': conf['web'].get('elog_reload', '7 days')}, True)
     if not loggers:
         logging.debug('No updates are due today.')
         return
