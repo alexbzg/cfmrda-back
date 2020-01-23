@@ -25,8 +25,8 @@ def main(conf):
             to_char(last_updated, 'YYYY-MM-DD') as last_updated
         from ext_loggers
         where state = 0 and 
-            (last_updated is null or last_updated < now() - interval %(int)s)
-        """, {'int': conf['web'].get('elog_reload', '7 days')}, True)
+            (last_updated is null or last_updated < now() - interval '14 days')
+        """, None, True)
     if not loggers:
         logging.debug('No updates are due today.')
         return
@@ -90,7 +90,7 @@ def main(conf):
                             for rda_row in rda_data:
                                 rda_entry = rda_row[0]
                                 entry_type = rdas['def'] if rda_entry['start']\
-                                    and rda_entry['stop']\
+                                    or rda_entry['stop']\
                                     else rdas['undef']
                                 if rda_entry['rda'] not in entry_type:
                                     entry_type.append(rda_entry['rda'])
