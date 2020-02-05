@@ -30,6 +30,8 @@ for group in rda['groups'].keys():
     for val in values:
         full.append(group + '-' + val['displayValue'])
 
+short.sort(key=lambda group: group['group'])
+full.sort()
 save_json(short, '/var/www/cfmrda-dev/src/rdaShort.json')
 save_json(full, '/var/www/cfmrda-dev/public/json/rdaValues.json')
 
