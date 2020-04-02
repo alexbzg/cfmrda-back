@@ -20,94 +20,139 @@ def main(conf):
     _db = DBConn(db_params)
     yield from _db.connect()
 
-    reload_interval = conf.get('web', 'elog_reload', '7 days')
+    reload_interval = conf.get('web', 'elog_reload', fallback='7 days')
 
-    loggers = yield from _db.execute("""
-        select id, callsign, logger, login_data, qso_count, 
-            to_char(last_updated, 'YYYY-MM-DD') as last_updated
-        from ext_loggers
-        where state = 0 and 
-            (last_updated is null or last_updated < now() - interval %(reload_interval)s)
-        """, {'reload_interval': reload_interval}, True)
-    if not loggers:
-        logging.debug('No updates are due today.')
-        return
-    for row in loggers.values():
-        logger = ExtLogger(row['logger'])
-        update_params = {}
-        adifs = None
-        try:
-            adifs = logger.load(row['login_data'])
-            logging.debug(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
-        except Exception:
-            logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
-            update_params['state'] = 1
+    with (yield from _db.pool.cursor()) as cur:
 
-        if adifs:
 
-            prev_uploads = yield from _db.execute("""
-                select id from uploads where ext_logger_id = %(id)s""", row, True)
-            if prev_uploads:
-                for upload_id in prev_uploads:
-                    yield from _db.remove_upload(upload_id)
+        yield from exec_cur(cur, """
+            select json_build_object('id', id, 'callsign', callsign, 
+                'logger', logger, 'login_data', login_data, 
+                'qso_count', qso_count, 'last_updated', to_char(last_updated, 'YYYY-MM-DD'))
+            from ext_loggers
+            where state = 0 and 
+                (last_updated is null or last_updated < now() - interval %(reload_interval)s)
+            """, {'reload_interval': reload_interval})
+        loggers = yield from cur.fetchall()
+        if not loggers:
+            logging.debug('No updates are due today.')
+            return
 
-            qso_count = 0
-            station_callsign_field = None if row['logger'] == 'eQSL'\
-                else 'STATION_CALLSIGN'
-
-            for adif in adifs:
-                adif = adif.upper()
-                qso_count += adif.count('<EOR>')
-                parsed = load_adif(adif, station_callsign_field, ignore_activator=True,\
-                    strip_callsign_flag=False)
-                date_start, date_end = None, None
-                sql_rda = """
+        @asyncio.coroutine
+        def rda_search(qso):
+            yield from exec_cur(cur, """
                     select json_build_object('rda', rda, 'start', dt_start, 
                         'stop', dt_stop)
                     from callsigns_rda
-                    where callsign = %(callsign)s and rda <> '***' and 
+                    where callsign = %(station_callsign)s and rda <> '***' and 
                         (dt_start is null or dt_start <= %(tstamp)s) and
                         (dt_stop is null or dt_stop >= %(tstamp)s)
-                """
-                qsos = []
-                sql_meta = """
+                """, qso)
+            if cur.rowcount == 1:
+                return (yield from cur.fetchone())[0]['rda']
+            elif cur.rowcount == 0:
+                return None
+            else:
+                rda_data = yield from cur.fetchall()
+                yield from exec_cur(cur, """
                     select disable_autocfm 
                     from callsigns_meta
-                    where callsign = %(callsign)s
-                """
+                    where callsign = %(station_callsign)s
+                """, qso)
+                if cur.rowcount == 1:
+                    disable_autocfm = (yield from cur.fetchone())[0]
+                    if disable_autocfm:
+                        return None
+                rdas = {'def': [], 'undef': []}
+                for rda_row in rda_data:
+                    rda_entry = rda_row[0]
+                    entry_type = rdas['def'] if rda_entry['start']\
+                        or rda_entry['stop']\
+                        else rdas['undef']
+                    if rda_entry['rda'] not in entry_type:
+                        entry_type.append(rda_entry['rda'])
+                entry_type = rdas['def'] if rdas['def']\
+                    else rdas['undef']
+                if len(entry_type) == 1:
+                    return entry_type[0]
+                else:
+                    return None
 
-                with (yield from _db.pool.cursor()) as cur:
+        for row_data in loggers:
+            row = row_data[0]
+            logger = ExtLogger(row['logger'])
+            update_params = {}
+
+            yield from exec_cur(cur, """
+                select json_build_object('id', id, 
+                    'station_callsign', station_callsign, 'rda', rda,
+                    'tstamp', tstamp)
+                from qso 
+                where upload_id in 
+                    (select id 
+                    from uploads 
+                    where ext_logger_id = %(id)s)""", row)
+            prev_qsos = yield from cur.fetchall()
+            for qso_data in prev_qsos:
+                qso = qso_data[0]
+                rda = yield from rda_search(qso)
+                if rda:
+                    if rda != qso['rda']:
+                        qso['rda'] = rda
+                        yield from exec_cur(cur, """
+                            update qso
+                            set rda = %(rda)s
+                            where id = %(id)s
+                            """, qso)
+                else:
+                    yield from exec_cur(cur, """
+                        delete from qso
+                        where id = %(id)s""", qso)
+
+            adifs = None
+            try:
+                adifs = logger.load(row['login_data'])
+                logging.debug(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
+            except Exception:
+                logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
+                update_params['state'] = 1
+
+            if adifs:
+
+                qso_count = 0
+                station_callsign_field = None if row['logger'] == 'eQSL'\
+                    else 'STATION_CALLSIGN'
+
+                for adif in adifs:
+                    adif = adif.upper()
+                    qso_count += adif.count('<EOR>')
+                    parsed = load_adif(adif, station_callsign_field, ignore_activator=True,\
+                        strip_callsign_flag=False)
+                    date_start, date_end = None, None
+                    qsos = []
                     for qso in parsed['qso']:
-                        yield from exec_cur(cur, sql_rda, qso)
-                        if cur.rowcount == 1:
-                            qso['rda'] = (yield from cur.fetchone())[0]['rda']
-                        else:
-                            rda_data = yield from cur.fetchall()
-                            yield from exec_cur(cur, sql_meta, qso)
-                            if cur.rowcount == 1:
-                                disable_autocfm = (yield from cur.fetchone())[0]
-                                if disable_autocfm:
-                                    continue
-                            rdas = {'def': [], 'undef': []}
-                            for rda_row in rda_data:
-                                rda_entry = rda_row[0]
-                                entry_type = rdas['def'] if rda_entry['start']\
-                                    or rda_entry['stop']\
-                                    else rdas['undef']
-                                if rda_entry['rda'] not in entry_type:
-                                    entry_type.append(rda_entry['rda'])
-                            entry_type = rdas['def'] if rdas['def']\
-                                else rdas['undef']
-                            if len(entry_type) == 1:
-                                qso['rda'] = entry_type[0]
-                            else:
-                                continue
 
                         callsign = row['login_data']['Callsign'].upper()\
                             if row['logger'] == 'eQSL'\
                             else qso['station_callsign']
                         qso['callsign'], qso['station_callsign'] = \
                             callsign, qso['callsign']
+
+                        rda = yield from rda_search(qso)
+                        if rda:
+                            qso['rda'] = rda
+                        else:
+                            continue
+
+                        yield from exec_cur(cur, """
+                            select from qso 
+                            where callsign = %(callsign)s and rda = %(rda)s and
+                                band = %(band)s and mode = %(mode)s
+                            limit 1""", qso)
+                        if cur.rowcount:
+                            logging.debug("RDA already confirmed:")
+                            logging.debug(qso)
+                            continue
                         if not date_start or date_start > qso['tstamp']:
                             date_start = qso['tstamp']
                         if not date_end or date_end < qso['tstamp']:
@@ -115,30 +160,30 @@ def main(conf):
 
                         qsos.append(qso)
 
-                if qsos:
-                    logging.debug(str(len(qsos)) + ' rda qso found.')
-                    file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
+                    if qsos:
+                        logging.debug(str(len(qsos)) + ' new rda qso found.')
+                        file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
 
-                    db_res = yield from _db.create_upload(\
-                        callsign=row['callsign'],\
-                        upload_type=row['logger'],\
-                        date_start=date_start,\
-                        date_end=date_end,\
-                        file_hash=file_hash,\
-                        activators=set([]),
-                        ext_logger_id=row['id'],
-                        qsos=qsos)
+                        db_res = yield from _db.create_upload(\
+                            callsign=row['callsign'],\
+                            upload_type=row['logger'],\
+                            date_start=date_start,\
+                            date_end=date_end,\
+                            file_hash=file_hash,\
+                            activators=set([]),
+                            ext_logger_id=row['id'],
+                            qsos=qsos)
 
-                    logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
+                        logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
 
-            update_params = {\
-                'qso_count': qso_count,\
-                'state': 0,\
-                'last_updated': datetime.now().strftime("%Y-%m-%d")}
+                update_params = {\
+                    'qso_count': qso_count,\
+                    'state': 0,\
+                    'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
-            yield from _db.param_update('ext_loggers', splice_params(row, ('id',)),\
-                update_params)
-            logging.debug('logger data updated')
+                yield from _db.param_update('ext_loggers', splice_params(row, ('id',)),\
+                    update_params)
+                logging.debug('logger data updated')
 
 if __name__ == "__main__":
     start_logging('loggers')

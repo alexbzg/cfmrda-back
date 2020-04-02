@@ -73,9 +73,9 @@ class ExtLogger():
 
         if self.type == 'LoTW':
             rsp = ssn.get('https://lotw.arrl.org/lotwuser/lotwreport.adi?qso_query=1&qso_withown=yes' +\
-                ('&qso_qslsince=' + kwparams['date_from']\
+                '&qso_qslsince=' + (kwparams['date_from']\
                     if 'date_from' in kwparams and kwparams['date_from']\
-                    else '') + '&qso_owncall=')
+                    else '1991-12-6') + '&qso_owncall=')
             rsp.raise_for_status()
 
             adifs.append(rsp.text)

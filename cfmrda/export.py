@@ -38,13 +38,12 @@ def export_callsigns(conf):
 
 
     callsigns = yield from _db.execute("""
-                select array_agg(callsign) 
-                from (
-                    select distinct callsign
-                    from qso) as cs
-                """, None, False)
+        select distinct hunter from rda_hunter as h0
+        where (select count(*) from rda_hunter as h1
+            where h0.hunter = h1.hunter) > 4
+        """, None, False)
     save_json(callsigns, conf.get('web', 'root') + '/json/callsigns.json')
-    logging.debug('export rankings finished')
+    logging.debug('export callsigns finished')
 
 @asyncio.coroutine
 def export_recent_uploads(conf):
@@ -194,7 +193,7 @@ def main():
     parser.add_argument('-s', action="store_true")
     parser.add_argument('-c', action="store_true")
     args = parser.parse_args()
-    export_all = not args.r and not args.u and not args.m and not args.s
+    export_all = not args.r and not args.u and not args.m and not args.s and not args.c
     if args.r or export_all:
         asyncio.get_event_loop().run_until_complete(export_rankings(conf))
         set_local_owner('/json/rankings.json')
@@ -214,5 +213,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        logging.exception('Export exception')
 

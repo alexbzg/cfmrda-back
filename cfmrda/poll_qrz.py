@@ -6,10 +6,10 @@ import logging
 import logging.handlers
 import re
 
-from db import DBConn
+from db import DBConn, CfmrdaDbException
 from qrz import QRZRuLink
 from common import site_conf
-from ham_radio import Pfx
+from ham_radio import Pfx, detect_rda
 
 RE_SPECIAL = re.compile(r'\d\d')
 
@@ -32,13 +32,20 @@ def main():
 
     @asyncio.coroutine
     def db_write(data):
-        yield from _db.execute("""
-            insert into callsigns_rda (callsign, source, rda)
-            values (%(callsign)s, 'QRZ.ru', %(rda)s)""", data)
-       
+        try:
+            yield from _db.execute("""
+                insert into callsigns_rda (callsign, source, rda)
+                values (%(callsign)s, 'QRZ.ru', %(rda)s)""", data)
+        except CfmrdaDbException:
+            pass
 
     callsigns = yield from _db.execute(\
-        """select distinct hunter from rda_hunter""")
+        """select distinct hunter from rda_hunter
+            where not exists
+                (select from callsigns_rda
+                where callsign = hunter and
+                    source = 'QRZ.ru' and ts > now() - interval '2 days)'
+        """)
     logging.debug('callsigns list received -- ' + str(len(callsigns)))
     params = []
     cnt = 0
@@ -54,12 +61,11 @@ def main():
             ru_cnt += 1
             data = yield from qrzru.query(_cs)
             if data and 'state' in data and data['state']:
+                rda = detect_rda(data['state'])
                 fnd_cnt += 1
-                params.append({'callsign': _cs, 'rda': data['state']})
+                yield from db_write({'callsign': _cs, 'rda': rda})
                 logging.debug(_cs + ' found')
                 if len(params) >= 100:
-                    yield from db_write(params)
-                    params = []
                     logging.debug('Processed ' + str(cnt) + '/' + str(ru_cnt) + '/'\
                         + str(fnd_cnt) + ' of ' + str(len(callsigns)))
         cnt += 1
