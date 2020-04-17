@@ -872,7 +872,7 @@ class CfmRdaServer():
             from callsigns_rda where """ +\
             params_str(splice_params(data, ('callsign', 'rda')), ' and ') +\
             """
-            order by dt_start desc
+            order by coalesce(dt_start, dt_stop) desc
             """, data, False)
         rsp['rdaRecords'] = rdaRecords if isinstance(rdaRecords, list) else (rdaRecords,)
         return web.json_response(rsp)
