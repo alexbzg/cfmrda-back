@@ -305,52 +305,81 @@ class CfmRdaServer():
     def _cfm_qsl_qso_new(self, callsign, data):
         if self._json_validator.validate('cfmQslQso', data['qso']):
             asyncio.async(self._load_qrz_rda(data['qso']['stationCallsign']))
-            res = None
-            try:
-                res = yield from self._db.get_object('cfm_qsl_qso',\
-                    {'user_cs': callsign,\
-                    'station_callsign': data['qso']['stationCallsign'],\
-                    'rda': data['qso']['rda'],\
-                    'tstamp': data['qso']['date'].split('T')[0] + ' ' +\
-                        data['qso']['time'],\
-                    'band': data['qso']['band'],\
-                    'mode': data['qso']['mode'],\
-                    'callsign': data['qso']['callsign'],\
-                    'new_callsign': data['qso']['newCallsign']\
-                        if 'newCallsign' in data['qso'] else None,\
-                    'image': data['qso']['image']['name']}, True)
-            except CfmrdaDbException as exc:
-                return web.HTTPBadRequest(text=str(exc))
-            if res:
-                image_bytes = \
-                    base64.b64decode(\
-                        data['qso']['image']['file'].split(',')[1])
-                with open(CONF.get('web', 'root') +\
-                    '/qsl_images/' + str(res['id']) + '_' +\
-                    data['qso']['image']['name'], 'wb') as image_file:
-                    image_file.write(image_bytes)
-            else:
-                return CfmRdaServer.response_error_default()
-            return CfmRdaServer.response_ok()
+            res = []
+            qsl_id = (yield from self._db.get_object('cfm_qsl',\
+                        {'user_cs': callsign,\
+                        'image': data['qsl']['image']['name'],\
+                        'image_back': data['qsl']['image_back']['name']\
+                            if 'image_back' in data['qsl']\
+                                else None}, True))['id']
+            for qso in data['qsl']['qso']:
+                try:
+                    yield from self._db.get_object('cfm_qsl_qso',\
+                        {'user_cs': callsign,\
+                        'station_callsign': qso['stationCallsign'],\
+                        'rda': qso['rda'],\
+                        'tstamp': qso['date'].split('T')[0] + ' ' +\
+                            qso['time'],\
+                        'band': qso['band'],\
+                        'mode': qso['mode'],\
+                        'callsign': qso['callsign'],\
+                        'new_callsign': qso['newCallsign'] if 'newCallsign' in qso else None,\
+                        'image': data['qsl']['image']['name'],\
+                        'image_back': data['qsl']['image_back']['name']\
+                            if 'image_back' in data['qsl']\
+                                else None}, True)
+                    res.append('ok')
+                except CfmrdaDbException as exc:
+                    res.append(str(exc))
+            if [x for x in res if x == 'ok']:
+                for img_id in ('image', 'image_back'):
+                    if img_id in data['qsl']:
+                        image_bytes = \
+                            base64.b64decode(\
+                                data['qsl'][img_id]['file'].split(',')[1])
+                        with open(CONF.get('web', 'root') +\
+                            '/qsl_images/' + str(qsl_id) + '_' + img_id + '_' +\
+                            data['qso'][img_id]['name'], 'wb') as image_file:
+                            image_file.write(image_bytes)
+            return web.json_response(res)
         else:
             return CfmRdaServer.response_error_default()
 
 
     @asyncio.coroutine
     def _cfm_qsl_qso_delete(self, callsign, data):
-        res = yield from self._db.param_delete('cfm_qsl_qso',\
-            {'id': data['delete'], 'user_cs': callsign})
-        if res:
-            _del_qsl_image(res['id'])
-            return CfmRdaServer.response_ok()
-        else:
-            return CfmRdaServer.response_error_default()
+        qsl = yield from self._db.execute("""
+            select id, user_cs
+            from cfm_qsl 
+            where id = (
+                select qsl_id
+                from cfm_qsl_qso
+                where cfm_qsl_qso = %(delete)s)
+            """, data)
+        if qsl and qsl['user_cs'] == callsign:
+            res = yield from self._db.param_delete('cfm_qsl_qso',\
+                {'id': data['delete']})
+            if res:
+                if not (yield from self._db.execute("""
+                    select id from cfm_qsl_qso
+                    where qsl_id = %(id)s and 
+                        state is null""", qsl)):
+                    _del_qsl_image(res['id'])
+                if not (yield from self._db.execute("""
+                    select id from cfm_qsl_qso
+                    where qsl_id = %(id)s""", qsl)):
+                    yield from self._db.execute("""
+                        delete from cfm_qsl
+                        where id = %(id)s""", qsl)
+                return CfmRdaServer.response_ok()
+        return CfmRdaServer.response_error_default()
 
     @asyncio.coroutine
     def _get_qsl_list(self, callsign=None):
         sql = """
             select json_agg(json_build_object(
-                'id', id,
+                'id', cfm_qsl_qso.id,
+                'qslId', cfm_qsl.id,
                 'callsign', callsign,""" +\
                 ('' if callsign else """'callsignRda',
                 (select json_agg(distinct rda)
@@ -368,10 +397,12 @@ class CfmRdaServer():
                 'time', to_char(tstamp, 'HH24:MI'),
                 'state', state,
                 'admin', admin,
-                'comment', comment,
-                'image', image))
-            from cfm_qsl_qso 
-            where """
+                'commentQso', cfm_qsl_qso.comment,
+                'commentQsl', cfm_qsl.comment,
+                'image', image,
+                'imageBack', image_back))
+            from cfm_qsl_qso, cfm_qsl 
+            where cfm_qsl_qso.qsl_id = cfm_qsl.id and """
         if callsign:
             sql += "user_cs = %(callsign)s"
         else:
@@ -390,7 +421,7 @@ class CfmRdaServer():
         if isinstance(callsign, str):
             user_data = yield from self.get_user_data(callsign)
             if user_data['email_confirmed']:
-                if 'qso' in data:
+                if 'qsl' in data:
                     return (yield from self._cfm_qsl_qso_new(callsign, data))
                 elif 'delete' in data:
                     return (yield from self._cfm_qsl_qso_delete(callsign, data))
@@ -417,8 +448,13 @@ class CfmRdaServer():
                             set state = %(state)s, comment = %(comment)s,
                             admin = %(admin)s
                             where id = %(id)s""", data['qsl'])):
-                            for qsl in data['qsl']:
-                                _del_qsl_image(qsl['id'])
+                            for qso in data['qsl']:
+                                if not (yield from self._db.execute("""
+                                    select id from qso
+                                    where qsl_id = %(qslId)s
+                                        and state is null
+                                    limit 1""", qso)):
+                                    _del_qsl_image(qso['qslId'])
                             return CfmRdaServer.response_ok()
                         else:
                             return CfmRdaServer.response_error_default()
@@ -732,11 +768,11 @@ class CfmRdaServer():
     def _ext_loggers_delete(self, callsign, delete):
         """deletes ext_logger record from db return standard ok/error responses"""
         params = {'id': delete, 'callsign': callsign}
-        uploads = yield from self._db.execute("""select id as uid from uploads 
+        uploads = yield from self._db.execute("""select id as uid from uploads
             where ext_logger_id = %(id)s and user_cs = %(callsign)s""", params, True)
         if uploads:
-            for id in uploads:
-                yield from self._db.remove_upload(id)
+            for _id in uploads:
+                yield from self._db.remove_upload(_id)
         db_res = yield from self._db.execute("""delete from ext_loggers
             where id = %(id)s and callsign = %(callsign)s
             returning id""", {'id': delete, 'callsign': callsign})
@@ -858,7 +894,7 @@ class CfmRdaServer():
                     rsp['meta'] = yield from self._db.execute("""
                         select * from callsigns_meta 
                         where callsign = %(callsign)s""", data)
-        rdaRecords = yield from self._db.execute("""
+        rda_records = yield from self._db.execute("""
             select id, source, rda, callsign, comment,
                 to_char(ts, 'YYYY-MM-DD') as ts,
                 case when dt_start is null and dt_stop is null then null
@@ -874,7 +910,7 @@ class CfmRdaServer():
             """
             order by coalesce(dt_start, dt_stop) desc
             """, data, False)
-        rsp['rdaRecords'] = rdaRecords if isinstance(rdaRecords, list) else (rdaRecords,)
+        rsp['rdaRecords'] = rda_records if isinstance(rda_records, list) else (rda_records,)
         return web.json_response(rsp)
 
     def _require_callsign(self, data, require_admin=False):
@@ -1013,7 +1049,6 @@ class CfmRdaServer():
                         qso_params.append({'id': _id, 'comment': comment,\
                             'state': state})
                 if qso_params:
-                    logging.debug(qso_params)
                     if not (yield from self._db.execute("""update cfm_request_qso
                         set status_tstamp = now(), state = %(state)s, 
                             comment = %(comment)s

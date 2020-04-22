@@ -637,6 +637,42 @@ ALTER SEQUENCE callsigns_rda_id_seq OWNED BY callsigns_rda.id;
 
 
 --
+-- Name: cfm_qsl; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+--
+
+CREATE TABLE cfm_qsl (
+    id integer NOT NULL,
+    user_cs character varying(32) NOT NULL,
+    image character varying(128),
+    image_back character varying(128),
+    comment character varying(512)
+);
+
+
+ALTER TABLE cfm_qsl OWNER TO postgres;
+
+--
+-- Name: cfm_qsl_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE cfm_qsl_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE cfm_qsl_id_seq OWNER TO postgres;
+
+--
+-- Name: cfm_qsl_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE cfm_qsl_id_seq OWNED BY cfm_qsl.id;
+
+
+--
 -- Name: cfm_qsl_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
 --
 
@@ -649,12 +685,11 @@ CREATE TABLE cfm_qsl_qso (
     callsign character varying(32) NOT NULL,
     new_callsign character varying(32),
     tstamp timestamp without time zone NOT NULL,
-    image character varying(128) NOT NULL,
-    user_cs character varying(32) NOT NULL,
     state boolean,
     comment character varying(256),
     admin character varying(64),
-    status_date timestamp without time zone
+    status_date timestamp without time zone,
+    qsl_id integer NOT NULL
 );
 
 
@@ -1015,6 +1050,13 @@ ALTER TABLE ONLY callsigns_rda ALTER COLUMN id SET DEFAULT nextval('callsigns_rd
 -- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
+ALTER TABLE ONLY cfm_qsl ALTER COLUMN id SET DEFAULT nextval('cfm_qsl_id_seq'::regclass);
+
+
+--
+-- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
 ALTER TABLE ONLY cfm_qsl_qso ALTER COLUMN id SET DEFAULT nextval('cfm_qsl_qso_id_seq'::regclass);
 
 
@@ -1068,6 +1110,14 @@ ALTER TABLE ONLY callsigns_meta
 
 ALTER TABLE ONLY callsigns_rda
     ADD CONSTRAINT callsigns_rda_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: cfm_qsl_pk; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+--
+
+ALTER TABLE ONLY cfm_qsl
+    ADD CONSTRAINT cfm_qsl_pk PRIMARY KEY (id);
 
 
 --
@@ -1233,13 +1283,6 @@ CREATE INDEX callsigns_rda_callsign_dt_start_dt_stop_idx ON callsigns_rda USING 
 --
 
 CREATE INDEX cfm_qsl_qso_status_date_idx ON cfm_qsl_qso USING btree (status_date);
-
-
---
--- Name: cfm_qsl_qso_user_cs_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
---
-
-CREATE INDEX cfm_qsl_qso_user_cs_fkey ON cfm_qsl_qso USING btree (user_cs);
 
 
 --
@@ -1454,11 +1497,19 @@ ALTER TABLE ONLY activators
 
 
 --
--- Name: cfm_qsl_qso_user_cs_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: cfm_qsl_qso_qsl_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY cfm_qsl_qso
-    ADD CONSTRAINT cfm_qsl_qso_user_cs_fkey FOREIGN KEY (user_cs) REFERENCES users(callsign);
+    ADD CONSTRAINT cfm_qsl_qso_qsl_id_fkey FOREIGN KEY (qsl_id) REFERENCES cfm_qsl(id);
+
+
+--
+-- Name: cfm_qsl_user_cs_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY cfm_qsl
+    ADD CONSTRAINT cfm_qsl_user_cs_fk FOREIGN KEY (user_cs) REFERENCES users(callsign);
 
 
 --
