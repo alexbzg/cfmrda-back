@@ -1650,6 +1650,26 @@ GRANT ALL ON SEQUENCE callsigns_rda_id_seq TO "www-group";
 
 
 --
+-- Name: cfm_qsl; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON TABLE cfm_qsl FROM PUBLIC;
+REVOKE ALL ON TABLE cfm_qsl FROM postgres;
+GRANT ALL ON TABLE cfm_qsl TO postgres;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_qsl TO "www-group";
+
+
+--
+-- Name: cfm_qsl_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON SEQUENCE cfm_qsl_id_seq FROM PUBLIC;
+REVOKE ALL ON SEQUENCE cfm_qsl_id_seq FROM postgres;
+GRANT ALL ON SEQUENCE cfm_qsl_id_seq TO postgres;
+GRANT ALL ON SEQUENCE cfm_qsl_id_seq TO "www-group";
+
+
+--
 -- Name: cfm_qsl_qso; Type: ACL; Schema: public; Owner: postgres
 --
 

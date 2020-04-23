@@ -68,6 +68,7 @@ class CfmRdaServer():
         self._loop = loop
         self._db = DBConn(CONF.items('db'))
         self._qrzcom = QRZComLink(loop)
+        self._qrzru = None
         if CONF.has_option('QRZRu', 'login'):
             self._qrzru = QRZRuLink(loop)
         asyncio.async(self._db.connect())
@@ -303,19 +304,19 @@ class CfmRdaServer():
 
     @asyncio.coroutine
     def _cfm_qsl_qso_new(self, callsign, data):
-        if self._json_validator.validate('cfmQslQso', data['qso']):
-            asyncio.async(self._load_qrz_rda(data['qso']['stationCallsign']))
+        if self._json_validator.validate('cfmQslQso', data['qsl']):
             res = []
             qsl_id = (yield from self._db.get_object('cfm_qsl',\
                         {'user_cs': callsign,\
                         'image': data['qsl']['image']['name'],\
-                        'image_back': data['qsl']['image_back']['name']\
-                            if 'image_back' in data['qsl']\
+                        'image_back': data['qsl']['imageBack']['name']\
+                            if 'imageBack' in data['qsl']\
                                 else None}, True))['id']
             for qso in data['qsl']['qso']:
+                asyncio.async(self._load_qrz_rda(qso['stationCallsign']))
                 try:
                     yield from self._db.get_object('cfm_qsl_qso',\
-                        {'user_cs': callsign,\
+                        {'qsl_id': qsl_id,\
                         'station_callsign': qso['stationCallsign'],\
                         'rda': qso['rda'],\
                         'tstamp': qso['date'].split('T')[0] + ' ' +\
@@ -323,23 +324,19 @@ class CfmRdaServer():
                         'band': qso['band'],\
                         'mode': qso['mode'],\
                         'callsign': qso['callsign'],\
-                        'new_callsign': qso['newCallsign'] if 'newCallsign' in qso else None,\
-                        'image': data['qsl']['image']['name'],\
-                        'image_back': data['qsl']['image_back']['name']\
-                            if 'image_back' in data['qsl']\
-                                else None}, True)
+                        'new_callsign': qso['newCallsign'] if 'newCallsign' in qso else None}, True)
                     res.append('ok')
                 except CfmrdaDbException as exc:
                     res.append(str(exc))
             if [x for x in res if x == 'ok']:
-                for img_id in ('image', 'image_back'):
+                for img_id in ('image', 'imageBack'):
                     if img_id in data['qsl']:
                         image_bytes = \
                             base64.b64decode(\
                                 data['qsl'][img_id]['file'].split(',')[1])
                         with open(CONF.get('web', 'root') +\
                             '/qsl_images/' + str(qsl_id) + '_' + img_id + '_' +\
-                            data['qso'][img_id]['name'], 'wb') as image_file:
+                            data['qsl'][img_id]['name'], 'wb') as image_file:
                             image_file.write(image_bytes)
             return web.json_response(res)
         else:
@@ -354,7 +351,7 @@ class CfmRdaServer():
             where id = (
                 select qsl_id
                 from cfm_qsl_qso
-                where cfm_qsl_qso = %(delete)s)
+                where cfm_qsl_qso.id = %(delete)s)
             """, data)
         if qsl and qsl['user_cs'] == callsign:
             res = yield from self._db.param_delete('cfm_qsl_qso',\
@@ -364,7 +361,7 @@ class CfmRdaServer():
                     select id from cfm_qsl_qso
                     where qsl_id = %(id)s and 
                         state is null""", qsl)):
-                    _del_qsl_image(res['id'])
+                    _del_qsl_image(qsl['id'])
                 if not (yield from self._db.execute("""
                     select id from cfm_qsl_qso
                     where qsl_id = %(id)s""", qsl)):
@@ -1476,19 +1473,20 @@ support@cfmrda.ru"""
 
     @asyncio.coroutine
     def _load_qrz_rda(self, callsign):
-        check = yield from self._db.execute("""
-            select rda 
-            from callsigns_rda
-            where callsign = %(callsign)s and source = 'QRZ.ru'
-                and ts > now() - interval '1 month'""",\
-           {'callsign': callsign})
-        if not check:
-            data = yield from self._qrzru.query(callsign)
-            if data and 'state' in data and data['state']:
-                yield from self._db.execute("""
-                insert into callsigns_rda (callsign, source, rda)
-                values (%(callsign)s, 'QRZ.ru', %(rda)s)""",\
-                {'callsign': callsign, 'rda': data['state']})
+        if self._qrzru:
+            check = yield from self._db.execute("""
+                select rda 
+                from callsigns_rda
+                where callsign = %(callsign)s and source = 'QRZ.ru'
+                    and ts > now() - interval '1 month'""",\
+            {'callsign': callsign})
+            if not check:
+                data = yield from self._qrzru.query(callsign)
+                if data and 'state' in data and data['state']:
+                    yield from self._db.execute("""
+                    insert into callsigns_rda (callsign, source, rda)
+                    values (%(callsign)s, 'QRZ.ru', %(rda)s)""",\
+                    {'callsign': callsign, 'rda': data['state']})
 
 
     @asyncio.coroutine

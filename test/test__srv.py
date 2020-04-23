@@ -574,19 +574,27 @@ def test_cfm_qsl_qso():
     with open(path.dirname(path.abspath(__file__)) + '/qsl.jpg', 'rb') as _tf:
         qsl_image = _tf.read()
         qsl_image = ',' + base64.b64encode(qsl_image).decode()
-    qso = {\
-        'callsign': 'TE1ST',\
-        'stationCallsign': 'R7CL/M',\
-        'rda': 'HA-01',\
-        'band': '10',\
-        'mode': 'CW',\
-        'date': '20180725',\
-        'time': '1218',\
-        'image': {\
-            'name': 'qsl.jpg',\
-            'file': qsl_image
+    qsl = {\
+            'qso': [\
+            {\
+                'callsign': 'TE1ST',\
+                'stationCallsign': 'R7CL/M',\
+                'rda': 'HA-01',\
+                'band': '10',\
+                'mode': 'CW',\
+                'date': '20180725',\
+                'time': '1218'
+                }],\
+                'image': {\
+                    'name': 'qsl.jpg',\
+                    'file': qsl_image
+                },
+                'imageBack': {\
+                    'name': 'qsl.jpg',\
+                    'file': qsl_image
+                }
+
             }
-        }
     token = create_token({'callsign': 'TE1ST'})
     qsl_path = CONF.get('web', 'root') + '/qsl_images/'
 
@@ -595,19 +603,19 @@ def test_cfm_qsl_qso():
         return requests.post(API_URI + '/cfm_qsl_qso', data=json.dumps(data))
 
     def new_qsl():
-        rsp = cfm_qsl_qso({'qso': qso})    
+        rsp = cfm_qsl_qso({'qsl': qsl})    
         logging.debug(rsp.text)
         assert rsp.status_code == 200
 
     data = None
-    def qsl_file_path(index): 
-        return qsl_path + str(data[index]['id']) + '_' + data[index]['image']
+    def qsl_file_path(index, img_type): 
+        return qsl_path + str(data[index]['qslId']) + '_' + img_type + '_' + data[index]['image']
 
     logging.debug('Cfm qsl qso -- new')
     new_qsl()
-    qso['time'] = '1219'
+    qsl['time'] = '1219'
     new_qsl()
-    qso['time'] = '1220'
+    qsl['time'] = '1220'
     new_qsl()
     
     logging.debug('Cfm qsl qso -- list')
@@ -617,9 +625,10 @@ def test_cfm_qsl_qso():
     data = json.loads(rsp.text)
     assert data
     assert data[0]
-    assert data[0]['callsign'] == qso['callsign']
-    assert data[0]['image'] == qso['image']['name']
-    assert path.isfile(qsl_file_path(0))
+    assert data[0]['callsign'] == qsl['qso'][0]['callsign']
+    assert data[0]['image'] == qsl['image']['name']
+    logging.debug(qsl_file_path(0, 'image'))
+    assert path.isfile(qsl_file_path(0, 'image'))
 
 
     def qsl_admin(data):
@@ -632,8 +641,8 @@ def test_cfm_qsl_qso():
     data = json.loads(rsp.text)
     assert data
     assert data[0]
-    assert data[0]['callsign'] == qso['callsign']
-    assert data[0]['image'] == qso['image']['name']
+    assert data[0]['callsign'] == qsl['qso'][0]['callsign']
+    assert data[0]['image'] == qsl['image']['name']
 
     logging.debug('qsl admin -- not authorized')
     rsp = qsl_admin({'token':  create_token({'callsign': 'TE1STA'})})
@@ -642,17 +651,17 @@ def test_cfm_qsl_qso():
 
     logging.debug('qsl admin -- manage')
     rsp = qsl_admin({'token': token,\
-            'qsl': [{'id': data[0]['id'], 'state': True, 'comment': None},\
-            {'id': data[1]['id'], 'state': False, 'comment': 'blah blah'}]})
+            'qsl': [{'id': data[0]['id'], 'state': True, 'comment': None, 'qslId': data[0]['qslId']},\
+            {'id': data[1]['id'], 'state': False, 'comment': 'blah blah', 'qslId': data[1]['qslId']}]})
     assert rsp.status_code == 200
-    assert not path.isfile(qsl_file_path(0))
-    assert not path.isfile(qsl_file_path(1))
+    assert not path.isfile(qsl_file_path(0, 'image'))
+    assert not path.isfile(qsl_file_path(1, 'image'))
 
     logging.debug('Cfm qsl qso -- delete')
     rsp = cfm_qsl_qso({'delete': data[2]['id']})
     logging.debug(rsp.text)
     assert rsp.status_code == 200
-    assert not path.isfile(qsl_file_path(2))
+    assert not path.isfile(qsl_file_path(2, 'image'))
 
 def test_old_callsigns():
     callsign = 'TE1ST'
