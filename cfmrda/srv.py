@@ -308,6 +308,7 @@ class CfmRdaServer():
             res = []
             qsl_id = (yield from self._db.get_object('cfm_qsl',\
                         {'user_cs': callsign,\
+                        'comment': data['qsl']['comment'],\
                         'image': data['qsl']['image']['name'],\
                         'image_back': data['qsl']['imageBack']['name']\
                             if 'imageBack' in data['qsl']\
@@ -440,6 +441,8 @@ class CfmRdaServer():
                     if self._json_validator.validate('qslAdmin', data['qsl']):
                         for qso in data['qsl']:
                             qso['admin'] = callsign
+                            if 'comment' not in qso:
+                                qso['comment'] = None
                         if (yield from self._db.execute("""
                             update cfm_qsl_qso 
                             set state = %(state)s, comment = %(comment)s,
