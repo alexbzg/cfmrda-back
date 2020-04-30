@@ -450,7 +450,7 @@ class CfmRdaServer():
                             where id = %(id)s""", data['qsl'])):
                             for qso in data['qsl']:
                                 if not (yield from self._db.execute("""
-                                    select id from qso
+                                    select id from cfm_qsl_qso
                                     where qsl_id = %(qslId)s
                                         and state is null
                                     limit 1""", qso)):
@@ -620,7 +620,8 @@ class CfmRdaServer():
                     """, data, False)
                 if check_uploader != callsign:
                     return CfmRdaServer.response_error_default()
-
+            
+            data['delBy'] = callsign
             upload_data = yield from self._db.execute("""
                 select json_build_object('activators', activators,
                     'rda', rda, 'qso', qsos,
@@ -632,7 +633,7 @@ class CfmRdaServer():
                 from
                 (select user_cs as uploader, upload_type, tstamp
                     from uploads            
-                    where id = %(id)s) as u,
+                    where id = %(id)s and (user_cs != %(delBy)s or now() - tstamp > interval '1 day')) as u,
                 lateral 
                 (select array_agg(distinct station_callsign) as activators 
                     from qso 
@@ -646,8 +647,6 @@ class CfmRdaServer():
                     from qso
                     where upload_id = %(id)s) as qsos
                 """, data, False)
-            upload_data['delBy'] = callsign
-
             if not (yield from self._db.execute("""
                 delete from qso where upload_id = %(id)s
                 """, data)):
@@ -660,9 +659,8 @@ class CfmRdaServer():
                 delete from uploads where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
-            if upload_data['rda'] and\
-                datetime.now() - datetime.strptime(upload_data['upload_ts'], '%d %m %Y %H:%M:%S') >\
-                timedelta(days=1):
+            if upload_data and upload_data['rda']:
+                upload_data['delBy'] = callsign
                 del_uploads_path = CONF.get('web', 'root') + '/json/del_uploads.json'
                 del_uploads = load_json(del_uploads_path) or []
                 del_uploads.insert(0, upload_data)

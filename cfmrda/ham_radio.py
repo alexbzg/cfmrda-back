@@ -159,7 +159,9 @@ def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activato
                 continue
 
             qso_date = get_adif_field(line, 'QSO_DATE')
-            qso_time = get_adif_field(line, 'TIME_ON')
+            qso_time = get_adif_field(line, 'TIME_OFF')
+            if not qso_time:
+                qso_time = get_adif_field(line, 'TIME_ON')
             if not qso_date:
                 append_error('Поле не найдено или некорректно (QSO_DATE)')
                 continue

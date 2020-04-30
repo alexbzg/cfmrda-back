@@ -107,6 +107,10 @@ def export_msc(conf):
     """, None, False))
 
     data['userActivity'] = (yield from _db.execute("""
+        with qsl_data as 
+            (select user_cs, state 
+            from cfm_qsl_qso, cfm_qsl
+            where cfm_qsl.id = cfm_qsl_qso.qsl_id)
         select json_agg(data) from
             (select json_build_object('callsign', 
                 coalesce(qsl_wait.callsign, qsl_today.callsign, email.callsign), 
@@ -114,12 +118,12 @@ def export_msc(conf):
                 'email', email) as data 
             from
                 (select user_cs as callsign, count(*) as qsl_wait 
-                from cfm_qsl_qso 
+                from qsl_data
                 where state is null 
                 group by user_cs) as qsl_wait 
                 full join
                 (select user_cs as callsign, count(*) as qsl_today 
-                from cfm_qsl_qso 
+                from qsl_data
                 where state
                 group by user_cs) as qsl_today 
                 on qsl_wait.callsign = qsl_today.callsign 
