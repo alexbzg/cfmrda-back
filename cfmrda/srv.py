@@ -821,6 +821,13 @@ class CfmRdaServer():
             return web.json_response({'loggers': loggers, 'accounts': accounts})
 
     @asyncio.coroutine
+    def user_data_hndlr(self, callsign, data):
+        if 'data' in data:
+            yield from self._db.param_update('users', {'callsign': callsign},\
+                splice_params(data['data'], ('defs',)))
+        return (yield from self.send_user_data(callsign))
+
+    @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
         if 'delete' in data or 'new' in data or 'conflict' in data\
@@ -1563,6 +1570,8 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/callsigns_rda',\
         SRV.handler_wrap(SRV.callsigns_rda_hndlr,\
             validation_scheme='callsignsRda', require_callsign=False))
+    APP.router.add_post('/aiohttp/user_data',\
+        SRV.handler_wrap(SRV.user_data_hndlr, require_callsign=True))
     APP.router.add_post('/aiohttp/ann',\
         SRV.handler_wrap(SRV.ann_hndlr,\
             validation_scheme='ann'))

@@ -446,7 +446,7 @@ CREATE FUNCTION tf_cfm_qsl_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   if exists (select from qso where qso.callsign = new.callsign and qso.rda = new.rda and qso.band = new.band and qso.mode = new.mode) then
-    raise 'cfmrda_db_error:Этот район у вас уже активирован (%, %, %).', new.rda, new.mode, new.band || 'MHz';
+    raise 'cfmrda_db_error:Этот RDA у вас уже подтвержден ⇒ <b>(%, %, %)</b> ⇐ This RDA is already comfirmed for you.', new.rda, new.mode, new.band || 'MHz';
   end if;
   perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
 /*  if exists (select 1 from cfm_qsl_qso
@@ -1033,7 +1033,8 @@ CREATE TABLE users (
     callsign character varying(32) NOT NULL,
     password character varying(32) NOT NULL,
     email character varying(64) NOT NULL,
-    email_confirmed boolean DEFAULT false NOT NULL
+    email_confirmed boolean DEFAULT false NOT NULL,
+    defs jsonb
 );
 
 
