@@ -1487,6 +1487,8 @@ CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON public.old_callsig
 
 CREATE TRIGGER tr_qso_ai AFTER INSERT ON public.qso FOR EACH ROW EXECUTE PROCEDURE public.tf_qso_ai();
 
+ALTER TABLE public.qso DISABLE TRIGGER tr_qso_ai;
+
 
 --
 -- Name: qso tr_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres

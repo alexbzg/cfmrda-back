@@ -113,9 +113,8 @@ def export_msc(conf):
             where cfm_qsl.id = cfm_qsl_qso.qsl_id)
         select json_agg(data) from
             (select json_build_object('callsign', 
-                coalesce(qsl_wait.callsign, qsl_today.callsign, email.callsign), 
-                'qslWait', qsl_wait, 'qslToday', qsl_today, 
-                'email', email) as data 
+                coalesce(qsl_wait.callsign, qsl_today.callsign), 
+                'qslWait', qsl_wait, 'qslToday', qsl_today) as data 
             from
                 (select user_cs as callsign, count(*) as qsl_wait 
                 from qsl_data
@@ -127,14 +126,7 @@ def export_msc(conf):
                 where state
                 group by user_cs) as qsl_today 
                 on qsl_wait.callsign = qsl_today.callsign 
-                full join
-                (select user_cs as callsign, count(*) as email 
-                from cfm_request_qso 
-                where not sent and user_cs is not null  
-                group by user_cs) as email 
-                on coalesce(qsl_wait.callsign, qsl_today.callsign) = email.callsign
-                order by coalesce(qsl_wait.callsign, qsl_today.callsign, 
-                    email.callsign)
+                order by coalesce(qsl_wait.callsign, qsl_today.callsign)
             )  as data""", None, False))
 
     save_json(data, conf.get('web', 'root') + '/json/msc.json')
