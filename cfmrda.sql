@@ -2,12 +2,19 @@
 -- PostgreSQL database dump
 --
 
+-- Dumped from database version 9.6.17
+-- Dumped by pg_dump version 9.6.17
+
 SET statement_timeout = 0;
 SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
 SET check_function_bodies = false;
+SET xmloption = content;
 SET client_min_messages = warning;
+SET row_security = off;
 
 --
 -- Name: plpgsql; Type: EXTENSION; Schema: -; Owner: 
@@ -23,13 +30,11 @@ CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
 COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';
 
 
-SET search_path = public, pg_catalog;
-
 --
 -- Name: build_rankings(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION build_rankings() RETURNS void
+CREATE FUNCTION public.build_rankings() RETURNS void
     LANGUAGE plpgsql
     AS $$
 declare _9band_tr smallint;
@@ -38,6 +43,7 @@ begin
 -- rda
 
 delete from rda_activator;
+lock table rda_hunter in share row exclusive mode;
 delete from rda_hunter;
 
 insert into rda_hunter (hunter, mode, band, rda)
@@ -245,7 +251,7 @@ ALTER FUNCTION public.build_rankings() OWNER TO postgres;
 -- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) RETURNS record
+CREATE FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) RETURNS record
     LANGUAGE plpgsql
     AS $$
 declare 
@@ -306,7 +312,7 @@ ALTER FUNCTION public.check_qso(_callsign character varying, _station_callsign c
 -- Name: hunters_rdas(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION hunters_rdas() RETURNS TABLE(callsign character varying, rda character)
+CREATE FUNCTION public.hunters_rdas() RETURNS TABLE(callsign character varying, rda character)
     LANGUAGE plpgsql
     AS $$
 declare 
@@ -339,7 +345,7 @@ ALTER FUNCTION public.hunters_rdas() OWNER TO postgres;
 -- Name: rankings_json(character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION rankings_json(condition character varying) RETURNS json
+CREATE FUNCTION public.rankings_json(condition character varying) RETURNS json
     LANGUAGE plpgsql
     AS $$declare 
   data json;
@@ -348,8 +354,8 @@ begin
 	|| '(select role, json_object_agg(mode, data) as data from '
 	|| '(select role, mode, json_object_agg(band, data) as data from '
 	|| '(select role, mode, band, json_agg(json_build_object(''callsign'', callsign, '
-	|| '''count'', _count, ''rank'', _rank, ''row'', _row)) as data from '
-	|| '(select * from rankings where ' || condition || ' order by _row) as l_0 '
+	|| '''count'', _count, ''rank'', _rank, ''row'', _row) order by _row) as data from '
+	|| '(select * from rankings where ' || condition || ') as l_0 '
 	|| 'group by role, mode, band) as l_1 '
 	|| 'group by role, mode) as l_2 '
 	|| 'group by role) as l_3'
@@ -364,7 +370,7 @@ ALTER FUNCTION public.rankings_json(condition character varying) OWNER TO postgr
 -- Name: strip_callsign(character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION strip_callsign(callsign character varying) RETURNS character varying
+CREATE FUNCTION public.strip_callsign(callsign character varying) RETURNS character varying
     LANGUAGE plpgsql IMMUTABLE
     AS $$begin
   return substring(callsign from '\d?[A-Z]+\d+[A-Z]+');
@@ -377,7 +383,7 @@ ALTER FUNCTION public.strip_callsign(callsign character varying) OWNER TO postgr
 -- Name: tf_activators_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_activators_bi() RETURNS trigger
+CREATE FUNCTION public.tf_activators_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   new.activator = strip_callsign(new.activator);
@@ -403,7 +409,7 @@ ALTER FUNCTION public.tf_activators_bi() OWNER TO postgres;
 -- Name: tf_callsigns_rda_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_callsigns_rda_bi() RETURNS trigger
+CREATE FUNCTION public.tf_callsigns_rda_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
@@ -442,7 +448,7 @@ ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
 -- Name: tf_cfm_qsl_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_cfm_qsl_qso_bi() RETURNS trigger
+CREATE FUNCTION public.tf_cfm_qsl_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   if exists (select from qso where qso.callsign = new.callsign and qso.rda = new.rda and qso.band = new.band and qso.mode = new.mode) then
@@ -465,7 +471,7 @@ ALTER FUNCTION public.tf_cfm_qsl_qso_bi() OWNER TO postgres;
 -- Name: tf_cfm_qsl_qso_bu(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_cfm_qsl_qso_bu() RETURNS trigger
+CREATE FUNCTION public.tf_cfm_qsl_qso_bu() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   if new.state and (not old.state or old.state is null) then
@@ -490,7 +496,7 @@ ALTER FUNCTION public.tf_cfm_qsl_qso_bu() OWNER TO postgres;
 -- Name: tf_cfm_request_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_cfm_request_qso_bi() RETURNS trigger
+CREATE FUNCTION public.tf_cfm_request_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
@@ -504,7 +510,7 @@ ALTER FUNCTION public.tf_cfm_request_qso_bi() OWNER TO postgres;
 -- Name: tf_old_callsigns_aiu(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_old_callsigns_aiu() RETURNS trigger
+CREATE FUNCTION public.tf_old_callsigns_aiu() RETURNS trigger
     LANGUAGE plpgsql
     AS $$begin
   if new.confirmed then
@@ -529,7 +535,7 @@ ALTER FUNCTION public.tf_old_callsigns_aiu() OWNER TO postgres;
 -- Name: tf_qso_ai(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_qso_ai() RETURNS trigger
+CREATE FUNCTION public.tf_qso_ai() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
@@ -547,7 +553,7 @@ ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
 -- Name: tf_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION tf_qso_bi() RETURNS trigger
+CREATE FUNCTION public.tf_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 declare 
@@ -573,35 +579,35 @@ SET default_tablespace = '';
 SET default_with_oids = false;
 
 --
--- Name: activators; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: activators; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE activators (
+CREATE TABLE public.activators (
     upload_id bigint NOT NULL,
     activator character varying(32) NOT NULL
 );
 
 
-ALTER TABLE activators OWNER TO postgres;
+ALTER TABLE public.activators OWNER TO postgres;
 
 --
--- Name: callsigns_meta; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: callsigns_meta; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE callsigns_meta (
+CREATE TABLE public.callsigns_meta (
     callsign character varying(64) NOT NULL,
     disable_autocfm boolean,
     comments character varying(512)
 );
 
 
-ALTER TABLE callsigns_meta OWNER TO postgres;
+ALTER TABLE public.callsigns_meta OWNER TO postgres;
 
 --
--- Name: callsigns_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: callsigns_rda; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE callsigns_rda (
+CREATE TABLE public.callsigns_rda (
     callsign character varying(64) NOT NULL,
     dt_start date,
     dt_stop date,
@@ -613,13 +619,13 @@ CREATE TABLE callsigns_rda (
 );
 
 
-ALTER TABLE callsigns_rda OWNER TO postgres;
+ALTER TABLE public.callsigns_rda OWNER TO postgres;
 
 --
 -- Name: callsigns_rda_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
-CREATE SEQUENCE callsigns_rda_id_seq
+CREATE SEQUENCE public.callsigns_rda_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -627,20 +633,20 @@ CREATE SEQUENCE callsigns_rda_id_seq
     CACHE 1;
 
 
-ALTER TABLE callsigns_rda_id_seq OWNER TO postgres;
+ALTER TABLE public.callsigns_rda_id_seq OWNER TO postgres;
 
 --
 -- Name: callsigns_rda_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE callsigns_rda_id_seq OWNED BY callsigns_rda.id;
+ALTER SEQUENCE public.callsigns_rda_id_seq OWNED BY public.callsigns_rda.id;
 
 
 --
--- Name: cfm_qsl; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_qsl; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE cfm_qsl (
+CREATE TABLE public.cfm_qsl (
     id integer NOT NULL,
     user_cs character varying(32) NOT NULL,
     image character varying(128),
@@ -649,13 +655,13 @@ CREATE TABLE cfm_qsl (
 );
 
 
-ALTER TABLE cfm_qsl OWNER TO postgres;
+ALTER TABLE public.cfm_qsl OWNER TO postgres;
 
 --
 -- Name: cfm_qsl_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
-CREATE SEQUENCE cfm_qsl_id_seq
+CREATE SEQUENCE public.cfm_qsl_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -663,20 +669,20 @@ CREATE SEQUENCE cfm_qsl_id_seq
     CACHE 1;
 
 
-ALTER TABLE cfm_qsl_id_seq OWNER TO postgres;
+ALTER TABLE public.cfm_qsl_id_seq OWNER TO postgres;
 
 --
 -- Name: cfm_qsl_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE cfm_qsl_id_seq OWNED BY cfm_qsl.id;
+ALTER SEQUENCE public.cfm_qsl_id_seq OWNED BY public.cfm_qsl.id;
 
 
 --
--- Name: cfm_qsl_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_qsl_qso; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE cfm_qsl_qso (
+CREATE TABLE public.cfm_qsl_qso (
     id integer NOT NULL,
     station_callsign character varying(32),
     rda character(5) NOT NULL,
@@ -693,13 +699,13 @@ CREATE TABLE cfm_qsl_qso (
 );
 
 
-ALTER TABLE cfm_qsl_qso OWNER TO postgres;
+ALTER TABLE public.cfm_qsl_qso OWNER TO postgres;
 
 --
 -- Name: cfm_qsl_qso_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
-CREATE SEQUENCE cfm_qsl_qso_id_seq
+CREATE SEQUENCE public.cfm_qsl_qso_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -707,31 +713,31 @@ CREATE SEQUENCE cfm_qsl_qso_id_seq
     CACHE 1;
 
 
-ALTER TABLE cfm_qsl_qso_id_seq OWNER TO postgres;
+ALTER TABLE public.cfm_qsl_qso_id_seq OWNER TO postgres;
 
 --
 -- Name: cfm_qsl_qso_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE cfm_qsl_qso_id_seq OWNED BY cfm_qsl_qso.id;
+ALTER SEQUENCE public.cfm_qsl_qso_id_seq OWNED BY public.cfm_qsl_qso.id;
 
 
 --
--- Name: cfm_request_blacklist; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_request_blacklist; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE cfm_request_blacklist (
+CREATE TABLE public.cfm_request_blacklist (
     callsign character varying(32) NOT NULL
 );
 
 
-ALTER TABLE cfm_request_blacklist OWNER TO postgres;
+ALTER TABLE public.cfm_request_blacklist OWNER TO postgres;
 
 --
--- Name: cfm_request_qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_request_qso; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE cfm_request_qso (
+CREATE TABLE public.cfm_request_qso (
     id integer NOT NULL,
     correspondent character varying(32) NOT NULL,
     callsign character varying(32) NOT NULL,
@@ -753,13 +759,13 @@ CREATE TABLE cfm_request_qso (
 );
 
 
-ALTER TABLE cfm_request_qso OWNER TO postgres;
+ALTER TABLE public.cfm_request_qso OWNER TO postgres;
 
 --
 -- Name: cfm_request_qso_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
-CREATE SEQUENCE cfm_request_qso_id_seq
+CREATE SEQUENCE public.cfm_request_qso_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -767,32 +773,32 @@ CREATE SEQUENCE cfm_request_qso_id_seq
     CACHE 1;
 
 
-ALTER TABLE cfm_request_qso_id_seq OWNER TO postgres;
+ALTER TABLE public.cfm_request_qso_id_seq OWNER TO postgres;
 
 --
 -- Name: cfm_request_qso_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE cfm_request_qso_id_seq OWNED BY cfm_request_qso.id;
+ALTER SEQUENCE public.cfm_request_qso_id_seq OWNED BY public.cfm_request_qso.id;
 
 
 --
--- Name: cfm_requests; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_requests; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE cfm_requests (
+CREATE TABLE public.cfm_requests (
     callsign character varying(32) NOT NULL,
     tstamp timestamp without time zone
 );
 
 
-ALTER TABLE cfm_requests OWNER TO postgres;
+ALTER TABLE public.cfm_requests OWNER TO postgres;
 
 --
--- Name: ext_loggers; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: ext_loggers; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE ext_loggers (
+CREATE TABLE public.ext_loggers (
     callsign character varying(32) NOT NULL,
     logger character varying(8) NOT NULL,
     login_data json,
@@ -803,13 +809,13 @@ CREATE TABLE ext_loggers (
 );
 
 
-ALTER TABLE ext_loggers OWNER TO postgres;
+ALTER TABLE public.ext_loggers OWNER TO postgres;
 
 --
 -- Name: ext_loggers_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
-CREATE SEQUENCE ext_loggers_id_seq
+CREATE SEQUENCE public.ext_loggers_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -817,66 +823,66 @@ CREATE SEQUENCE ext_loggers_id_seq
     CACHE 1;
 
 
-ALTER TABLE ext_loggers_id_seq OWNER TO postgres;
+ALTER TABLE public.ext_loggers_id_seq OWNER TO postgres;
 
 --
 -- Name: ext_loggers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE ext_loggers_id_seq OWNED BY ext_loggers.id;
+ALTER SEQUENCE public.ext_loggers_id_seq OWNED BY public.ext_loggers.id;
 
 
 --
--- Name: list_bands; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: list_bands; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE list_bands (
+CREATE TABLE public.list_bands (
     band character varying(16) NOT NULL
 );
 
 
-ALTER TABLE list_bands OWNER TO postgres;
+ALTER TABLE public.list_bands OWNER TO postgres;
 
 --
--- Name: list_modes; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: list_modes; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE list_modes (
+CREATE TABLE public.list_modes (
     mode character varying(16) NOT NULL
 );
 
 
-ALTER TABLE list_modes OWNER TO postgres;
+ALTER TABLE public.list_modes OWNER TO postgres;
 
 --
--- Name: list_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: list_rda; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE list_rda (
+CREATE TABLE public.list_rda (
     rda character(5) NOT NULL
 );
 
 
-ALTER TABLE list_rda OWNER TO postgres;
+ALTER TABLE public.list_rda OWNER TO postgres;
 
 --
--- Name: old_callsigns; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: old_callsigns; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE old_callsigns (
+CREATE TABLE public.old_callsigns (
     old character varying(32) NOT NULL,
     new character varying(32) NOT NULL,
     confirmed boolean
 );
 
 
-ALTER TABLE old_callsigns OWNER TO postgres;
+ALTER TABLE public.old_callsigns OWNER TO postgres;
 
 --
--- Name: old_rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: old_rda; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE old_rda (
+CREATE TABLE public.old_rda (
     old character varying(5) NOT NULL,
     new character varying(5),
     dt_start date,
@@ -884,13 +890,13 @@ CREATE TABLE old_rda (
 );
 
 
-ALTER TABLE old_rda OWNER TO postgres;
+ALTER TABLE public.old_rda OWNER TO postgres;
 
 --
--- Name: qso; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: qso; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE qso (
+CREATE TABLE public.qso (
     id integer NOT NULL,
     upload_id integer,
     callsign character varying(32) NOT NULL,
@@ -905,13 +911,13 @@ CREATE TABLE qso (
 );
 
 
-ALTER TABLE qso OWNER TO postgres;
+ALTER TABLE public.qso OWNER TO postgres;
 
 --
 -- Name: qso_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
-CREATE SEQUENCE qso_id_seq
+CREATE SEQUENCE public.qso_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -919,20 +925,20 @@ CREATE SEQUENCE qso_id_seq
     CACHE 1;
 
 
-ALTER TABLE qso_id_seq OWNER TO postgres;
+ALTER TABLE public.qso_id_seq OWNER TO postgres;
 
 --
 -- Name: qso_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE qso_id_seq OWNED BY qso.id;
+ALTER SEQUENCE public.qso_id_seq OWNED BY public.qso.id;
 
 
 --
--- Name: rankings; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rankings; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE rankings (
+CREATE TABLE public.rankings (
     role character varying(16) NOT NULL,
     mode character varying(16) NOT NULL,
     band character varying(8) NOT NULL,
@@ -943,24 +949,24 @@ CREATE TABLE rankings (
 );
 
 
-ALTER TABLE rankings OWNER TO postgres;
+ALTER TABLE public.rankings OWNER TO postgres;
 
 --
--- Name: rda; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE rda (
+CREATE TABLE public.rda (
     rda character(5) NOT NULL
 );
 
 
-ALTER TABLE rda OWNER TO postgres;
+ALTER TABLE public.rda OWNER TO postgres;
 
 --
--- Name: rda_activator; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda_activator; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE rda_activator (
+CREATE TABLE public.rda_activator (
     activator character varying(32) NOT NULL,
     rda character(5) NOT NULL,
     band character varying(8) NOT NULL,
@@ -969,13 +975,13 @@ CREATE TABLE rda_activator (
 );
 
 
-ALTER TABLE rda_activator OWNER TO postgres;
+ALTER TABLE public.rda_activator OWNER TO postgres;
 
 --
--- Name: rda_hunter; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda_hunter; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE rda_hunter (
+CREATE TABLE public.rda_hunter (
     hunter character varying(32) NOT NULL,
     rda character(5) NOT NULL,
     band character varying(16),
@@ -983,13 +989,13 @@ CREATE TABLE rda_hunter (
 );
 
 
-ALTER TABLE rda_hunter OWNER TO postgres;
+ALTER TABLE public.rda_hunter OWNER TO postgres;
 
 --
--- Name: uploads; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: uploads; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE uploads (
+CREATE TABLE public.uploads (
     id integer NOT NULL,
     user_cs character varying(32) NOT NULL,
     tstamp timestamp without time zone DEFAULT now() NOT NULL,
@@ -1002,13 +1008,13 @@ CREATE TABLE uploads (
 );
 
 
-ALTER TABLE uploads OWNER TO postgres;
+ALTER TABLE public.uploads OWNER TO postgres;
 
 --
 -- Name: uploads_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
-CREATE SEQUENCE uploads_id_seq
+CREATE SEQUENCE public.uploads_id_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -1016,20 +1022,20 @@ CREATE SEQUENCE uploads_id_seq
     CACHE 1;
 
 
-ALTER TABLE uploads_id_seq OWNER TO postgres;
+ALTER TABLE public.uploads_id_seq OWNER TO postgres;
 
 --
 -- Name: uploads_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
-ALTER SEQUENCE uploads_id_seq OWNED BY uploads.id;
+ALTER SEQUENCE public.uploads_id_seq OWNED BY public.uploads.id;
 
 
 --
--- Name: users; Type: TABLE; Schema: public; Owner: postgres; Tablespace: 
+-- Name: users; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE TABLE users (
+CREATE TABLE public.users (
     callsign character varying(32) NOT NULL,
     password character varying(32) NOT NULL,
     email character varying(64) NOT NULL,
@@ -1038,856 +1044,742 @@ CREATE TABLE users (
 );
 
 
-ALTER TABLE users OWNER TO postgres;
+ALTER TABLE public.users OWNER TO postgres;
 
 --
--- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: callsigns_rda id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY callsigns_rda ALTER COLUMN id SET DEFAULT nextval('callsigns_rda_id_seq'::regclass);
-
-
---
--- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY cfm_qsl ALTER COLUMN id SET DEFAULT nextval('cfm_qsl_id_seq'::regclass);
+ALTER TABLE ONLY public.callsigns_rda ALTER COLUMN id SET DEFAULT nextval('public.callsigns_rda_id_seq'::regclass);
 
 
 --
--- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: cfm_qsl id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY cfm_qsl_qso ALTER COLUMN id SET DEFAULT nextval('cfm_qsl_qso_id_seq'::regclass);
-
-
---
--- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY cfm_request_qso ALTER COLUMN id SET DEFAULT nextval('cfm_request_qso_id_seq'::regclass);
+ALTER TABLE ONLY public.cfm_qsl ALTER COLUMN id SET DEFAULT nextval('public.cfm_qsl_id_seq'::regclass);
 
 
 --
--- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: cfm_qsl_qso id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY ext_loggers ALTER COLUMN id SET DEFAULT nextval('ext_loggers_id_seq'::regclass);
-
-
---
--- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY qso ALTER COLUMN id SET DEFAULT nextval('qso_id_seq'::regclass);
+ALTER TABLE ONLY public.cfm_qsl_qso ALTER COLUMN id SET DEFAULT nextval('public.cfm_qsl_qso_id_seq'::regclass);
 
 
 --
--- Name: id; Type: DEFAULT; Schema: public; Owner: postgres
+-- Name: cfm_request_qso id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY uploads ALTER COLUMN id SET DEFAULT nextval('uploads_id_seq'::regclass);
+ALTER TABLE ONLY public.cfm_request_qso ALTER COLUMN id SET DEFAULT nextval('public.cfm_request_qso_id_seq'::regclass);
 
 
 --
--- Name: activators_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: ext_loggers id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY activators
+ALTER TABLE ONLY public.ext_loggers ALTER COLUMN id SET DEFAULT nextval('public.ext_loggers_id_seq'::regclass);
+
+
+--
+-- Name: qso id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.qso ALTER COLUMN id SET DEFAULT nextval('public.qso_id_seq'::regclass);
+
+
+--
+-- Name: uploads id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.uploads ALTER COLUMN id SET DEFAULT nextval('public.uploads_id_seq'::regclass);
+
+
+--
+-- Name: activators activators_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.activators
     ADD CONSTRAINT activators_pkey PRIMARY KEY (upload_id, activator);
 
 
 --
--- Name: callsigns_meta_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: callsigns_meta callsigns_meta_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY callsigns_meta
+ALTER TABLE ONLY public.callsigns_meta
     ADD CONSTRAINT callsigns_meta_pkey PRIMARY KEY (callsign);
 
 
 --
--- Name: callsigns_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: callsigns_rda callsigns_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY callsigns_rda
+ALTER TABLE ONLY public.callsigns_rda
     ADD CONSTRAINT callsigns_rda_pkey PRIMARY KEY (id);
 
 
 --
--- Name: cfm_qsl_pk; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_qsl cfm_qsl_pk; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY cfm_qsl
+ALTER TABLE ONLY public.cfm_qsl
     ADD CONSTRAINT cfm_qsl_pk PRIMARY KEY (id);
 
 
 --
--- Name: cfm_qsl_qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_qsl_qso cfm_qsl_qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY cfm_qsl_qso
+ALTER TABLE ONLY public.cfm_qsl_qso
     ADD CONSTRAINT cfm_qsl_qso_pkey PRIMARY KEY (id);
 
 
 --
--- Name: cfm_request_blacklist_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_request_blacklist cfm_request_blacklist_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY cfm_request_blacklist
+ALTER TABLE ONLY public.cfm_request_blacklist
     ADD CONSTRAINT cfm_request_blacklist_pkey PRIMARY KEY (callsign);
 
 
 --
--- Name: cfm_request_qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_request_qso cfm_request_qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY cfm_request_qso
+ALTER TABLE ONLY public.cfm_request_qso
     ADD CONSTRAINT cfm_request_qso_pkey PRIMARY KEY (id);
 
 
 --
--- Name: ext_loggers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: ext_loggers ext_loggers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY ext_loggers
+ALTER TABLE ONLY public.ext_loggers
     ADD CONSTRAINT ext_loggers_pkey PRIMARY KEY (id);
 
 
 --
--- Name: list_bands_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: list_bands list_bands_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY list_bands
+ALTER TABLE ONLY public.list_bands
     ADD CONSTRAINT list_bands_pkey PRIMARY KEY (band);
 
 
 --
--- Name: list_modes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: list_modes list_modes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY list_modes
+ALTER TABLE ONLY public.list_modes
     ADD CONSTRAINT list_modes_pkey PRIMARY KEY (mode);
 
 
 --
--- Name: list_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: list_rda list_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY list_rda
+ALTER TABLE ONLY public.list_rda
     ADD CONSTRAINT list_rda_pkey PRIMARY KEY (rda);
 
 
 --
--- Name: old_callsigns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: old_callsigns old_callsigns_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY old_callsigns
+ALTER TABLE ONLY public.old_callsigns
     ADD CONSTRAINT old_callsigns_pkey PRIMARY KEY (old, new);
 
 
 --
--- Name: old_rda_old_dt_start_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: old_rda old_rda_old_dt_start_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY old_rda
+ALTER TABLE ONLY public.old_rda
     ADD CONSTRAINT old_rda_old_dt_start_key UNIQUE (old, dt_start);
 
 
 --
--- Name: qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: qso qso_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY qso
+ALTER TABLE ONLY public.qso
     ADD CONSTRAINT qso_pkey PRIMARY KEY (id);
 
 
 --
--- Name: qso_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_requests qso_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY cfm_requests
+ALTER TABLE ONLY public.cfm_requests
     ADD CONSTRAINT qso_requests_pkey PRIMARY KEY (callsign);
 
 
 --
--- Name: rankings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rankings rankings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY rankings
+ALTER TABLE ONLY public.rankings
     ADD CONSTRAINT rankings_pkey PRIMARY KEY (role, mode, band, callsign);
 
 
 --
--- Name: rda_activator_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda_activator rda_activator_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY rda_activator
+ALTER TABLE ONLY public.rda_activator
     ADD CONSTRAINT rda_activator_pkey PRIMARY KEY (activator, rda, band, mode);
 
 
 --
--- Name: rda_hunter_uq; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda_hunter rda_hunter_uq; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY rda_hunter
+ALTER TABLE ONLY public.rda_hunter
     ADD CONSTRAINT rda_hunter_uq UNIQUE (hunter, rda, band, mode);
 
 
 --
--- Name: rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY rda
+ALTER TABLE ONLY public.rda
     ADD CONSTRAINT rda_pkey PRIMARY KEY (rda);
 
 
 --
--- Name: uploads_hash_key; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: uploads uploads_hash_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY uploads
+ALTER TABLE ONLY public.uploads
     ADD CONSTRAINT uploads_hash_key UNIQUE (hash);
 
 
 --
--- Name: uploads_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: uploads uploads_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY uploads
+ALTER TABLE ONLY public.uploads
     ADD CONSTRAINT uploads_pkey PRIMARY KEY (id);
 
 
 --
--- Name: users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres; Tablespace: 
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY users
+ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (callsign);
 
 
 --
--- Name: activators_activator_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: activators_activator_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX activators_activator_idx ON activators USING btree (activator);
+CREATE INDEX activators_activator_idx ON public.activators USING btree (activator);
 
 
 --
--- Name: callsigns_rda_callsign_dt_start_dt_stop_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: callsigns_rda_callsign_dt_start_dt_stop_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX callsigns_rda_callsign_dt_start_dt_stop_idx ON callsigns_rda USING btree (callsign, dt_start, dt_stop);
+CREATE INDEX callsigns_rda_callsign_dt_start_dt_stop_idx ON public.callsigns_rda USING btree (callsign, dt_start, dt_stop);
 
 
 --
--- Name: cfm_qsl_qso_status_date_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_qsl_qso_status_date_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX cfm_qsl_qso_status_date_idx ON cfm_qsl_qso USING btree (status_date);
+CREATE INDEX cfm_qsl_qso_status_date_idx ON public.cfm_qsl_qso USING btree (status_date);
 
 
 --
--- Name: cfm_request_qso_correspondent_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_request_qso_correspondent_callsign_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX cfm_request_qso_correspondent_callsign_idx ON cfm_request_qso USING btree (correspondent);
+CREATE INDEX cfm_request_qso_correspondent_callsign_idx ON public.cfm_request_qso USING btree (correspondent);
 
 
 --
--- Name: cfm_request_qso_sent_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_request_qso_sent_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX cfm_request_qso_sent_idx ON cfm_request_qso USING btree (sent);
+CREATE INDEX cfm_request_qso_sent_idx ON public.cfm_request_qso USING btree (sent);
 
 
 --
--- Name: cfm_request_qso_user_cs_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: cfm_request_qso_user_cs_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX cfm_request_qso_user_cs_idx ON cfm_request_qso USING btree (user_cs);
+CREATE INDEX cfm_request_qso_user_cs_idx ON public.cfm_request_qso USING btree (user_cs);
 
 
 --
--- Name: fki_qso_rda_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: fki_qso_rda_fkey; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX fki_qso_rda_fkey ON qso USING btree (rda);
+CREATE INDEX fki_qso_rda_fkey ON public.qso USING btree (rda);
 
 
 --
--- Name: fki_uploads_ext_loggers_fkey; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: fki_uploads_ext_loggers_fkey; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX fki_uploads_ext_loggers_fkey ON uploads USING btree (ext_logger_id);
+CREATE INDEX fki_uploads_ext_loggers_fkey ON public.uploads USING btree (ext_logger_id);
 
 
 --
--- Name: old_callsigns_confirmed_new_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: old_callsigns_confirmed_new_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX old_callsigns_confirmed_new_idx ON old_callsigns USING btree (confirmed, new);
+CREATE INDEX old_callsigns_confirmed_new_idx ON public.old_callsigns USING btree (confirmed, new);
 
 
 --
--- Name: old_callsigns_confirmed_old_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: old_callsigns_confirmed_old_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX old_callsigns_confirmed_old_idx ON old_callsigns USING btree (confirmed, old);
+CREATE INDEX old_callsigns_confirmed_old_idx ON public.old_callsigns USING btree (confirmed, old);
 
 
 --
--- Name: old_callsigns_uq; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: old_callsigns_uq; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE UNIQUE INDEX old_callsigns_uq ON old_callsigns USING btree (old) WHERE confirmed;
+CREATE UNIQUE INDEX old_callsigns_uq ON public.old_callsigns USING btree (old) WHERE confirmed;
 
 
 --
--- Name: qso_callsign_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: qso_callsign_mode_band_rda_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX qso_callsign_mode_band_rda_idx ON qso USING btree (callsign, mode, band, rda);
+CREATE INDEX qso_callsign_mode_band_rda_idx ON public.qso USING btree (callsign, mode, band, rda);
 
 
 --
--- Name: qso_upload_id_mode_band_rda_callsign_dt_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: qso_upload_id_mode_band_rda_callsign_dt_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX qso_upload_id_mode_band_rda_callsign_dt_idx ON qso USING btree (upload_id, mode, band, rda, callsign, dt);
+CREATE INDEX qso_upload_id_mode_band_rda_callsign_dt_idx ON public.qso USING btree (upload_id, mode, band, rda, callsign, dt);
 
 
 --
--- Name: rankings_callsign_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rankings_callsign_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX rankings_callsign_idx ON rankings USING btree (callsign);
+CREATE INDEX rankings_callsign_idx ON public.rankings USING btree (callsign);
 
 
 --
--- Name: rankings_role_mode_band__row_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rankings_role_mode_band__row_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX rankings_role_mode_band__row_idx ON rankings USING btree (role, mode, band, _row);
+CREATE INDEX rankings_role_mode_band__row_idx ON public.rankings USING btree (role, mode, band, _row);
 
 
 --
--- Name: rankings_top100; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rankings_top100; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX rankings_top100 ON rankings USING btree (role, mode, band, callsign, _count, _rank) WHERE (_rank < 101);
+CREATE INDEX rankings_top100 ON public.rankings USING btree (role, mode, band, callsign, _count, _rank) WHERE (_rank < 101);
 
 
 --
--- Name: rda_activator_activator_rda_band_mode_callsigns_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda_activator_activator_rda_band_mode_callsigns_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX rda_activator_activator_rda_band_mode_callsigns_idx ON rda_activator USING btree (activator, rda, band, mode, callsigns);
+CREATE INDEX rda_activator_activator_rda_band_mode_callsigns_idx ON public.rda_activator USING btree (activator, rda, band, mode, callsigns);
 
 
 --
--- Name: rda_hunter_callsign_rda_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda_hunter_callsign_rda_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX rda_hunter_callsign_rda_idx ON rda_hunter USING btree (hunter, rda);
+CREATE INDEX rda_hunter_callsign_rda_idx ON public.rda_hunter USING btree (hunter, rda);
 
 
 --
--- Name: rda_hunter_hunter_mode_band_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: rda_hunter_hunter_mode_band_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX rda_hunter_hunter_mode_band_idx ON rda_hunter USING btree (hunter, mode, band);
+CREATE INDEX rda_hunter_hunter_mode_band_idx ON public.rda_hunter USING btree (hunter, mode, band);
 
 
 --
--- Name: unique_callsigns_rda_qrz; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: unique_callsigns_rda_qrz; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE UNIQUE INDEX unique_callsigns_rda_qrz ON callsigns_rda USING btree (callsign) WHERE ((source)::text = 'QRZ.ru'::text);
+CREATE UNIQUE INDEX unique_callsigns_rda_qrz ON public.callsigns_rda USING btree (callsign) WHERE ((source)::text = 'QRZ.ru'::text);
 
 
 --
--- Name: uploads_enabled_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: uploads_enabled_id_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX uploads_enabled_id_idx ON uploads USING btree (enabled, id);
+CREATE INDEX uploads_enabled_id_idx ON public.uploads USING btree (enabled, id);
 
 
 --
--- Name: uploads_id_enabled_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: uploads_id_enabled_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX uploads_id_enabled_idx ON uploads USING btree (id, enabled);
+CREATE INDEX uploads_id_enabled_idx ON public.uploads USING btree (id, enabled);
 
 
 --
--- Name: uploads_id_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: uploads_id_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX uploads_id_idx ON uploads USING btree (id);
+CREATE INDEX uploads_id_idx ON public.uploads USING btree (id);
 
 
 --
--- Name: uploads_id_user_cs_upload_type_idx; Type: INDEX; Schema: public; Owner: postgres; Tablespace: 
+-- Name: uploads_id_user_cs_upload_type_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX uploads_id_user_cs_upload_type_idx ON uploads USING btree (id, user_cs, upload_type);
+CREATE INDEX uploads_id_user_cs_upload_type_idx ON public.uploads USING btree (id, user_cs, upload_type);
 
 
 --
--- Name: tr_activators_bi; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: activators tr_activators_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_activators_bi BEFORE INSERT ON activators FOR EACH ROW EXECUTE PROCEDURE tf_activators_bi();
+CREATE TRIGGER tr_activators_bi BEFORE INSERT ON public.activators FOR EACH ROW EXECUTE PROCEDURE public.tf_activators_bi();
 
 
 --
--- Name: tr_callsigns_rda_bi; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: callsigns_rda tr_callsigns_rda_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_callsigns_rda_bi BEFORE INSERT ON callsigns_rda FOR EACH ROW EXECUTE PROCEDURE tf_callsigns_rda_bi();
+CREATE TRIGGER tr_callsigns_rda_bi BEFORE INSERT ON public.callsigns_rda FOR EACH ROW EXECUTE PROCEDURE public.tf_callsigns_rda_bi();
 
 
 --
--- Name: tr_cfm_qsl_qso_bu; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: cfm_qsl_qso tr_cfm_qsl_qso_bu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_cfm_qsl_qso_bu BEFORE UPDATE ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_bu();
+CREATE TRIGGER tr_cfm_qsl_qso_bu BEFORE UPDATE ON public.cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE public.tf_cfm_qsl_qso_bu();
 
 
 --
--- Name: tr_cfm_requests_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: cfm_request_qso tr_cfm_requests_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON cfm_request_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_request_qso_bi();
+CREATE TRIGGER tr_cfm_requests_qso_bi BEFORE INSERT ON public.cfm_request_qso FOR EACH ROW EXECUTE PROCEDURE public.tf_cfm_request_qso_bi();
 
 
 --
--- Name: tr_cmf_qsl_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: cfm_qsl_qso tr_cmf_qsl_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_cmf_qsl_qso_bi BEFORE INSERT ON cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE tf_cfm_qsl_qso_bi();
+CREATE TRIGGER tr_cmf_qsl_qso_bi BEFORE INSERT ON public.cfm_qsl_qso FOR EACH ROW EXECUTE PROCEDURE public.tf_cfm_qsl_qso_bi();
 
 
 --
--- Name: tr_old_callsigns_aiu; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: old_callsigns tr_old_callsigns_aiu; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON old_callsigns FOR EACH ROW EXECUTE PROCEDURE tf_old_callsigns_aiu();
+CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON public.old_callsigns FOR EACH ROW EXECUTE PROCEDURE public.tf_old_callsigns_aiu();
 
 
 --
--- Name: tr_qso_ai; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: qso tr_qso_ai; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_qso_ai AFTER INSERT ON qso FOR EACH ROW EXECUTE PROCEDURE tf_qso_ai();
+CREATE TRIGGER tr_qso_ai AFTER INSERT ON public.qso FOR EACH ROW EXECUTE PROCEDURE public.tf_qso_ai();
 
 
 --
--- Name: tr_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
+-- Name: qso tr_qso_bi; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
-CREATE TRIGGER tr_qso_bi BEFORE INSERT ON qso FOR EACH ROW EXECUTE PROCEDURE tf_qso_bi();
+CREATE TRIGGER tr_qso_bi BEFORE INSERT ON public.qso FOR EACH ROW EXECUTE PROCEDURE public.tf_qso_bi();
 
 
 --
--- Name: activators_upload_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: activators activators_upload_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY activators
-    ADD CONSTRAINT activators_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES uploads(id);
+ALTER TABLE ONLY public.activators
+    ADD CONSTRAINT activators_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES public.uploads(id);
 
 
 --
--- Name: cfm_qsl_qso_qsl_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: cfm_qsl_qso cfm_qsl_qso_qsl_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY cfm_qsl_qso
-    ADD CONSTRAINT cfm_qsl_qso_qsl_id_fkey FOREIGN KEY (qsl_id) REFERENCES cfm_qsl(id);
+ALTER TABLE ONLY public.cfm_qsl_qso
+    ADD CONSTRAINT cfm_qsl_qso_qsl_id_fkey FOREIGN KEY (qsl_id) REFERENCES public.cfm_qsl(id);
 
 
 --
--- Name: cfm_qsl_user_cs_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: cfm_qsl cfm_qsl_user_cs_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY cfm_qsl
-    ADD CONSTRAINT cfm_qsl_user_cs_fk FOREIGN KEY (user_cs) REFERENCES users(callsign);
+ALTER TABLE ONLY public.cfm_qsl
+    ADD CONSTRAINT cfm_qsl_user_cs_fk FOREIGN KEY (user_cs) REFERENCES public.users(callsign);
 
 
 --
--- Name: ext_loggers_callsign_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: ext_loggers ext_loggers_callsign_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY ext_loggers
-    ADD CONSTRAINT ext_loggers_callsign_fkey FOREIGN KEY (callsign) REFERENCES users(callsign);
+ALTER TABLE ONLY public.ext_loggers
+    ADD CONSTRAINT ext_loggers_callsign_fkey FOREIGN KEY (callsign) REFERENCES public.users(callsign);
 
 
 --
--- Name: qso_rda_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: qso qso_rda_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY qso
-    ADD CONSTRAINT qso_rda_fkey FOREIGN KEY (rda) REFERENCES rda(rda);
+ALTER TABLE ONLY public.qso
+    ADD CONSTRAINT qso_rda_fkey FOREIGN KEY (rda) REFERENCES public.rda(rda);
 
 
 --
--- Name: qso_upload_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: qso qso_upload_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY qso
-    ADD CONSTRAINT qso_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES uploads(id);
+ALTER TABLE ONLY public.qso
+    ADD CONSTRAINT qso_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES public.uploads(id);
 
 
 --
--- Name: uploads_ext_loggers_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: uploads uploads_ext_loggers_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY uploads
-    ADD CONSTRAINT uploads_ext_loggers_fkey FOREIGN KEY (ext_logger_id) REFERENCES ext_loggers(id);
+ALTER TABLE ONLY public.uploads
+    ADD CONSTRAINT uploads_ext_loggers_fkey FOREIGN KEY (ext_logger_id) REFERENCES public.ext_loggers(id);
 
 
 --
--- Name: public; Type: ACL; Schema: -; Owner: postgres
+-- Name: FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying); Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
-REVOKE ALL ON SCHEMA public FROM postgres;
-GRANT ALL ON SCHEMA public TO postgres;
-GRANT ALL ON SCHEMA public TO PUBLIC;
+GRANT ALL ON FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO "www-group";
 
 
 --
--- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: ACL; Schema: public; Owner: postgres
+-- Name: FUNCTION tf_activators_bi(); Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) FROM PUBLIC;
-REVOKE ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) FROM postgres;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO postgres;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO PUBLIC;
-GRANT ALL ON FUNCTION check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) TO "www-group";
+GRANT ALL ON FUNCTION public.tf_activators_bi() TO "www-group";
 
 
 --
--- Name: tf_activators_bi(); Type: ACL; Schema: public; Owner: postgres
+-- Name: FUNCTION tf_callsigns_rda_bi(); Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON FUNCTION tf_activators_bi() FROM PUBLIC;
-REVOKE ALL ON FUNCTION tf_activators_bi() FROM postgres;
-GRANT ALL ON FUNCTION tf_activators_bi() TO postgres;
-GRANT ALL ON FUNCTION tf_activators_bi() TO PUBLIC;
-GRANT ALL ON FUNCTION tf_activators_bi() TO "www-group";
+GRANT ALL ON FUNCTION public.tf_callsigns_rda_bi() TO "www-group";
 
 
 --
--- Name: tf_callsigns_rda_bi(); Type: ACL; Schema: public; Owner: postgres
+-- Name: FUNCTION tf_cfm_qsl_qso_bi(); Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON FUNCTION tf_callsigns_rda_bi() FROM PUBLIC;
-REVOKE ALL ON FUNCTION tf_callsigns_rda_bi() FROM postgres;
-GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO postgres;
-GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO PUBLIC;
-GRANT ALL ON FUNCTION tf_callsigns_rda_bi() TO "www-group";
+GRANT ALL ON FUNCTION public.tf_cfm_qsl_qso_bi() TO "www-group";
 
 
 --
--- Name: tf_cfm_qsl_qso_bi(); Type: ACL; Schema: public; Owner: postgres
+-- Name: FUNCTION tf_qso_bi(); Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON FUNCTION tf_cfm_qsl_qso_bi() FROM PUBLIC;
-REVOKE ALL ON FUNCTION tf_cfm_qsl_qso_bi() FROM postgres;
-GRANT ALL ON FUNCTION tf_cfm_qsl_qso_bi() TO postgres;
-GRANT ALL ON FUNCTION tf_cfm_qsl_qso_bi() TO PUBLIC;
-GRANT ALL ON FUNCTION tf_cfm_qsl_qso_bi() TO "www-group";
+GRANT ALL ON FUNCTION public.tf_qso_bi() TO "www-group";
 
 
 --
--- Name: tf_qso_bi(); Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE activators; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON FUNCTION tf_qso_bi() FROM PUBLIC;
-REVOKE ALL ON FUNCTION tf_qso_bi() FROM postgres;
-GRANT ALL ON FUNCTION tf_qso_bi() TO postgres;
-GRANT ALL ON FUNCTION tf_qso_bi() TO PUBLIC;
-GRANT ALL ON FUNCTION tf_qso_bi() TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.activators TO "www-group";
 
 
 --
--- Name: activators; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE callsigns_meta; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE activators FROM PUBLIC;
-REVOKE ALL ON TABLE activators FROM postgres;
-GRANT ALL ON TABLE activators TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE activators TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.callsigns_meta TO "www-group";
 
 
 --
--- Name: callsigns_meta; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE callsigns_rda; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE callsigns_meta FROM PUBLIC;
-REVOKE ALL ON TABLE callsigns_meta FROM postgres;
-GRANT ALL ON TABLE callsigns_meta TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE callsigns_meta TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.callsigns_rda TO "www-group";
 
 
 --
--- Name: callsigns_rda; Type: ACL; Schema: public; Owner: postgres
+-- Name: SEQUENCE callsigns_rda_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE callsigns_rda FROM PUBLIC;
-REVOKE ALL ON TABLE callsigns_rda FROM postgres;
-GRANT ALL ON TABLE callsigns_rda TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE callsigns_rda TO "www-group";
+GRANT ALL ON SEQUENCE public.callsigns_rda_id_seq TO "www-group";
 
 
 --
--- Name: callsigns_rda_id_seq; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE cfm_qsl; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON SEQUENCE callsigns_rda_id_seq FROM PUBLIC;
-REVOKE ALL ON SEQUENCE callsigns_rda_id_seq FROM postgres;
-GRANT ALL ON SEQUENCE callsigns_rda_id_seq TO postgres;
-GRANT ALL ON SEQUENCE callsigns_rda_id_seq TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.cfm_qsl TO "www-group";
 
 
 --
--- Name: cfm_qsl; Type: ACL; Schema: public; Owner: postgres
+-- Name: SEQUENCE cfm_qsl_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE cfm_qsl FROM PUBLIC;
-REVOKE ALL ON TABLE cfm_qsl FROM postgres;
-GRANT ALL ON TABLE cfm_qsl TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_qsl TO "www-group";
+GRANT ALL ON SEQUENCE public.cfm_qsl_id_seq TO "www-group";
 
 
 --
--- Name: cfm_qsl_id_seq; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE cfm_qsl_qso; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON SEQUENCE cfm_qsl_id_seq FROM PUBLIC;
-REVOKE ALL ON SEQUENCE cfm_qsl_id_seq FROM postgres;
-GRANT ALL ON SEQUENCE cfm_qsl_id_seq TO postgres;
-GRANT ALL ON SEQUENCE cfm_qsl_id_seq TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.cfm_qsl_qso TO "www-group";
 
 
 --
--- Name: cfm_qsl_qso; Type: ACL; Schema: public; Owner: postgres
+-- Name: SEQUENCE cfm_qsl_qso_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE cfm_qsl_qso FROM PUBLIC;
-REVOKE ALL ON TABLE cfm_qsl_qso FROM postgres;
-GRANT ALL ON TABLE cfm_qsl_qso TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_qsl_qso TO "www-group";
+GRANT ALL ON SEQUENCE public.cfm_qsl_qso_id_seq TO "www-group";
 
 
 --
--- Name: cfm_qsl_qso_id_seq; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE cfm_request_blacklist; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON SEQUENCE cfm_qsl_qso_id_seq FROM PUBLIC;
-REVOKE ALL ON SEQUENCE cfm_qsl_qso_id_seq FROM postgres;
-GRANT ALL ON SEQUENCE cfm_qsl_qso_id_seq TO postgres;
-GRANT ALL ON SEQUENCE cfm_qsl_qso_id_seq TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.cfm_request_blacklist TO "www-group";
 
 
 --
--- Name: cfm_request_blacklist; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE cfm_request_qso; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE cfm_request_blacklist FROM PUBLIC;
-REVOKE ALL ON TABLE cfm_request_blacklist FROM postgres;
-GRANT ALL ON TABLE cfm_request_blacklist TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_request_blacklist TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.cfm_request_qso TO "www-group";
 
 
 --
--- Name: cfm_request_qso; Type: ACL; Schema: public; Owner: postgres
+-- Name: SEQUENCE cfm_request_qso_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE cfm_request_qso FROM PUBLIC;
-REVOKE ALL ON TABLE cfm_request_qso FROM postgres;
-GRANT ALL ON TABLE cfm_request_qso TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_request_qso TO "www-group";
+GRANT ALL ON SEQUENCE public.cfm_request_qso_id_seq TO "www-group";
 
 
 --
--- Name: cfm_request_qso_id_seq; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE cfm_requests; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON SEQUENCE cfm_request_qso_id_seq FROM PUBLIC;
-REVOKE ALL ON SEQUENCE cfm_request_qso_id_seq FROM postgres;
-GRANT ALL ON SEQUENCE cfm_request_qso_id_seq TO postgres;
-GRANT ALL ON SEQUENCE cfm_request_qso_id_seq TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.cfm_requests TO "www-group";
 
 
 --
--- Name: cfm_requests; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE ext_loggers; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE cfm_requests FROM PUBLIC;
-REVOKE ALL ON TABLE cfm_requests FROM postgres;
-GRANT ALL ON TABLE cfm_requests TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE cfm_requests TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.ext_loggers TO "www-group";
 
 
 --
--- Name: ext_loggers; Type: ACL; Schema: public; Owner: postgres
+-- Name: SEQUENCE ext_loggers_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE ext_loggers FROM PUBLIC;
-REVOKE ALL ON TABLE ext_loggers FROM postgres;
-GRANT ALL ON TABLE ext_loggers TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE ext_loggers TO "www-group";
+GRANT ALL ON SEQUENCE public.ext_loggers_id_seq TO "www-group";
 
 
 --
--- Name: ext_loggers_id_seq; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE list_bands; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON SEQUENCE ext_loggers_id_seq FROM PUBLIC;
-REVOKE ALL ON SEQUENCE ext_loggers_id_seq FROM postgres;
-GRANT ALL ON SEQUENCE ext_loggers_id_seq TO postgres;
-GRANT ALL ON SEQUENCE ext_loggers_id_seq TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.list_bands TO "www-group";
 
 
 --
--- Name: list_bands; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE list_modes; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE list_bands FROM PUBLIC;
-REVOKE ALL ON TABLE list_bands FROM postgres;
-GRANT ALL ON TABLE list_bands TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE list_bands TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.list_modes TO "www-group";
 
 
 --
--- Name: list_modes; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE list_rda; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE list_modes FROM PUBLIC;
-REVOKE ALL ON TABLE list_modes FROM postgres;
-GRANT ALL ON TABLE list_modes TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE list_modes TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.list_rda TO "www-group";
 
 
 --
--- Name: list_rda; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE old_callsigns; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE list_rda FROM PUBLIC;
-REVOKE ALL ON TABLE list_rda FROM postgres;
-GRANT ALL ON TABLE list_rda TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE list_rda TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.old_callsigns TO "www-group";
 
 
 --
--- Name: old_callsigns; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE old_rda; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE old_callsigns FROM PUBLIC;
-REVOKE ALL ON TABLE old_callsigns FROM postgres;
-GRANT ALL ON TABLE old_callsigns TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE old_callsigns TO "www-group";
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.old_rda TO "www-group";
 
 
 --
--- Name: old_rda; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE qso; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE old_rda FROM PUBLIC;
-REVOKE ALL ON TABLE old_rda FROM postgres;
-GRANT ALL ON TABLE old_rda TO postgres;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE old_rda TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.qso TO "www-group";
 
 
 --
--- Name: qso; Type: ACL; Schema: public; Owner: postgres
+-- Name: SEQUENCE qso_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE qso FROM PUBLIC;
-REVOKE ALL ON TABLE qso FROM postgres;
-GRANT ALL ON TABLE qso TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE qso TO "www-group";
+GRANT ALL ON SEQUENCE public.qso_id_seq TO "www-group";
 
 
 --
--- Name: qso_id_seq; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE rankings; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON SEQUENCE qso_id_seq FROM PUBLIC;
-REVOKE ALL ON SEQUENCE qso_id_seq FROM postgres;
-GRANT ALL ON SEQUENCE qso_id_seq TO postgres;
-GRANT ALL ON SEQUENCE qso_id_seq TO "www-group";
+GRANT SELECT,INSERT,DELETE,TRIGGER ON TABLE public.rankings TO "www-group";
 
 
 --
--- Name: rankings; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE rda; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE rankings FROM PUBLIC;
-REVOKE ALL ON TABLE rankings FROM postgres;
-GRANT ALL ON TABLE rankings TO postgres;
-GRANT SELECT,INSERT,DELETE,TRIGGER ON TABLE rankings TO "www-group";
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.rda TO "www-group";
 
 
 --
--- Name: rda; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE rda_activator; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE rda FROM PUBLIC;
-REVOKE ALL ON TABLE rda FROM postgres;
-GRANT ALL ON TABLE rda TO postgres;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE rda TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.rda_activator TO "www-group";
 
 
 --
--- Name: rda_activator; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE rda_hunter; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE rda_activator FROM PUBLIC;
-REVOKE ALL ON TABLE rda_activator FROM postgres;
-GRANT ALL ON TABLE rda_activator TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE rda_activator TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.rda_hunter TO "www-group";
 
 
 --
--- Name: rda_hunter; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE uploads; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE rda_hunter FROM PUBLIC;
-REVOKE ALL ON TABLE rda_hunter FROM postgres;
-GRANT ALL ON TABLE rda_hunter TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE rda_hunter TO "www-group";
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.uploads TO "www-group";
 
 
 --
--- Name: uploads; Type: ACL; Schema: public; Owner: postgres
+-- Name: SEQUENCE uploads_id_seq; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON TABLE uploads FROM PUBLIC;
-REVOKE ALL ON TABLE uploads FROM postgres;
-GRANT ALL ON TABLE uploads TO postgres;
-GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE uploads TO "www-group";
+GRANT ALL ON SEQUENCE public.uploads_id_seq TO "www-group";
 
 
 --
--- Name: uploads_id_seq; Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE users; Type: ACL; Schema: public; Owner: postgres
 --
 
-REVOKE ALL ON SEQUENCE uploads_id_seq FROM PUBLIC;
-REVOKE ALL ON SEQUENCE uploads_id_seq FROM postgres;
-GRANT ALL ON SEQUENCE uploads_id_seq TO postgres;
-GRANT ALL ON SEQUENCE uploads_id_seq TO "www-group";
-
-
---
--- Name: users; Type: ACL; Schema: public; Owner: postgres
---
-
-REVOKE ALL ON TABLE users FROM PUBLIC;
-REVOKE ALL ON TABLE users FROM postgres;
-GRANT ALL ON TABLE users TO postgres;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE users TO "www-group";
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO "www-group";
 
 
 --

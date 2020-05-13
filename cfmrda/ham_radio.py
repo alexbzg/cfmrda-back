@@ -166,7 +166,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activato
                 append_error('Поле не найдено или некорректно (QSO_DATE)')
                 continue
             if not qso_time:
-                append_error('Поле не найдено или некорректно (TIME_ON)')
+                append_error('Поле не найдено или некорректно (TIME_OFF или TIME_ON)')
                 continue
             qso['tstamp'] = qso_date + ' ' + qso_time
 
