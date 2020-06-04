@@ -39,7 +39,7 @@ def setup_module():
     TEST_HUNTER = pytest.config.getoption('--test_hunter')
     global user_data
     user_data = None
-    global loop
+     global loop
     loop = asyncio.get_event_loop()
 
 def create_token(data):

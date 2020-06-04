@@ -1428,6 +1428,7 @@ support@cfmrda.ru"""
     @asyncio.coroutine
     def dwnld_qso_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
+        format = request.match_info.get('format', None)
         if callsign:
             with (yield from self._db.pool.cursor()) as cur:
                 try:
@@ -1450,17 +1451,20 @@ support@cfmrda.ru"""
                             where callsign = %(callsign)s
                     """, {'callsign': callsign})
                     data = yield from cur.fetchall()
-                    str_buf = io.StringIO()
-                    csv_writer = csv.writer(str_buf, quoting=csv.QUOTE_NONNUMERIC)
-                    csv_writer.writerow(['RDA', 'Date', 'Time', 'Band', 'Mode', 'Correspondent',\
-                        'Uploader', 'Role', 'DB date'])
-                    for row in data:
-                        csv_writer.writerow(row)
-                    return web.Response(
-                        headers={'Content-Disposition': 'Attachment;filename=' +\
-                                callsign + datetime.now().strftime('_%d_%b_%Y') +\
-                                '.csv'},\
-                        body=str_buf.getvalue().encode())
+                    if format == 'csv':
+                        str_buf = io.StringIO()
+                        csv_writer = csv.writer(str_buf, quoting=csv.QUOTE_NONNUMERIC)
+                        csv_writer.writerow(['RDA', 'Date', 'Time', 'Band', 'Mode', 'Correspondent',\
+                            'Uploader', 'Role', 'DB date'])
+                        for row in data:
+                            csv_writer.writerow(row)
+                        return web.Response(
+                            headers={'Content-Disposition': 'Attachment;filename=' +\
+                                    callsign + datetime.now().strftime('_%d_%b_%Y') +\
+                                    '.csv'},\
+                            body=str_buf.getvalue().encode())
+                    else:
+                        return web.json_response(data)
                 except Exception:
                     logging.exception('error while importing qso for callsign ' + callsign)
                     return CfmRdaServer.response_error_default()
@@ -1585,6 +1589,7 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
             SRV.correspondent_email_hndlr)
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
+    APP.router.add_get('/aiohttp/download/qso/{callsign}/{format}', SRV.dwnld_qso_hndlr)
     APP.router.add_get('/aiohttp/download/qso/{callsign}', SRV.dwnld_qso_hndlr)
     APP.router.add_get('/aiohttp/qrzru/{callsign}', SRV.get_qrzru)
     web.run_app(APP, path=CONF.get('files', 'server_socket'))
