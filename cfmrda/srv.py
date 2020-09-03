@@ -25,12 +25,14 @@ from secret import get_secret, create_token
 import recaptcha
 from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink, QRZRuLink
-from ham_radio import load_adif, strip_callsign, ADIFParseException
+from ham_radio import load_adif, strip_callsign, ADIFParseException, Pfx, PFX_RU
 from ext_logger import ExtLogger, ExtLoggerException
 
 CONF = site_conf()
 start_logging('srv', level=CONF.get('logs', 'srv_level'))
 logging.debug("restart")
+
+PFX = Pfx(CONF.get('files', 'pfx'))
 
 def _del_qsl_image(qsl_id):
     qsl_dir = CONF.get('web', 'root') + '/qsl_images/'
@@ -314,6 +316,11 @@ class CfmRdaServer():
                             if 'imageBack' in data['qsl']\
                                 else None}, True))['id']
             for qso in data['qsl']['qso']:
+                station_pfx = PFX.get(qso['stationCallsign'])
+                if station_pfx not in PFX_RU:
+                    res.append('Не российский позывной станции.\n' +\
+                        'The station\'s callsign is not russian.')
+                    continue
                 asyncio.async(self._load_qrz_rda(qso['stationCallsign']))
                 try:
                     yield from self._db.get_object('cfm_qsl_qso',\

@@ -33,6 +33,8 @@ RE_RDA_VALUE = re.compile(r"([a-zA-Z][a-zA-Z])[\d-]*(\d\d)")
 
 RDA_START_DATE = date(1991, 12, 6)
 
+PFX_RU = ['R', 'R2F', 'R9']
+
 class Pfx():
     """class for determining prefix/country by callsign"""
 
