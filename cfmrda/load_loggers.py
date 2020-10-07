@@ -9,7 +9,7 @@ import sys
 
 from common import site_conf, start_logging
 from db import DBConn, exec_cur, splice_params
-from ham_radio import load_adif, Pfx, PFX_RU
+from ham_radio import load_adif
 from ext_logger import ExtLogger
 
 @asyncio.coroutine
@@ -22,10 +22,7 @@ def main(conf):
 
     reload_interval = conf.get('web', 'elog_reload', fallback='7 days')
 
-    PFX = Pfx(conf.get('files', 'pfx'))
-
     with (yield from _db.pool.cursor()) as cur:
-
 
         yield from exec_cur(cur, """
             select json_build_object('id', id, 'callsign', callsign, 
@@ -139,11 +136,6 @@ def main(conf):
                             else qso['station_callsign']
                         qso['callsign'], qso['station_callsign'] = \
                             callsign, qso['callsign']
-
-
-                        station_pfx = PFX.get(qso['station_callsign'])
-                        if station_pfx not in PFX_RU:
-                            continue
 
                         rda = yield from rda_search(qso)
                         if rda:

@@ -18,6 +18,13 @@ def export_rankings(conf):
 
     _db = DBConn(conf.items('db'))
     yield from _db.connect()
+    yield from _db.execute("delete from rankings;")
+    yield from _db.execute("vacuum full freeze verbose analyze rankings;")
+    yield from _db.execute("delete from rda_activator;")
+    yield from _db.execute("vacuum full freeze verbose analyze rda_activator;")
+    yield from _db.execute("delete from rda_hunter;")
+    yield from _db.execute("vacuum full freeze verbose analyze rda_hunter;")
+    yield from _db.execute("vacuum full freeze verbose analyze qso;")
 
     yield from _db.execute("select from build_rankings()")
     logging.debug('rankings table rebuilt')
