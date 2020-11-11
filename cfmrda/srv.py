@@ -970,6 +970,38 @@ class CfmRdaServer():
             return web.json_response(callsigns)
 
     @asyncio.coroutine
+    def usr_reg_admin_hndlr(self, callsign, data):
+        if not 'password' in data:
+            data['password'] = None
+        if not 'email' in data:
+            data['email'] = None
+        if data['email'] and data['password']:
+            msg = None
+            res = yield from self._db.execute("""
+                update users
+                set password = %(password)s,
+                    email = %(email)s, email_confirmed = true
+                    where callsign = %(callsign)s
+                returning 1""", data)
+            if res:
+                msg = 'Данные позывного успешно обновлены.'
+            else:
+                res = yield from self._db.execute("""
+                insert into users (callsign, password, email, email_confirmed)
+                values (%(callsign)s, %(password)s, %(email)s, true)
+                returning 1""", data)
+                if res:
+                    msg = 'Позывной успешно зарегистрирован.'
+                else:
+                    msg = 'Ошибка БД.'
+            return web.Response(text=msg)
+        else:
+            usr_data = yield from self._db.get_object('users', {'callsign': data['callsign']},\
+                    never_create=True)
+            return web.json_response(usr_data)
+       
+
+    @asyncio.coroutine
     def old_callsigns_hndlr(self, callsign, data):
         res = yield from self._db.set_old_callsigns(callsign, data['callsigns'])
         if res:
@@ -1572,6 +1604,8 @@ if __name__ == '__main__':
         SRV.handler_wrap(SRV.old_callsigns_hndlr, 'oldCallsigns'))
     APP.router.add_post('/aiohttp/old_callsigns_admin',\
         SRV.handler_wrap(SRV.old_callsigns_admin_hndlr, require_admin=True))
+    APP.router.add_post('/aiohttp/usr_reg_admin',\
+        SRV.handler_wrap(SRV.usr_reg_admin_hndlr, require_admin=True))
     APP.router.add_post('/aiohttp/callsigns_rda',\
         SRV.handler_wrap(SRV.callsigns_rda_hndlr,\
             validation_scheme='callsignsRda', require_callsign=False))
