@@ -596,8 +596,7 @@ ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
 
 CREATE FUNCTION public.tf_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
-declare 
+    AS $$declare 
   new_callsign character varying(32);
 begin
   new.callsign = strip_callsign(new.callsign);
@@ -609,6 +608,10 @@ begin
     new.callsign = new_callsign;
   end if;
   new.dt = date(new.tstamp);
+  if new.upload_id is null
+  then
+    new.activator = strip_callsign(new.station_callsign);
+  end if;
   return new;
  end$$;
 
@@ -937,7 +940,8 @@ CREATE TABLE public.qso (
     tstamp timestamp without time zone NOT NULL,
     dt date DEFAULT date(now()) NOT NULL,
     old_callsign character varying(32),
-    rec_ts timestamp without time zone DEFAULT now()
+    rec_ts timestamp without time zone DEFAULT now(),
+    activator character varying(32)
 );
 ALTER TABLE ONLY public.qso ALTER COLUMN upload_id SET STATISTICS 10000;
 
@@ -1351,6 +1355,13 @@ CREATE INDEX old_callsigns_confirmed_old_idx ON public.old_callsigns USING btree
 --
 
 CREATE UNIQUE INDEX old_callsigns_uq ON public.old_callsigns USING btree (old) WHERE confirmed;
+
+
+--
+-- Name: qso_act_mode_band_rda_callsign_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX qso_act_mode_band_rda_callsign_idx ON public.qso USING btree (activator, mode, band, rda, callsign) WHERE (upload_id IS NULL);
 
 
 --

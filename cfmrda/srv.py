@@ -1396,16 +1396,18 @@ support@cfmrda.ru"""
                             'band', band,
                             'date', to_char(dt, 'DD Month YYYY'),
                             'uploadId', upload_id,
-                            'uploadType', upload_type,
+                            'uploadType', coalesce(upload_type, 'QSL card'),
                             'uploader', user_cs, 'count', count) as data
                     from
                         (select mode, band, qso.rda, dt, 
                             count(distinct callsign), 
                             qso.upload_id, user_cs, upload_type
-                        from qso, uploads, activators
-                        where uploads.id = qso.upload_id and enabled
-                            and activators.upload_id = qso.upload_id 
-                            and activator = %(callsign)s and
+                        from qso left join uploads 
+							on uploads.id = qso.upload_id and enabled
+						 	left join activators 
+						 	on activators.upload_id = qso.upload_id
+                        where (activators.activator = %(callsign)s or 
+							qso.activator = %(callsign)s) and
                             qso.rda = %(rda)s and
                             (qso.band = %(band)s or %(band)s is null) and
                             (qso.mode = %(mode)s or %(mode)s is null)
