@@ -17,20 +17,6 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: pg_repack; Type: EXTENSION; Schema: -; Owner: 
---
-
-CREATE EXTENSION IF NOT EXISTS pg_repack WITH SCHEMA public;
-
-
---
--- Name: EXTENSION pg_repack; Type: COMMENT; Schema: -; Owner: 
---
-
-COMMENT ON EXTENSION pg_repack IS 'Reorganize tables in PostgreSQL databases with minimal locks';
-
-
---
 -- Name: plpgsql; Type: EXTENSION; Schema: -; Owner: 
 --
 
@@ -96,6 +82,33 @@ group by activator, rda
 having sum(callsigns) > 99) as rda_activator_tt
 where not exists
 (select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tt.rda);
+
+-- countries
+insert into callsigns_countries (callsign, country_id)
+select distinct hunter, 
+	(select country_id 
+	 	from country_prefixes 
+	 	where hunter like prefix || '%'
+		order by character_length(prefix) 
+	 	limit 1) 
+from rda_hunter 
+where not exists
+	(select 
+	 	from callsigns_countries as cc2 
+	 	where cc2.callsign = hunter);
+	
+insert into callsigns_countries (callsign, country_id)
+select distinct activator, 
+	(select country_id 
+	 	from country_prefixes 
+	 	where activator like prefix || '%'
+		order by character_length(prefix) 
+	 	limit 1) 
+from rda_activator 
+where not exists
+	(select 
+	 	from callsigns_countries as cc2 
+	 	where cc2.callsign = activator);
 
 -- rankings 
 
@@ -267,7 +280,8 @@ ALTER FUNCTION public.build_rankings() OWNER TO postgres;
 
 CREATE FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) RETURNS record
     LANGUAGE plpgsql
-    AS $$declare 
+    AS $$
+declare 
   str_callsign character varying(32);
 begin
   str_callsign = strip_callsign(_callsign);
@@ -308,7 +322,7 @@ begin
   then
     raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
   end if;    
-  if exists (select from qso where qso.callsign = new_callsign and qso.station_callsign = _station_callsign 
+  if exists (select from qso where qso.callsign = str_callsign and qso.station_callsign = _station_callsign 
     and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and 
     qso.tstamp between (_ts - interval '5 min') and (_ts + interval '5 min'))
   then
@@ -380,13 +394,107 @@ end$$;
 ALTER FUNCTION public.rankings_json(condition character varying) OWNER TO postgres;
 
 --
+-- Name: rankings_json(character varying, character varying, character varying, integer, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer) RETURNS json
+    LANGUAGE plpgsql
+    AS $$declare 
+begin
+  return (select json_object_agg(role, data) as data from 
+	(select role, json_object_agg(mode, data) as data from 
+		(select role, mode, json_object_agg(band, data) as data from 
+			(select role, mode, band, json_agg(json_build_object('callsign', callsign, 
+				'count', _count, 'rank', _rank, 'row', _row) order by _row) as data from 
+					(select * from rankings 
+					 where (role = _role or _role is null) and 
+					 	(mode = _mode or _mode is null) and
+            			(band = _band or _band is null) and 
+					 	(_row >= _row_from or _row_from is null) and 
+					 	(_row <= _row_to or _row_to is null)
+					) as l_0 
+			group by role, mode, band) as l_1 
+		group by role, mode) as l_2 
+	group by role) as l_3);
+end$$;
+
+
+ALTER FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer) OWNER TO postgres;
+
+--
+-- Name: rankings_json(character varying, character varying, character varying, integer, integer, character varying); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying) RETURNS json
+    LANGUAGE plpgsql
+    AS $$declare 
+begin
+  return (select json_object_agg(role, data) as data from 
+	(select role, json_object_agg(mode, data) as data from 
+		(select role, mode, json_object_agg(band, data) as data from 
+			(select role, mode, band, json_agg(json_build_object('callsign', callsign, 
+				'count', _count, 'rank', _rank, 'row', _row) order by _row) as data from 
+					(select * from rankings 
+					 where (role = _role or _role is null) and 
+					 	(mode = _mode or _mode is null) and
+            			(band = _band or _band is null) and 
+					 	(_row >= _row_from or _row_from is null) and 
+					 	(_row <= _row_to or _row_to is null) and 
+					 	(callsign = _callsign or _callsign is null)
+					) as l_0 
+			group by role, mode, band) as l_1 
+		group by role, mode) as l_2 
+	group by role) as l_3);
+end$$;
+
+
+ALTER FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying) OWNER TO postgres;
+
+--
+-- Name: rankings_json_country(character varying, character varying, character varying, integer, integer, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.rankings_json_country(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying, _country_id integer) RETURNS json
+    LANGUAGE plpgsql
+    AS $$declare 
+begin
+  return (select json_object_agg(role, data) as data from 
+	(select role, json_object_agg(mode, data) as data from 
+		(select role, mode, json_object_agg(band, data) as data from 
+			(select role, mode, band, json_agg(json_build_object('callsign', callsign, 
+				'count', _count, 'rank', _rank, 'row', _row) order by _row) as data from 
+					(select * from
+						(select role, mode, band, callsign, _count, rank() over w as _rank, 
+						 	row_number() over w as _row from rankings 
+							where (role = _role or _role is null) and 
+					 			(mode = _mode or _mode is null) and
+            					(band = _band or _band is null) and 
+								callsign in 
+									(select callsign 
+									 	from callsigns_countries 
+									 	where country_id = _country_id)
+							window w as (order by _rank)
+							order by _row) as country_rankings
+					 where (callsign = _callsign or _callsign is null) and
+						(_row >= _row_from or _row_from is null) and 
+						(_row <= _row_to or _row_to is null) 				 
+					) as l_0 
+			group by role, mode, band) as l_1 
+		group by role, mode) as l_2 
+	group by role) as l_3);
+end$$;
+
+
+ALTER FUNCTION public.rankings_json_country(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying, _country_id integer) OWNER TO postgres;
+
+--
 -- Name: strip_callsign(character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.strip_callsign(callsign character varying) RETURNS character varying
     LANGUAGE plpgsql IMMUTABLE
     AS $$begin
-  return substring(callsign from '[\d]*[A-Z]+\d+[A-Z]+');
+  return substring(callsign from '\d?[A-Z]+\d+[A-Z]+');
 end$$;
 
 
@@ -432,12 +540,6 @@ begin
       (dt_start is null or dt_start <= new.dt_start) and
       (dt_stop is null or dt_stop >= new.dt_stop))
   then
-    update callsigns_rda
-      set ts = now()
-      where callsign = new.callsign and source = new.source and 
-        rda = new.rda and
-        (dt_start is null or dt_start <= new.dt_start) and
-        (dt_stop is null or dt_stop >= new.dt_stop);
     return null;
   end if;  
   /*check and replace obsolete rda*/
@@ -469,30 +571,11 @@ ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
 
 CREATE FUNCTION public.tf_cfm_qsl_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$declare 
-  new_rda character varying(5);
-begin
-  /*check and replace obsolete rda*/
-  select old_rda.new into new_rda
-    from old_rda 
-    where old_rda.old = new.rda and 
-	(dt_start < new.tstamp or dt_start is null) and
-	(dt_stop > new.tstamp or dt_stop is null);
-  if not found
-  then  
-    new_rda = new.rda;
-  elsif new_rda is null
-  then
-    raise 'cfmrda_db_error:Некорректный район RDA (%)', new.rda;    
-  end if;  
-  if not exists (select from rda where rda = new_rda)
-  then
-    raise 'cfmrda_db_error:Некорректный район RDA (%)', new.rda;    
-  end if;    
-  if exists (select from qso where qso.callsign = strip_callsign(new.callsign) and qso.rda = new_rda and qso.band = new.band and qso.mode = new.mode) then
-    raise 'cfmrda_db_error:Этот RDA у вас уже подтвержден ⇒ <b>(%, %, %)</b> ⇐ This RDA is already confirmed for you.', new.rda, new.mode, new.band || 'MHz';
+    AS $$begin
+  if exists (select from qso where qso.callsign = new.callsign and qso.rda = new.rda and qso.band = new.band and qso.mode = new.mode) then
+    raise 'cfmrda_db_error:Этот RDA у вас уже подтвержден ⇒ <b>(%, %, %)</b> ⇐ This RDA is already comfirmed for you.', new.rda, new.mode, new.band || 'MHz';
   end if;
-  perform check_qso(new.callsign, new.station_callsign, new_rda, new.band, new.mode, new.tstamp);
+  perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
 /*  if exists (select 1 from cfm_qsl_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
@@ -500,8 +583,7 @@ begin
     return null;
    end if;   */
    return new;
- end
-$$;
+ end$$;
 
 
 ALTER FUNCTION public.tf_cfm_qsl_qso_bi() OWNER TO postgres;
@@ -633,25 +715,16 @@ CREATE TABLE public.activators (
 ALTER TABLE public.activators OWNER TO postgres;
 
 --
--- Name: active_locks; Type: VIEW; Schema: public; Owner: postgres
+-- Name: callsigns_countries; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE VIEW public.active_locks AS
- SELECT t.schemaname,
-    t.relname,
-    l.locktype,
-    l.page,
-    l.virtualtransaction,
-    l.pid,
-    l.mode,
-    l.granted
-   FROM (pg_locks l
-     JOIN pg_stat_all_tables t ON ((l.relation = t.relid)))
-  WHERE ((t.schemaname <> 'pg_toast'::name) AND (t.schemaname <> 'pg_catalog'::name))
-  ORDER BY t.schemaname, t.relname;
+CREATE TABLE public.callsigns_countries (
+    callsign character varying(64) NOT NULL,
+    country_id smallint
+);
 
 
-ALTER TABLE public.active_locks OWNER TO postgres;
+ALTER TABLE public.callsigns_countries OWNER TO postgres;
 
 --
 -- Name: callsigns_meta; Type: TABLE; Schema: public; Owner: postgres
@@ -756,8 +829,8 @@ CREATE TABLE public.cfm_qsl_qso (
     tstamp timestamp without time zone NOT NULL,
     state boolean,
     comment character varying(256),
-    status_date timestamp without time zone,
     admin character varying(64),
+    status_date timestamp without time zone,
     qsl_id integer NOT NULL
 );
 
@@ -814,12 +887,11 @@ CREATE TABLE public.cfm_request_qso (
     sent_rst character varying(8) NOT NULL,
     sent boolean DEFAULT false NOT NULL,
     correspondent_email character varying(64) NOT NULL,
-    req_tstamp timestamp without time zone DEFAULT now(),
-    status_tstamp timestamp without time zone DEFAULT now(),
     viewed boolean DEFAULT false,
     comment character varying(256),
     state boolean,
-    user_cs character varying(32)
+    user_cs character varying(32),
+    status_tstamp timestamp without time zone DEFAULT now()
 );
 
 
@@ -859,6 +931,51 @@ CREATE TABLE public.cfm_requests (
 ALTER TABLE public.cfm_requests OWNER TO postgres;
 
 --
+-- Name: countries; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.countries (
+    id smallint NOT NULL,
+    name character varying(64) NOT NULL
+);
+
+
+ALTER TABLE public.countries OWNER TO postgres;
+
+--
+-- Name: countries_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.countries_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.countries_id_seq OWNER TO postgres;
+
+--
+-- Name: countries_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.countries_id_seq OWNED BY public.countries.id;
+
+
+--
+-- Name: country_prefixes; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.country_prefixes (
+    prefix character varying(8) NOT NULL,
+    country_id smallint NOT NULL
+);
+
+
+ALTER TABLE public.country_prefixes OWNER TO postgres;
+
+--
 -- Name: ext_loggers; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -895,6 +1012,39 @@ ALTER TABLE public.ext_loggers_id_seq OWNER TO postgres;
 
 ALTER SEQUENCE public.ext_loggers_id_seq OWNED BY public.ext_loggers.id;
 
+
+--
+-- Name: list_bands; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.list_bands (
+    band character varying(16) NOT NULL
+);
+
+
+ALTER TABLE public.list_bands OWNER TO postgres;
+
+--
+-- Name: list_modes; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.list_modes (
+    mode character varying(16) NOT NULL
+);
+
+
+ALTER TABLE public.list_modes OWNER TO postgres;
+
+--
+-- Name: list_rda; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.list_rda (
+    rda character(5) NOT NULL
+);
+
+
+ALTER TABLE public.list_rda OWNER TO postgres;
 
 --
 -- Name: old_callsigns; Type: TABLE; Schema: public; Owner: postgres
@@ -941,7 +1091,6 @@ CREATE TABLE public.qso (
     rec_ts timestamp without time zone DEFAULT now(),
     activator character varying(32)
 );
-ALTER TABLE ONLY public.qso ALTER COLUMN upload_id SET STATISTICS 10000;
 
 
 ALTER TABLE public.qso OWNER TO postgres;
@@ -1023,18 +1172,6 @@ CREATE TABLE public.rda_hunter (
 
 
 ALTER TABLE public.rda_hunter OWNER TO postgres;
-
---
--- Name: stat_log; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.stat_log (
-    tstamp timestamp without time zone DEFAULT now() NOT NULL,
-    msg character varying(512) NOT NULL
-);
-
-
-ALTER TABLE public.stat_log OWNER TO postgres;
 
 --
 -- Name: uploads; Type: TABLE; Schema: public; Owner: postgres
@@ -1120,6 +1257,13 @@ ALTER TABLE ONLY public.cfm_request_qso ALTER COLUMN id SET DEFAULT nextval('pub
 
 
 --
+-- Name: countries id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.countries ALTER COLUMN id SET DEFAULT nextval('public.countries_id_seq'::regclass);
+
+
+--
 -- Name: ext_loggers id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -1146,6 +1290,14 @@ ALTER TABLE ONLY public.uploads ALTER COLUMN id SET DEFAULT nextval('public.uplo
 
 ALTER TABLE ONLY public.activators
     ADD CONSTRAINT activators_pkey PRIMARY KEY (upload_id, activator);
+
+
+--
+-- Name: callsigns_countries callsigns_country_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.callsigns_countries
+    ADD CONSTRAINT callsigns_country_pkey PRIMARY KEY (callsign);
 
 
 --
@@ -1197,11 +1349,59 @@ ALTER TABLE ONLY public.cfm_request_qso
 
 
 --
+-- Name: countries countries_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.countries
+    ADD CONSTRAINT countries_name_key UNIQUE (name);
+
+
+--
+-- Name: countries countries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.countries
+    ADD CONSTRAINT countries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: country_prefixes country_prefixes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.country_prefixes
+    ADD CONSTRAINT country_prefixes_pkey PRIMARY KEY (prefix);
+
+
+--
 -- Name: ext_loggers ext_loggers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.ext_loggers
     ADD CONSTRAINT ext_loggers_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: list_bands list_bands_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.list_bands
+    ADD CONSTRAINT list_bands_pkey PRIMARY KEY (band);
+
+
+--
+-- Name: list_modes list_modes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.list_modes
+    ADD CONSTRAINT list_modes_pkey PRIMARY KEY (mode);
+
+
+--
+-- Name: list_rda list_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.list_rda
+    ADD CONSTRAINT list_rda_pkey PRIMARY KEY (rda);
 
 
 --
@@ -1269,14 +1469,6 @@ ALTER TABLE ONLY public.rda
 
 
 --
--- Name: stat_log stat_log_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.stat_log
-    ADD CONSTRAINT stat_log_pkey PRIMARY KEY (tstamp, msg);
-
-
---
 -- Name: uploads uploads_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1307,6 +1499,13 @@ CREATE INDEX callsigns_rda_callsign_dt_start_dt_stop_idx ON public.callsigns_rda
 
 
 --
+-- Name: cfm_qsl_qso_status_date_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX cfm_qsl_qso_status_date_idx ON public.cfm_qsl_qso USING btree (status_date);
+
+
+--
 -- Name: cfm_request_qso_correspondent_callsign_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1332,6 +1531,20 @@ CREATE INDEX cfm_request_qso_user_cs_idx ON public.cfm_request_qso USING btree (
 --
 
 CREATE INDEX fki_qso_rda_fkey ON public.qso USING btree (rda);
+
+
+--
+-- Name: fki_uploads_ext_loggers_fkey; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX fki_uploads_ext_loggers_fkey ON public.uploads USING btree (ext_logger_id);
+
+
+--
+-- Name: idx_pfx_length; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_pfx_length ON public.country_prefixes USING btree (character_length((prefix)::text) DESC);
 
 
 --
@@ -1384,6 +1597,13 @@ CREATE INDEX rankings_callsign_idx ON public.rankings USING btree (callsign);
 
 
 --
+-- Name: rankings_role_mode_band__row_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX rankings_role_mode_band__row_idx ON public.rankings USING btree (role, mode, band, _row);
+
+
+--
 -- Name: rankings_top100; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1416,6 +1636,13 @@ CREATE INDEX rda_hunter_hunter_mode_band_idx ON public.rda_hunter USING btree (h
 --
 
 CREATE UNIQUE INDEX unique_callsigns_rda_qrz ON public.callsigns_rda USING btree (callsign) WHERE ((source)::text = 'QRZ.ru'::text);
+
+
+--
+-- Name: uploads_enabled_id_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX uploads_enabled_id_idx ON public.uploads USING btree (enabled, id);
 
 
 --
@@ -1522,6 +1749,14 @@ ALTER TABLE ONLY public.cfm_qsl
 
 
 --
+-- Name: country_prefixes country_prefixes_country_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.country_prefixes
+    ADD CONSTRAINT country_prefixes_country_id_fkey FOREIGN KEY (country_id) REFERENCES public.countries(id);
+
+
+--
 -- Name: ext_loggers ext_loggers_callsign_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1593,6 +1828,13 @@ GRANT ALL ON FUNCTION public.tf_qso_bi() TO "www-group";
 --
 
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.activators TO "www-group";
+
+
+--
+-- Name: TABLE callsigns_countries; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.callsigns_countries TO "www-group";
 
 
 --
@@ -1673,6 +1915,27 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.cfm_request
 
 
 --
+-- Name: TABLE countries; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.countries TO "www-group";
+
+
+--
+-- Name: SEQUENCE countries_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.countries_id_seq TO "www-group";
+
+
+--
+-- Name: TABLE country_prefixes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.country_prefixes TO "www-group";
+
+
+--
 -- Name: TABLE ext_loggers; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1684,6 +1947,27 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.ext_loggers
 --
 
 GRANT ALL ON SEQUENCE public.ext_loggers_id_seq TO "www-group";
+
+
+--
+-- Name: TABLE list_bands; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.list_bands TO "www-group";
+
+
+--
+-- Name: TABLE list_modes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.list_modes TO "www-group";
+
+
+--
+-- Name: TABLE list_rda; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.list_rda TO "www-group";
 
 
 --
@@ -1718,7 +2002,7 @@ GRANT ALL ON SEQUENCE public.qso_id_seq TO "www-group";
 -- Name: TABLE rankings; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT SELECT,INSERT,DELETE,TRIGGER,UPDATE ON TABLE public.rankings TO "www-group";
+GRANT ALL ON TABLE public.rankings TO "www-group";
 
 
 --
@@ -1743,13 +2027,6 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.rda_hunter 
 
 
 --
--- Name: TABLE stat_log; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT INSERT ON TABLE public.stat_log TO "www-group";
-
-
---
 -- Name: TABLE uploads; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -1767,7 +2044,7 @@ GRANT ALL ON SEQUENCE public.uploads_id_seq TO "www-group";
 -- Name: TABLE users; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.users TO "www-group";
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO "www-group";
 
 
 --
