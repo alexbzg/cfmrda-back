@@ -1351,16 +1351,20 @@ support@cfmrda.ru"""
                 'band': None,\
                 'mode': None,\
                 'from': 1,\
-                'to': 100}
+                'to': 100,\
+                'country': None}
         for param in params:
             val = request.match_info.get(param, params[param])
             if val:
                 params[param] = val
-        cond_tmplt = """role = ''{role}'' and mode = ''{mode}'' and
-            band = ''{band}'' and _row >= {from} and _row <= {to}"""
-        condition = cond_tmplt.format_map(params)
-        rankings = yield from self._db.execute("select rankings_json('" +\
-                condition + "') as data", None, False)
+        sql = """
+            select rankings_json_country(%(role)s, %(mode)s, %(band)s, %(from)s, %(to)s, 
+                null, %(country)s) as data
+            """ if params['country'] else  """
+            select rankings_json(%(role)s, %(mode)s, %(band)s, %(from)s, %(to)s, null) 
+                as data
+            """
+        rankings = yield from self._db.execute(sql, params, False)
         return web.json_response(rankings)
 
     @asyncio.coroutine
@@ -1460,7 +1464,7 @@ support@cfmrda.ru"""
             """, {'callsign': callsign}, False)
             if rda['hunter'] or rda['activator']:
                 rank = yield from self._db.execute("""
-                select rankings_json('callsign = '%(callsign)s'') as data
+                select rankings_json(null, null, null, null, null, %(callsign)s) as data
                 """, {'callsign': callsign}, False)
             else:
                 rank = False
@@ -1470,6 +1474,14 @@ support@cfmrda.ru"""
                 self._db.get_old_callsigns(callsign, True)
             if not data['oldCallsigns']:
                 data['oldCallsigns'] = []
+            data['country'] = yield from self._db.execute("""
+                select id, name 
+                from countries
+                where id = (
+                    select country_id 
+                    from callsigns_countries
+                    where callsign = %(callsign)s)
+                """, {'callsign': callsign}, False)
             return web.json_response(data)
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
@@ -1639,6 +1651,8 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
     APP.router.add_get('/aiohttp/hunter/{callsign}', SRV.hunter_hndlr)
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)
+    APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}/{country}',\
+            SRV.rankings_hndlr)
     APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}',\
             SRV.rankings_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
