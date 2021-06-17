@@ -1462,18 +1462,7 @@ support@cfmrda.ru"""
                     where activator = %(callsign)s
                     group by rda) as q
             """, {'callsign': callsign}, False)
-            if rda['hunter'] or rda['activator']:
-                rank = yield from self._db.execute("""
-                select rankings_json(null, null, null, null, null, %(callsign)s) as data
-                """, {'callsign': callsign}, False)
-            else:
-                rank = False
-            data['rda'] = rda
-            data['rank'] = rank
-            data['oldCallsigns'] = yield from\
-                self._db.get_old_callsigns(callsign, True)
-            if not data['oldCallsigns']:
-                data['oldCallsigns'] = []
+
             data['country'] = yield from self._db.execute("""
                 select id, name 
                 from countries
@@ -1482,6 +1471,25 @@ support@cfmrda.ru"""
                     from callsigns_countries
                     where callsign = %(callsign)s)
                 """, {'callsign': callsign}, False)
+
+            rank = False
+            if rda['hunter'] or rda['activator']:
+                rank = {'country': False}
+                rank['world'] = yield from self._db.execute("""
+                    select rankings_json(null, null, null, null, null, %(callsign)s) as data
+                    """, {'callsign': callsign}, False)
+                if data['country']:
+                    rank['country'] =  yield from self._db.execute("""
+                    select rankings_json_country(null, null, null, null, null, %(callsign)s, 
+                        %(country_id)s) as data
+                    """, {'callsign': callsign, 'country_id': data['country']['id']}, False)
+
+            data['rda'] = rda
+            data['rank'] = rank
+            data['oldCallsigns'] = yield from\
+                self._db.get_old_callsigns(callsign, True)
+            if not data['oldCallsigns']:
+                data['oldCallsigns'] = []
             return web.json_response(data)
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')

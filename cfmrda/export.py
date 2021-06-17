@@ -11,12 +11,20 @@ from common import site_conf, start_logging
 from db import DBConn
 from json_utils import save_json
 
+CONF = site_conf()
+
+def set_local_owner(file):
+    """change exported file ownership when running as root"""
+    if not os.getuid():
+        shutil.chown(CONF.get('web', 'root') + file,\
+            user=CONF.get('web', 'user'), group=CONF.get('web', 'group'))
+
 @asyncio.coroutine
-def export_rankings(conf):
+def export_rankings():
     """rebuild rankings table in db and export top100 to json file for web"""
     logging.debug('export rankings')
 
-    _db = DBConn(conf.items('db'))
+    _db = DBConn(CONF.items('db'))
     yield from _db.connect()
     yield from _db.execute("delete from rankings;")
     yield from _db.execute("vacuum full freeze verbose analyze rankings;")
@@ -30,17 +38,30 @@ def export_rankings(conf):
     logging.debug('rankings table rebuilt')
 
     rankings = yield from _db.execute("""
-                select rankings_json('_rank < 104') as data
+                select rankings_json(null, null, null, null, 104, null) as data
                 """, None, False)
-    save_json(rankings, conf.get('web', 'root') + '/json/rankings.json')
+
+    save_json(rankings, CONF.get('web', 'root') + '/json/rankings.json')
+    set_local_owner('/json/rankings.json')
+
+    countries = yield from _db.execute("""
+        select id from countries""", None, False)
+    for country in countries:
+        json_path = '/json/countries_rankings/' + str(country) + '.json'
+        rankings = yield from _db.execute("""
+                select rankings_json_country(null, null, null, null, 104, null, %(id)s) as data
+                """, {'id': country}, False)
+        save_json(rankings, CONF.get('web', 'root') + json_path)
+        set_local_owner(json_path)
+
     logging.debug('export rankings finished')
 
 @asyncio.coroutine
-def export_callsigns(conf):
+def export_callsigns():
     """export distinct callsigns into json array"""
     logging.debug('export callsigns')
 
-    _db = DBConn(conf.items('db'))
+    _db = DBConn(CONF.items('db'))
     yield from _db.connect()
 
 
@@ -49,15 +70,15 @@ def export_callsigns(conf):
         where (select count(*) from rda_hunter as h1
             where h0.hunter = h1.hunter) > 4
         """, None, False)
-    save_json(callsigns, conf.get('web', 'root') + '/json/callsigns.json')
+    save_json(callsigns, CONF.get('web', 'root') + '/json/callsigns.json')
     logging.debug('export callsigns finished')
 
 @asyncio.coroutine
-def export_recent_uploads(conf):
+def export_recent_uploads():
     """export 20 recent uploaded file batches to json file for web"""
     logging.debug('export recent uploads')
 
-    _db = DBConn(conf.items('db'))
+    _db = DBConn(CONF.items('db'))
     yield from _db.connect()
 
     data = yield from _db.execute("""
@@ -90,15 +111,15 @@ def export_recent_uploads(conf):
                 where upload_id = any(ids) 
                 group by upload_id) as rdas0) as rdas 
         """, None, False)
-    save_json(data, conf.get('web', 'root') + '/json/recent_uploads.json')
+    save_json(data, CONF.get('web', 'root') + '/json/recent_uploads.json')
     logging.debug('export recent uploads finished')
 
 @asyncio.coroutine
-def export_msc(conf):
+def export_msc():
     """export misc db data to json file for web"""
     logging.debug('export misc')
 
-    _db = DBConn(conf.items('db'))
+    _db = DBConn(CONF.items('db'))
     yield from _db.connect()
 
     data = {}
@@ -136,15 +157,15 @@ def export_msc(conf):
                 order by coalesce(qsl_wait.callsign, qsl_today.callsign)
             )  as data""", None, False))
 
-    save_json(data, conf.get('web', 'root') + '/json/msc.json')
+    save_json(data, CONF.get('web', 'root') + '/json/msc.json')
     logging.debug('export misc finished')
 
 @asyncio.coroutine
-def export_stat(conf):
+def export_stat():
     """export statistic data to json file for web"""
     logging.debug('export stats')
 
-    _db = DBConn(conf.items('db'))
+    _db = DBConn(CONF.items('db'))
     yield from _db.connect()
 
     data = {}
@@ -174,20 +195,14 @@ def export_stat(conf):
             band_data['total'] = band_total
             rda_total['total'] += band_total
         rda_data['total'] = rda_total
-    save_json(data, conf.get('web', 'root') + '/json/stat.json')
+    save_json(data, CONF.get('web', 'root') + '/json/stat.json')
     logging.debug('export stats finished')
 
 def main():
     """when called from shell exports rankings"""
     start_logging('export')
     logging.debug('start export')
-    conf = site_conf()
 
-    def set_local_owner(file):
-        """change exported file ownership when running as root"""
-        if not os.getuid():
-            shutil.chown(conf.get('web', 'root') + file,\
-                user=conf.get('web', 'user'), group=conf.get('web', 'group'))
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', action="store_true")
@@ -198,19 +213,18 @@ def main():
     args = parser.parse_args()
     export_all = not args.r and not args.u and not args.m and not args.s and not args.c
     if args.r or export_all:
-        asyncio.get_event_loop().run_until_complete(export_rankings(conf))
-        set_local_owner('/json/rankings.json')
+        asyncio.get_event_loop().run_until_complete(export_rankings())
     if args.u or export_all:
-        asyncio.get_event_loop().run_until_complete(export_recent_uploads(conf))
+        asyncio.get_event_loop().run_until_complete(export_recent_uploads())
         set_local_owner('/json/recent_uploads.json')
     if args.m or export_all:
-        asyncio.get_event_loop().run_until_complete(export_msc(conf))
+        asyncio.get_event_loop().run_until_complete(export_msc())
         set_local_owner('/json/msc.json')
     if args.s or export_all:
-        asyncio.get_event_loop().run_until_complete(export_stat(conf))
+        asyncio.get_event_loop().run_until_complete(export_stat())
         set_local_owner('/json/stat.json')
     if args.c:
-        asyncio.get_event_loop().run_until_complete(export_callsigns(conf))
+        asyncio.get_event_loop().run_until_complete(export_callsigns())
         set_local_owner('/json/callsigns.json')
 
 
@@ -220,4 +234,3 @@ if __name__ == "__main__":
         main()
     except Exception as exc:
         logging.exception('Export exception')
-
