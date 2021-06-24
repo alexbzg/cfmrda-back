@@ -36,7 +36,8 @@ COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';
 
 CREATE FUNCTION public.build_rankings() RETURNS void
     LANGUAGE plpgsql
-    AS $$declare _9band_tr smallint;
+    AS $$
+declare _9band_tr smallint;
 begin
 
 -- rda
@@ -82,33 +83,6 @@ group by activator, rda
 having sum(callsigns) > 99) as rda_activator_tt
 where not exists
 (select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tt.rda);
-
--- countries
-insert into callsigns_countries (callsign, country_id)
-select distinct hunter, 
-	(select country_id 
-	 	from country_prefixes 
-	 	where hunter like prefix || '%'
-		order by character_length(prefix) 
-	 	limit 1) 
-from rda_hunter 
-where not exists
-	(select 
-	 	from callsigns_countries as cc2 
-	 	where cc2.callsign = hunter);
-	
-insert into callsigns_countries (callsign, country_id)
-select distinct activator, 
-	(select country_id 
-	 	from country_prefixes 
-	 	where activator like prefix || '%'
-		order by character_length(prefix) 
-	 	limit 1) 
-from rda_activator 
-where not exists
-	(select 
-	 	from callsigns_countries as cc2 
-	 	where cc2.callsign = activator);
 
 -- rankings 
 
@@ -250,6 +224,17 @@ group by hunter, band) as s
 group by hunter
 window w as (order by sum(points) desc);
 
+-- countries
+insert into callsigns_countries (callsign, country_id)
+select distinct rankings.callsign, 
+	(select country_id 
+	 	from country_prefixes 
+	 	where rankings.callsign like prefix || '%'
+		order by character_length(prefix) desc 
+	 	limit 1) 
+from rankings left join callsigns_countries on rankings.callsign = callsigns_countries.callsign
+where callsigns_countries.callsign is null;
+
 --- 9BANDS 900+---
 _9band_tr = 100;
 
@@ -269,7 +254,17 @@ while exists (select callsign from rankings where role = 'hunter' and mode = 'to
   _9band_tr = _9band_tr + 100;
 end loop;
 
-end$$;
+--- country rankings---
+update rankings as r set country_rank = cr._rank, country_row = cr._row
+from
+(select role, mode, band, rankings.callsign, country_id, _count, rank() over w as _rank, 
+	row_number() over w as _row from rankings join callsigns_countries on rankings.callsign = callsigns_countries.callsign 
+	window w as (partition by role, mode, band, country_id order by _count desc)
+	order by _row) as cr
+where r.role = cr.role and r.mode = cr.mode and r.band = cr.band and r.callsign = cr.callsign;
+
+end
+$$;
 
 
 ALTER FUNCTION public.build_rankings() OWNER TO postgres;
@@ -369,59 +364,6 @@ $$;
 ALTER FUNCTION public.hunters_rdas() OWNER TO postgres;
 
 --
--- Name: rankings_json(character varying); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.rankings_json(condition character varying) RETURNS json
-    LANGUAGE plpgsql
-    AS $$declare 
-  data json;
-begin
-  execute 'select json_object_agg(role, data) as data from ' 
-	|| '(select role, json_object_agg(mode, data) as data from '
-	|| '(select role, mode, json_object_agg(band, data) as data from '
-	|| '(select role, mode, band, json_agg(json_build_object(''callsign'', callsign, '
-	|| '''count'', _count, ''rank'', _rank, ''row'', _row) order by _row) as data from '
-	|| '(select * from rankings where ' || condition || ') as l_0 '
-	|| 'group by role, mode, band) as l_1 '
-	|| 'group by role, mode) as l_2 '
-	|| 'group by role) as l_3'
-  into data;
-  return data;
-end$$;
-
-
-ALTER FUNCTION public.rankings_json(condition character varying) OWNER TO postgres;
-
---
--- Name: rankings_json(character varying, character varying, character varying, integer, integer); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer) RETURNS json
-    LANGUAGE plpgsql
-    AS $$declare 
-begin
-  return (select json_object_agg(role, data) as data from 
-	(select role, json_object_agg(mode, data) as data from 
-		(select role, mode, json_object_agg(band, data) as data from 
-			(select role, mode, band, json_agg(json_build_object('callsign', callsign, 
-				'count', _count, 'rank', _rank, 'row', _row) order by _row) as data from 
-					(select * from rankings 
-					 where (role = _role or _role is null) and 
-					 	(mode = _mode or _mode is null) and
-            			(band = _band or _band is null) and 
-					 	(_row >= _row_from or _row_from is null) and 
-					 	(_row <= _row_to or _row_to is null)
-					) as l_0 
-			group by role, mode, band) as l_1 
-		group by role, mode) as l_2 
-	group by role) as l_3);
-end$$;
-
-
-ALTER FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer) OWNER TO postgres;
-
---
 -- Name: rankings_json(character varying, character varying, character varying, integer, integer, character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -449,43 +391,6 @@ end$$;
 
 
 ALTER FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying) OWNER TO postgres;
-
---
--- Name: rankings_json_country(character varying, character varying, character varying, integer, integer, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.rankings_json_country(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying, _country_id integer) RETURNS json
-    LANGUAGE plpgsql
-    AS $$declare 
-begin
-  return (select json_object_agg(role, data) as data from 
-	(select role, json_object_agg(mode, data) as data from 
-		(select role, mode, json_object_agg(band, data) as data from 
-			(select role, mode, band, json_agg(json_build_object('callsign', callsign, 
-				'count', _count, 'rank', _rank, 'row', _row) order by _row) as data from 
-					(select * from
-						(select role, mode, band, callsign, _count, rank() over w as _rank, 
-						 	row_number() over w as _row from rankings 
-							where (role = _role or _role is null) and 
-					 			(mode = _mode or _mode is null) and
-            					(band = _band or _band is null) and 
-								callsign in 
-									(select callsign 
-									 	from callsigns_countries 
-									 	where country_id = _country_id)
-							window w as (order by _rank)
-							order by _row) as country_rankings
-					 where (callsign = _callsign or _callsign is null) and
-						(_row >= _row_from or _row_from is null) and 
-						(_row <= _row_to or _row_to is null) 				 
-					) as l_0 
-			group by role, mode, band) as l_1 
-		group by role, mode) as l_2 
-	group by role) as l_3);
-end$$;
-
-
-ALTER FUNCTION public.rankings_json_country(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying, _country_id integer) OWNER TO postgres;
 
 --
 -- Name: strip_callsign(character varying); Type: FUNCTION; Schema: public; Owner: postgres
@@ -1127,7 +1032,9 @@ CREATE TABLE public.rankings (
     callsign character varying(32) NOT NULL,
     _count integer,
     _rank integer,
-    _row integer
+    _row integer,
+    country_rank integer,
+    country_row integer
 );
 
 

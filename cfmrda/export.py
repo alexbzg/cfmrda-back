@@ -25,7 +25,7 @@ def export_rankings():
     logging.debug('export rankings')
 
     _db = DBConn(CONF.items('db'))
-    yield from _db.connect()
+    yield from _db.connect()    
     yield from _db.execute("delete from rankings;")
     yield from _db.execute("vacuum full freeze verbose analyze rankings;")
     yield from _db.execute("delete from rda_activator;")
@@ -38,7 +38,7 @@ def export_rankings():
     logging.debug('rankings table rebuilt')
 
     rankings = yield from _db.execute("""
-                select rankings_json(null, null, null, null, 104, null) as data
+                select rankings_json(null, null, null, null, 104, null, null) as data
                 """, None, False)
 
     save_json(rankings, CONF.get('web', 'root') + '/json/rankings.json')
@@ -49,7 +49,7 @@ def export_rankings():
     for country in countries:
         json_path = '/json/countries_rankings/' + str(country) + '.json'
         rankings = yield from _db.execute("""
-                select rankings_json_country(null, null, null, null, 104, null, %(id)s) as data
+                select rankings_json(null, null, null, null, 104, null, %(id)s) as data
                 """, {'id': country}, False)
         save_json(rankings, CONF.get('web', 'root') + json_path)
         set_local_owner(json_path)

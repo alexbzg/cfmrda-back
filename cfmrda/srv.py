@@ -1357,14 +1357,10 @@ support@cfmrda.ru"""
             val = request.match_info.get(param, params[param])
             if val:
                 params[param] = val
-        sql = """
-            select rankings_json_country(%(role)s, %(mode)s, %(band)s, %(from)s, %(to)s, 
+        rankings = yield from self._db.execute("""
+            select rankings_json(%(role)s, %(mode)s, %(band)s, %(from)s, %(to)s, 
                 null, %(country)s) as data
-            """ if params['country'] else  """
-            select rankings_json(%(role)s, %(mode)s, %(band)s, %(from)s, %(to)s, null) 
-                as data
-            """
-        rankings = yield from self._db.execute(sql, params, False)
+            """, params, False)
         return web.json_response(rankings)
 
     @asyncio.coroutine
@@ -1476,12 +1472,11 @@ support@cfmrda.ru"""
             if rda['hunter'] or rda['activator']:
                 rank = {'country': False}
                 rank['world'] = yield from self._db.execute("""
-                    select rankings_json(null, null, null, null, null, %(callsign)s) as data
+                    select rankings_json(null, null, null, null, null, %(callsign)s, null) as data
                     """, {'callsign': callsign}, False)
                 if data['country']:
                     rank['country'] =  yield from self._db.execute("""
-                    select rankings_json_country(null, null, null, null, null, %(callsign)s, 
-                        %(country_id)s) as data
+                    select rankings_json(null, null, null, null, null, %(callsign)s, %(country_id)s) as data
                     """, {'callsign': callsign, 'country_id': data['country']['id']}, False)
 
             data['rda'] = rda
@@ -1661,7 +1656,7 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/qso/{callsign}/{role}/{rda}/{mode:[^{}/]*}/{band:[^{}/]*}', SRV.qso_hndlr)
     APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}/{country}',\
             SRV.rankings_hndlr)
-    APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}',\
+    APP.router.add_get('/aiohttp/rankings/{role}/{mode}/{band}/{from}/{to}/',\
             SRV.rankings_hndlr)
     APP.router.add_get('/aiohttp/correspondent_email/{callsign}',\
             SRV.correspondent_email_hndlr)
