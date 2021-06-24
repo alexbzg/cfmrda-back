@@ -393,6 +393,49 @@ end$$;
 ALTER FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying) OWNER TO postgres;
 
 --
+-- Name: rankings_json(character varying, character varying, character varying, integer, integer, character varying, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying, _country_id integer) RETURNS json
+    LANGUAGE plpgsql
+    AS $$declare 
+begin
+  return (select json_object_agg(role, data) as data from 
+	(select role, json_object_agg(mode, data) as data from 
+		(select role, mode, json_object_agg(band, data) as data from 
+			(select role, mode, band, json_agg(json_build_object('callsign', callsign, 
+				'count', _count, 'rank', _rank, 'row', _row) order by _row) as data from 
+					(select role, mode, band, r.callsign, _count, 
+					 	case when _country_id is null then _rank
+					 		else country_rank 
+					 	end as _rank,
+					 	case when _country_id is null then _row
+					 		else country_row
+					 	end as _row
+					 from rankings as r join callsigns_countries as cc on r.callsign = cc.callsign
+					 where (role = _role or _role is null) and 
+					 	(mode = _mode or _mode is null) and
+            			(band = _band or _band is null) and 
+					 	(_row_from is null or (
+							(_country_id is null and _row >= _row_from) or
+							(_country_id is not null and country_row >= _row_from)
+						)) and 
+					 	(_row_to is null or (
+							(_country_id is null and _row <= _row_to) or
+							(_country_id is not null and country_row <= _row_to)
+						)) and 
+					 	(r.callsign = _callsign or _callsign is null) and
+					    (country_id = _country_id or _country_id is null)
+					) as l_0 
+			group by role, mode, band) as l_1 
+		group by role, mode) as l_2 
+	group by role) as l_3);
+end$$;
+
+
+ALTER FUNCTION public.rankings_json(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying, _country_id integer) OWNER TO postgres;
+
+--
 -- Name: strip_callsign(character varying); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
