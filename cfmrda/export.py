@@ -24,7 +24,7 @@ def export_rankings():
     """rebuild rankings table in db and export top100 to json file for web"""
     logging.debug('export rankings')
 
-    _db = DBConn(CONF.items('db'))
+    _db = DBConn(dict(CONF.items('db')))
     yield from _db.connect()    
     yield from _db.execute("delete from rankings;")
     yield from _db.execute("vacuum full freeze verbose analyze rankings;")
@@ -61,7 +61,7 @@ def export_callsigns():
     """export distinct callsigns into json array"""
     logging.debug('export callsigns')
 
-    _db = DBConn(CONF.items('db'))
+    _db = DBConn(dict(CONF.items('db')))
     yield from _db.connect()
 
 
@@ -78,7 +78,7 @@ def export_recent_uploads():
     """export 20 recent uploaded file batches to json file for web"""
     logging.debug('export recent uploads')
 
-    _db = DBConn(CONF.items('db'))
+    _db = DBConn(dict(CONF.items('db')))
     yield from _db.connect()
 
     data = yield from _db.execute("""
@@ -119,7 +119,7 @@ def export_msc():
     """export misc db data to json file for web"""
     logging.debug('export misc')
 
-    _db = DBConn(CONF.items('db'))
+    _db = DBConn(dict(CONF.items('db')))
     yield from _db.connect()
 
     data = {}
@@ -165,7 +165,7 @@ def export_stat():
     """export statistic data to json file for web"""
     logging.debug('export stats')
 
-    _db = DBConn(CONF.items('db'))
+    _db = DBConn(dict(CONF.items('db')))
     yield from _db.connect()
 
     data = {}

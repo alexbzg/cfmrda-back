@@ -14,7 +14,7 @@ def perform(conf):
     logging.debug('cluster filtering')
     list_length = conf.getint('cluster', 'list_length')
 
-    _db = DBConn(conf.items('cluster_db'))
+    _db = DBConn(dict(conf.items('cluster_db')))
     yield from _db.connect()
 
     _dx = load_json(conf.get('files', 'cluster'))

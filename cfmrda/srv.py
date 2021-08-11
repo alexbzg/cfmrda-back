@@ -65,7 +65,7 @@ class CfmRdaServer():
 
     def __init__(self, loop):
         self._loop = loop
-        self._db = DBConn(CONF.items('db'))
+        self._db = DBConn(dict(CONF.items('db')))
         self._qrzcom = QRZComLink(loop)
         self._qrzru = None
         if CONF.has_option('QRZRu', 'login'):

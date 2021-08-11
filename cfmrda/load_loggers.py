@@ -15,7 +15,7 @@ from ext_logger import ExtLogger
 @asyncio.coroutine
 def main(conf):
     """does the job"""
-    db_params = conf.items('db')
+    db_params = dict(conf.items('db'))
 
     _db = DBConn(db_params)
     yield from _db.connect()

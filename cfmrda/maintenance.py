@@ -12,7 +12,7 @@ def perform(conf):
     """db maintenance"""
     logging.debug('start maintenance')
 
-    _db = DBConn(conf.items('db'))
+    _db = DBConn(dict(conf.items('db')))
     yield from _db.connect()
 
 #    yield from _db.execute("delete from cfm_request_qso where state")

@@ -85,7 +85,7 @@ def trap_db_exception(exc, sql, params=None):
 class DBConn:
 
     def __init__(self, db_params, verbose=False):
-        self.dsn = ' '.join([k + "='" + v + "'" for k, v in db_params])
+        self.db_params = db_params.copy()
         self.verbose = verbose
         self.pool = None
         self.error = None
@@ -93,13 +93,12 @@ class DBConn:
     @asyncio.coroutine
     def connect(self):
         try:
-            self.pool = yield from aiopg.create_pool(self.dsn, \
-                    timeout=18000,\
-                    on_connect=init_connection)
+            self.pool = yield from aiopg.create_pool(timeout=18000, maxsize=3,\
+                    on_connect=init_connection, **self.db_params)
             logging.debug('db connections pool created')
         except Exception:
             logging.exception('Error creating connection pool')
-            logging.error(self.dsn)
+            logging.error(self.db_params)
 
     @asyncio.coroutine
     def fetch(self, sql, params=None):
