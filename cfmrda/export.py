@@ -9,7 +9,7 @@ import shutil
 
 from common import site_conf, start_logging
 from db import DBConn
-from json_utils import save_json
+from json_utils import save_json, load_json
 
 CONF = site_conf()
 
@@ -25,7 +25,7 @@ def export_rankings():
     logging.debug('export rankings')
 
     _db = DBConn(dict(CONF.items('db')))
-    yield from _db.connect()    
+    yield from _db.connect()
     yield from _db.execute("delete from rankings;")
     yield from _db.execute("vacuum full freeze verbose analyze rankings;")
     yield from _db.execute("delete from rda_activator;")
@@ -55,6 +55,17 @@ def export_rankings():
         set_local_owner(json_path)
 
     logging.debug('export rankings finished')
+
+    logging.debug('export qso count')
+    msc_json_path = CONF.get('web', 'root') + '/json/msc.json'
+    msc_data = load_json(json_path) or {}
+
+    msc_data['qsoCount'] = (yield from _db.execute("""
+        select count(*) as qso_count
+        from qso;    
+    """, None, False))
+    save_json(msc_data, msc_json_path)
+    logging.debug('export qso count finished')
 
 @asyncio.coroutine
 def export_callsigns():
@@ -122,11 +133,8 @@ def export_msc():
     _db = DBConn(dict(CONF.items('db')))
     yield from _db.connect()
 
-    data = {}
-    data['qsoCount'] = (yield from _db.execute("""
-        select count(*) as qso_count
-        from qso;    
-    """, None, False))
+    json_path = CONF.get('web', 'root') + '/json/msc.json'
+    data = load_json(json_path) or {}
 
     data['unsortedQsl'] = (yield from _db.execute("""
         select count(*) as qsl_wait 
@@ -157,7 +165,7 @@ def export_msc():
                 order by coalesce(qsl_wait.callsign, qsl_today.callsign)
             )  as data""", None, False))
 
-    save_json(data, CONF.get('web', 'root') + '/json/msc.json')
+    save_json(data, json_path)
     logging.debug('export misc finished')
 
 @asyncio.coroutine
@@ -214,6 +222,7 @@ def main():
     export_all = not args.r and not args.u and not args.m and not args.s and not args.c
     if args.r or export_all:
         asyncio.get_event_loop().run_until_complete(export_rankings())
+        set_local_owner('/json/msc.json')
     if args.u or export_all:
         asyncio.get_event_loop().run_until_complete(export_recent_uploads())
         set_local_owner('/json/recent_uploads.json')
