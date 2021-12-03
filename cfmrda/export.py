@@ -24,15 +24,25 @@ def export_rankings():
     """rebuild rankings table in db and export top100 to json file for web"""
     logging.debug('export rankings')
 
-    _db = DBConn(dict(CONF.items('db')))
+    db_params = dict(CONF.items('db'))
+    db_params.update(dict(CONF.items('db_maintenance')))
+    _db = DBConn(db_params)
     yield from _db.connect()
+    os.system('systemctl stop clustercn')
     yield from _db.execute("delete from rankings;")
+    logging.debug('export rankings: rankings table cleared')
     yield from _db.execute("vacuum full freeze verbose analyze rankings;")
+    logging.debug('export rankings: rankings table vacuumed')
     yield from _db.execute("delete from rda_activator;")
+    logging.debug('export rankings: rda_activator table cleared')
     yield from _db.execute("vacuum full freeze verbose analyze rda_activator;")
+    logging.debug('export rankings: rda_activator table vacuumed')
     yield from _db.execute("delete from rda_hunter;")
+    logging.debug('export rankings: rda_hunter table cleared')
     yield from _db.execute("vacuum full freeze verbose analyze rda_hunter;")
+    logging.debug('export rankings: rda_hunter table vacuumed')
     yield from _db.execute("vacuum full freeze verbose analyze qso;")
+    logging.debug('export rankings: qso table vacuumed')
 
     yield from _db.execute("select from build_rankings()")
     logging.debug('rankings table rebuilt')
@@ -66,6 +76,7 @@ def export_rankings():
     """, None, False))
     save_json(msc_data, msc_json_path)
     logging.debug('export qso count finished')
+    os.system('systemctl start clustercn')
 
 @asyncio.coroutine
 def export_callsigns():

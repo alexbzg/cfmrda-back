@@ -9,7 +9,7 @@ import sys
 
 from common import site_conf, start_logging
 from db import DBConn, exec_cur, splice_params
-from ham_radio import load_adif
+from ham_radio import load_adif, BANDS_WL
 from ext_logger import ExtLogger
 
 @asyncio.coroutine
@@ -29,7 +29,7 @@ def main(conf):
                 'logger', logger, 'login_data', login_data, 
                 'qso_count', qso_count, 'last_updated', to_char(last_updated, 'YYYY-MM-DD'))
             from ext_loggers
-            where state = 0 and 
+            where state = 0 and
                 (last_updated is null or last_updated < now() - interval %(reload_interval)s)
             """, {'reload_interval': reload_interval})
         loggers = yield from cur.fetchall()
@@ -108,72 +108,92 @@ def main(conf):
                         delete from qso
                         where id = %(id)s""", qso)
 
-            adifs = None
+            logger_data = None
             try:
-                adifs = logger.load(row['login_data'])
+                logger_data = logger.load(row['login_data'])
                 logging.debug(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
             except Exception:
                 logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
                 update_params['state'] = 1
 
-            if adifs:
+            if logger_data:
 
                 qso_count = 0
                 station_callsign_field = None if row['logger'] == 'eQSL'\
                     else 'STATION_CALLSIGN'
+                qsos = []
+                date_start, date_end = None, None
 
-                for adif in adifs:
-                    adif = adif.upper()
-                    qso_count += adif.count('<EOR>')
-                    parsed = load_adif(adif, station_callsign_field, ignore_activator=True,\
-                        strip_callsign_flag=False)
-                    date_start, date_end = None, None
-                    qsos = []
-                    for qso in parsed['qso']:
+                if row['logger'] == 'HAMLOG':
 
-                        callsign = row['login_data']['Callsign'].upper()\
-                            if row['logger'] == 'eQSL'\
-                            else qso['station_callsign']
-                        qso['callsign'], qso['station_callsign'] = \
-                            callsign, qso['callsign']
+                    for qso in logger_data:
+                        qsos.append({'callsign': qso['mycall'],\
+                            'station_callsign': qso['hiscall'],\
+                            'rda': qso['rda'],\
+                            'band': BANDS_WL[qso['band']],\
+                            'mode': 'SSB' if qso['mainmode'] == 'PH' else qso['mainmode'],\
+                            'tstamp': qso['date']})
+                        if not date_start or date_start > qso['date']:
+                            date_start = qso['date']
+                        if not date_end or date_end < qso['date']:
+                            date_end = qso['date']
 
-                        rda = yield from rda_search(qso)
-                        if rda:
-                            qso['rda'] = rda
-                        else:
-                            continue
+                    qso_count = len(qsos)
 
-                        yield from exec_cur(cur, """
-                            select from qso 
-                            where callsign = %(callsign)s and rda = %(rda)s and
-                                band = %(band)s and mode = %(mode)s
-                            limit 1""", qso)
-                        if cur.rowcount:
-                            logging.debug("RDA already confirmed:")
-                            logging.debug(qso)
-                            continue
-                        if not date_start or date_start > qso['tstamp']:
-                            date_start = qso['tstamp']
-                        if not date_end or date_end < qso['tstamp']:
-                            date_end = qso['tstamp']
+                else:
 
-                        qsos.append(qso)
+                    for adif in logger_data:
 
-                    if qsos:
-                        logging.debug(str(len(qsos)) + ' new rda qso found.')
-                        file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
+                        adif = adif.upper()
+                        qso_count += adif.count('<EOR>')
+                        parsed = load_adif(adif, station_callsign_field, ignore_activator=True,\
+                            strip_callsign_flag=False)
+                        
+                        for qso in parsed['qso']:
 
-                        db_res = yield from _db.create_upload(\
-                            callsign=row['callsign'],\
-                            upload_type=row['logger'],\
-                            date_start=date_start,\
-                            date_end=date_end,\
-                            file_hash=file_hash,\
-                            activators=set([]),
-                            ext_logger_id=row['id'],
-                            qsos=qsos)
+                            callsign = row['login_data']['Callsign'].upper()\
+                                if row['logger'] == 'eQSL'\
+                                else qso['station_callsign']
+                            qso['callsign'], qso['station_callsign'] = \
+                                callsign, qso['callsign']
 
-                        logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
+                            rda = yield from rda_search(qso)
+                            if rda:
+                                qso['rda'] = rda
+                            else:
+                                continue
+
+                            yield from exec_cur(cur, """
+                                select from qso 
+                                where callsign = %(callsign)s and rda = %(rda)s and
+                                    band = %(band)s and mode = %(mode)s
+                                limit 1""", qso)
+                            if cur.rowcount:
+                                logging.debug("RDA already confirmed:")
+                                logging.debug(qso)
+                                continue
+                            if not date_start or date_start > qso['tstamp']:
+                                date_start = qso['tstamp']
+                            if not date_end or date_end < qso['tstamp']:
+                                date_end = qso['tstamp']
+
+                            qsos.append(qso)
+
+                if qsos:
+                    logging.debug(str(len(qsos)) + ' new rda qso found.')
+                    #file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
+
+                    db_res = yield from _db.create_upload(\
+                        callsign=row['callsign'],\
+                        upload_type=row['logger'],\
+                        date_start=date_start,\
+                        date_end=date_end,\
+                        file_hash='-',\
+                        activators=set([]),
+                        ext_logger_id=row['id'],
+                        qsos=qsos)
+
+                    logging.debug(str(db_res['qso']['ok']) + ' qso were stored in db.')
 
                 update_params = {\
                     'qso_count': qso_count,\
