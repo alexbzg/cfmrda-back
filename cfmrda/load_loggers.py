@@ -28,8 +28,8 @@ def main(conf):
             select json_build_object('id', id, 'callsign', callsign, 
                 'logger', logger, 'login_data', login_data, 
                 'qso_count', qso_count, 'last_updated', to_char(last_updated, 'YYYY-MM-DD'))
-            from ext_loggers
-            where state = 0 and
+            from ext_loggers 
+            where state = 0 and callsign='TE1ST' and
                 (last_updated is null or last_updated < now() - interval %(reload_interval)s)
             """, {'reload_interval': reload_interval})
         loggers = yield from cur.fetchall()
@@ -82,31 +82,44 @@ def main(conf):
             logger = ExtLogger(row['logger'])
             update_params = {}
 
-            yield from exec_cur(cur, """
-                select json_build_object('id', id, 
-                    'station_callsign', station_callsign, 'rda', rda,
-                    'tstamp', tstamp)
-                from qso 
-                where upload_id in 
-                    (select id 
-                    from uploads 
-                    where ext_logger_id = %(id)s)""", row)
-            prev_qsos = yield from cur.fetchall()
-            for qso_data in prev_qsos:
-                qso = qso_data[0]
-                rda = yield from rda_search(qso)
-                if rda:
-                    if rda != qso['rda']:
-                        qso['rda'] = rda
+            if row['logger'] == 'HAMLOG':
+                yield from exec_cur(cur, """
+                    delete from qso
+                    where upload_id in 
+                        (select id 
+                        from uploads 
+                        where ext_logger_id = %(id)s)""", row)
+                yield from exec_cur(cur, """
+                    delete from uploads
+                    where ext_logger_id = %(id)s""", row)
+
+            else:
+
+                yield from exec_cur(cur, """
+                    select json_build_object('id', id, 
+                        'station_callsign', station_callsign, 'rda', rda,
+                        'tstamp', tstamp)
+                    from qso 
+                    where upload_id in 
+                        (select id 
+                        from uploads 
+                        where ext_logger_id = %(id)s)""", row)
+                prev_qsos = yield from cur.fetchall()
+                for qso_data in prev_qsos:
+                    qso = qso_data[0]
+                    rda = yield from rda_search(qso)
+                    if rda:
+                        if rda != qso['rda']:
+                            qso['rda'] = rda
+                            yield from exec_cur(cur, """
+                                update qso
+                                set rda = %(rda)s
+                                where id = %(id)s
+                                """, qso)
+                    else:
                         yield from exec_cur(cur, """
-                            update qso
-                            set rda = %(rda)s
-                            where id = %(id)s
-                            """, qso)
-                else:
-                    yield from exec_cur(cur, """
-                        delete from qso
-                        where id = %(id)s""", qso)
+                            delete from qso
+                            where id = %(id)s""", qso)
 
             logger_data = None
             try:
@@ -148,7 +161,7 @@ def main(conf):
                         qso_count += adif.count('<EOR>')
                         parsed = load_adif(adif, station_callsign_field, ignore_activator=True,\
                             strip_callsign_flag=False)
-                        
+
                         for qso in parsed['qso']:
 
                             callsign = row['login_data']['Callsign'].upper()\
@@ -218,4 +231,3 @@ if __name__ == "__main__":
         sys.exit(0)
 
     asyncio.get_event_loop().run_until_complete(main(CONF))
-
