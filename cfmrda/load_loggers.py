@@ -29,7 +29,7 @@ def main(conf):
                 'logger', logger, 'login_data', login_data, 
                 'qso_count', qso_count, 'last_updated', to_char(last_updated, 'YYYY-MM-DD'))
             from ext_loggers 
-            where state = 0 and callsign='TE1ST' and
+            where state = 0 and 
                 (last_updated is null or last_updated < now() - interval %(reload_interval)s)
             """, {'reload_interval': reload_interval})
         loggers = yield from cur.fetchall()
@@ -76,6 +76,18 @@ def main(conf):
                     return entry_type[0]
                 else:
                     return None
+
+        @asyncio.coroutine
+        def rda_check(qso):
+            yield from exec_cur(cur, """
+                select from qso 
+                where callsign = %(callsign)s and rda = %(rda)s and
+                    band = %(band)s and mode = %(mode)s
+                limit 1""", qso)
+            if cur.rowcount:
+                logging.debug("RDA already confirmed:")
+                logging.debug(qso)
+            return cur.rowcount
 
         for row_data in loggers:
             row = row_data[0]
@@ -139,19 +151,22 @@ def main(conf):
 
                 if row['logger'] == 'HAMLOG':
 
-                    for qso in logger_data:
-                        qsos.append({'callsign': qso['mycall'],\
-                            'station_callsign': qso['hiscall'],\
-                            'rda': qso['rda'],\
-                            'band': BANDS_WL[qso['band']],\
-                            'mode': 'SSB' if qso['mainmode'] == 'PH' else qso['mainmode'],\
-                            'tstamp': qso['date']})
-                        if not date_start or date_start > qso['date']:
-                            date_start = qso['date']
-                        if not date_end or date_end < qso['date']:
-                            date_end = qso['date']
+                    for entry in logger_data:
+                        if entry['band'] in BANDS_WL:
+                            qso = {'callsign': entry['mycall'],\
+                                'station_callsign': entry['hiscall'],\
+                                'rda': entry['rda'],\
+                                'band': BANDS_WL[entry['band']],\
+                                'mode': 'SSB' if entry['mainmode'] == 'PH' else entry['mainmode'],\
+                                'tstamp': entry['date']}
+                            if not (yield from rda_search(qso)):
+                                qsos.append(qso)
+                                if not date_start or date_start > qso['tstamp']:
+                                    date_start = qso['tstamp']
+                                if not date_end or date_end < qso['tstamp']:
+                                    date_end = qso['tstamp']
 
-                    qso_count = len(qsos)
+                    qso_count = len(logger_data)
 
                 else:
 
@@ -176,21 +191,13 @@ def main(conf):
                             else:
                                 continue
 
-                            yield from exec_cur(cur, """
-                                select from qso 
-                                where callsign = %(callsign)s and rda = %(rda)s and
-                                    band = %(band)s and mode = %(mode)s
-                                limit 1""", qso)
-                            if cur.rowcount:
-                                logging.debug("RDA already confirmed:")
-                                logging.debug(qso)
-                                continue
-                            if not date_start or date_start > qso['tstamp']:
-                                date_start = qso['tstamp']
-                            if not date_end or date_end < qso['tstamp']:
-                                date_end = qso['tstamp']
+                            if not (yield from rda_search(qso)):
+                                if not date_start or date_start > qso['tstamp']:
+                                    date_start = qso['tstamp']
+                                if not date_end or date_end < qso['tstamp']:
+                                    date_end = qso['tstamp']
 
-                            qsos.append(qso)
+                                qsos.append(qso)
 
                 if qsos:
                     logging.debug(str(len(qsos)) + ' new rda qso found.')
