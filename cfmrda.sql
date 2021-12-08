@@ -275,12 +275,13 @@ ALTER FUNCTION public.build_rankings() OWNER TO postgres;
 
 CREATE FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) RETURNS record
     LANGUAGE plpgsql
-    AS $$
-declare 
+    AS $$declare 
   str_callsign character varying(32);
+  str_station_callsign character varying(32);
 begin
   str_callsign = strip_callsign(_callsign);
-  if str_callsign is null or str_callsign = strip_callsign(_station_callsign)
+  str_station_callsign = strip_callsign(_station_callsign);
+  if str_callsign is null or str_station_callsign is null or str_callsign = str_station_callsign
   then
     raise 'cfmrda_db_error:Позывной некорректен или совпадает с позывным корреспондента';
   end if;
@@ -317,9 +318,8 @@ begin
   then
     raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
   end if;    
-  if exists (select from qso where qso.callsign = str_callsign and qso.station_callsign = _station_callsign 
-    and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and 
-    qso.tstamp between (_ts - interval '5 min') and (_ts + interval '5 min'))
+  if exists (select from qso where qso.callsign = new_callsign and qso.station_callsign = _station_callsign 
+    and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and qso.tstamp::date = _ts::date)
   then
       raise exception using
             errcode='CR001',
@@ -442,7 +442,10 @@ ALTER FUNCTION public.rankings_json(_role character varying, _mode character var
 CREATE FUNCTION public.strip_callsign(callsign character varying) RETURNS character varying
     LANGUAGE plpgsql IMMUTABLE
     AS $$begin
-  return substring(callsign from '\d?[A-Z]+\d+[A-Z]+');
+  if substring(callsign from '[^\dA-Z/]') is not null then
+    return null;
+  end if;
+  return substring(callsign from '[\d]*[A-Z]+\d+[A-Z]+');
 end$$;
 
 
