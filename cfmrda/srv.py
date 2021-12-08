@@ -720,34 +720,43 @@ class CfmRdaServer():
     def _ext_loggers_update(self, callsign, update):
         """stores ext_logger record in db
         update parameter format:
-        {id (null or absent if new record), logger, loginData}
+        {id (null or absent if new record), logger, loginData} or
+        {id, updateRequest}
         response format:
         {id, state: 0 if login was succefull else 1} if success else
-        statndard error response
+        standard error response
+        standard ok or standard error for updateRequest
         """
-        logger_type = update['logger']
-        logger_params = ExtLogger.types[logger_type]
-        schema = logger_params['schema'] if 'schema' in logger_params\
-            else 'extLoggersLoginDefault'
-        if not self._json_validator.validate(schema, update['loginData']):
-            return CfmRdaServer.response_error_default()
-        logger = ExtLogger(update['logger'])
-        login_check = False
-        try:
-            logger.login(update['loginData'])
-            login_check = True
-        except (requests.exceptions.HTTPError, ExtLoggerException) as ext:
-            logging.exception(ext)
-        params = splice_params(update,\
-            ['logger', 'loginData', 'id'])
-        params['state'] = 0 if login_check else 1
+        params = splice_params(update, ('logger', 'loginData', 'id'))
+
+        if 'updateRequest' not in update:
+            logger_type = update['logger']
+            logger_params = ExtLogger.types[logger_type]
+            schema = logger_params['schema'] if 'schema' in logger_params\
+                else 'extLoggersLoginDefault'
+            if not self._json_validator.validate(schema, update['loginData']):
+                return CfmRdaServer.response_error_default()
+            logger = ExtLogger(update['logger'])
+            login_check = False
+            try:
+                logger.login(update['loginData'])
+                login_check = True
+            except (requests.exceptions.HTTPError, ExtLoggerException) as ext:
+                logging.exception(ext)
+            params['state'] = 0 if login_check else 1
+
         params['callsign'] = callsign
         sql = ""
         _id = None
-        if 'id' in params and params['id']:
-            sql = """update ext_loggers
-                set login_data = %(loginData)s, state = %(state)s, logger = %(logger)s 
-                where id = %(id)s and callsign=%(callsign)s;"""
+        if params.get('id'):
+            if 'updateRequest' in update:
+                sql = """update ext_loggers
+                    set last_updated = null 
+                    where id = %(id)s and callsign=%(callsign)s;"""
+            else:
+                sql = """update ext_loggers
+                    set login_data = %(loginData)s, state = %(state)s, logger = %(logger)s 
+                    where id = %(id)s and callsign=%(callsign)s;"""
             _id = params['id']
         else:
             sql = """insert into ext_loggers (callsign, logger, login_data, state)
@@ -757,7 +766,10 @@ class CfmRdaServer():
         if db_res:
             if not _id:
                 _id = db_res
-            return web.json_response({'state': params['state'], 'id': _id})
+            if 'updateRequest' in update:
+                return CfmRdaServer.response_ok()
+            else:
+                return web.json_response({'state': params['state'], 'id': _id})
         else:
             return CfmRdaServer.response_error_default()
 

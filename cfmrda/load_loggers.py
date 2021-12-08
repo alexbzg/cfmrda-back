@@ -159,7 +159,7 @@ def main(conf):
                                 'band': BANDS_WL[entry['band']],\
                                 'mode': 'SSB' if entry['mainmode'] == 'PH' else entry['mainmode'],\
                                 'tstamp': entry['date']}
-                            if not (yield from rda_search(qso)):
+                            if not (yield from rda_check(qso)):
                                 qsos.append(qso)
                                 if not date_start or date_start > qso['tstamp']:
                                     date_start = qso['tstamp']
@@ -191,7 +191,7 @@ def main(conf):
                             else:
                                 continue
 
-                            if not (yield from rda_search(qso)):
+                            if not (yield from rda_check(qso)):
                                 if not date_start or date_start > qso['tstamp']:
                                     date_start = qso['tstamp']
                                 if not date_end or date_end < qso['tstamp']:
