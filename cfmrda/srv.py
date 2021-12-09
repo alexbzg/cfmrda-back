@@ -228,7 +228,7 @@ class CfmRdaServer():
                     return CfmRdaServer.response_error_recaptcha()
                 email = data['email']
             send_email.send_email(\
-                text=data['text'] + '\n\n' + data['email'],\
+                text=data['text'] + '\n\n' + email,\
                 to=CONF.get('email', 'address'),\
                 fr=email,\
                 subject="CFMRDA.ru support" + \
