@@ -200,6 +200,7 @@ def main(conf):
                                 qsos.append(qso)
 
                 if qsos:
+                    logging.debug(str(qso_count)) + ' qsos were downloaded.')
                     logging.debug(str(len(qsos)) + ' new rda qso found.')
                     #file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
 

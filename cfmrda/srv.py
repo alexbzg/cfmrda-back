@@ -227,7 +227,8 @@ class CfmRdaServer():
                 if not rc_test:
                     return CfmRdaServer.response_error_recaptcha()
                 email = data['email']
-            send_email.send_email(text=data['text'],\
+            send_email.send_email(\
+                text=data['text'] + '\n\n' + data['email'],\
                 to=CONF.get('email', 'address'),\
                 fr=email,\
                 subject="CFMRDA.ru support" + \
@@ -751,7 +752,7 @@ class CfmRdaServer():
         if params.get('id'):
             if 'updateRequest' in update:
                 sql = """update ext_loggers
-                    set last_updated = null 
+                    set last_updated = null, qso_count = null
                     where id = %(id)s and callsign=%(callsign)s;"""
             else:
                 sql = """update ext_loggers
