@@ -136,7 +136,7 @@ def main(conf):
             logger_data = None
             try:
                 logger_data = logger.load(row['login_data'])
-                logging.debug(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
+                logging.info(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
             except Exception:
                 logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
                 update_params['state'] = 1
@@ -149,59 +149,64 @@ def main(conf):
                 qsos = []
                 date_start, date_end = None, None
 
-                if row['logger'] == 'HAMLOG':
+                try:
 
-                    for entry in logger_data:
-                        if entry['band'] in BANDS_WL:
-                            qso = {'callsign': entry['mycall'],\
-                                'station_callsign': entry['hiscall'],\
-                                'rda': entry['rda'],\
-                                'band': BANDS_WL[entry['band']],\
-                                'mode': 'SSB' if entry['mainmode'] == 'PH' else entry['mainmode'],\
-                                'tstamp': entry['date']}
-                            if not (yield from rda_check(qso)):
-                                qsos.append(qso)
-                                if not date_start or date_start > qso['tstamp']:
-                                    date_start = qso['tstamp']
-                                if not date_end or date_end < qso['tstamp']:
-                                    date_end = qso['tstamp']
+                    if row['logger'] == 'HAMLOG':
 
-                    qso_count = len(logger_data)
+                        for entry in logger_data:
+                            if entry['band'] in BANDS_WL:
+                                qso = {'callsign': entry['mycall'],\
+                                    'station_callsign': entry['hiscall'],\
+                                    'rda': entry['rda'],\
+                                    'band': BANDS_WL[entry['band']],\
+                                    'mode': 'SSB' if entry['mainmode'] == 'PH' else entry['mainmode'],\
+                                    'tstamp': entry['date']}
+                                if not (yield from rda_check(qso)):
+                                    qsos.append(qso)
+                                    if not date_start or date_start > qso['tstamp']:
+                                        date_start = qso['tstamp']
+                                    if not date_end or date_end < qso['tstamp']:
+                                        date_end = qso['tstamp']
 
-                else:
+                        qso_count = len(logger_data)
 
-                    for adif in logger_data:
+                    else:
 
-                        adif = adif.upper()
-                        qso_count += adif.count('<EOR>')
-                        parsed = load_adif(adif, station_callsign_field, ignore_activator=True,\
-                            strip_callsign_flag=False)
+                        for adif in logger_data:
 
-                        for qso in parsed['qso']:
+                            adif = adif.upper()
+                            qso_count += adif.count('<EOR>')
+                            parsed = load_adif(adif, station_callsign_field, ignore_activator=True,\
+                                strip_callsign_flag=False)
 
-                            callsign = row['login_data']['Callsign'].upper()\
-                                if row['logger'] == 'eQSL'\
-                                else qso['station_callsign']
-                            qso['callsign'], qso['station_callsign'] = \
-                                callsign, qso['callsign']
+                            for qso in parsed['qso']:
 
-                            rda = yield from rda_search(qso)
-                            if rda:
-                                qso['rda'] = rda
-                            else:
-                                continue
+                                callsign = row['login_data']['Callsign'].upper()\
+                                    if row['logger'] == 'eQSL'\
+                                    else qso['station_callsign']
+                                qso['callsign'], qso['station_callsign'] = \
+                                    callsign, qso['callsign']
 
-                            if not (yield from rda_check(qso)):
-                                if not date_start or date_start > qso['tstamp']:
-                                    date_start = qso['tstamp']
-                                if not date_end or date_end < qso['tstamp']:
-                                    date_end = qso['tstamp']
+                                rda = yield from rda_search(qso)
+                                if rda:
+                                    qso['rda'] = rda
+                                else:
+                                    continue
 
-                                qsos.append(qso)
+                                if not (yield from rda_check(qso)):
+                                    if not date_start or date_start > qso['tstamp']:
+                                        date_start = qso['tstamp']
+                                    if not date_end or date_end < qso['tstamp']:
+                                        date_end = qso['tstamp']
 
+                                    qsos.append(qso)
+
+                except Exception:
+                    logging.exception('Error parsing elog data')
+                logging.info(str(qso_count) + ' qsos were downloaded.')
+  
                 if qsos:
-                    logging.debug(str(qso_count)) + ' qsos were downloaded.')
-                    logging.debug(str(len(qsos)) + ' new rda qso found.')
+                    logging.info(str(len(qsos)) + ' new rda qso found.')
                     #file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
 
                     db_res = yield from _db.create_upload(\
@@ -226,9 +231,10 @@ def main(conf):
                 logging.debug('logger data updated')
 
 if __name__ == "__main__":
-    start_logging('loggers')
-    logging.debug('start loading loggers')
     CONF = site_conf()
+
+    start_logging('loggers', level=CONF.get('logs', 'loggers_level'))
+    logging.debug('start loading loggers')
 
     PID_FILENAME = CONF.get('files', 'loggers_pid')
     PID_FILE = open(PID_FILENAME, 'w')

@@ -522,11 +522,34 @@ ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
 
 CREATE FUNCTION public.tf_cfm_qsl_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$begin
-  if exists (select from qso where qso.callsign = new.callsign and qso.rda = new.rda and qso.band = new.band and qso.mode = new.mode) then
-    raise 'cfmrda_db_error:Этот RDA у вас уже подтвержден ⇒ <b>(%, %, %)</b> ⇐ This RDA is already comfirmed for you.', new.rda, new.mode, new.band || 'MHz';
+    AS $$declare 
+  new_rda character varying(5);
+begin
+  /*check and replace obsolete rda*/
+  select old_rda.new into new_rda
+    from old_rda 
+    where old_rda.old = new.rda and 
+	(dt_start < new.tstamp or dt_start is null) and
+	(dt_stop > new.tstamp or dt_stop is null);
+  if not found
+  then  
+    new_rda = new.rda;
+  elsif new_rda is null
+  then
+    raise 'cfmrda_db_error:Некорректный район RDA (%)', new.rda;    
+  end if;  
+  if not exists (select from rda where rda = new_rda)
+  then
+    raise 'cfmrda_db_error:Некорректный район RDA (%)', new.rda;    
+  end if;    
+  if exists (select from qso where qso.callsign = strip_callsign(new.callsign) and qso.rda = new_rda and qso.band = new.band and qso.mode = new.mode) then
+    raise 'cfmrda_db_error:Этот RDA у вас уже подтвержден ⇒ <b>(%, %, %)</b> ⇐ This RDA is already confirmed for you.', new.rda, new.mode, new.band || 'MHz';
   end if;
-  perform check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp);
+  if (now() - new.tstamp < interval '10 days')
+  then
+    raise 'cfmrda_db_error:На проверку принимаются карточки с датой не менее 10 дней до текущей. Only cards with a date at least 10 days before today are accepted.';
+  end if;
+  perform check_qso(new.callsign, new.station_callsign, new_rda, new.band, new.mode, new.tstamp);
 /*  if exists (select 1 from cfm_qsl_qso
 	where callsign = new.callsign and rda = new.rda
 	and station_callsign = new.station_callsign
@@ -534,7 +557,8 @@ CREATE FUNCTION public.tf_cfm_qsl_qso_bi() RETURNS trigger
     return null;
    end if;   */
    return new;
- end$$;
+ end
+$$;
 
 
 ALTER FUNCTION public.tf_cfm_qsl_qso_bi() OWNER TO postgres;

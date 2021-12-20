@@ -89,18 +89,6 @@ class ExtLogger():
 
                 adifs.append(rsp.text)
 
-            elif self.type == 'HAMLOG':
-                rsp = ssn.get('https://hamlog.ru/lk/calls.php')
-                rsp.raise_for_status()
-
-                re_adif = re.compile(r'dl\.php\?c=(\d+)')
-                data = {'dluser': 0, 'dlmode': 'ANY', 'edit': 'Скачать лог'}
-                for mo_adif in re_adif.finditer(rsp.text):
-                    rsp_adif = ssn.post('https://hamlog.ru/lk/download.php?c=' + mo_adif.group(1),\
-                            data=data)
-                    rsp_adif.raise_for_status()
-                    adifs.append(rsp_adif.text)
-
             elif self.type == 'eQSL':
                 re_adif = re.compile(r'downloadedfiles/(.*)\.adi')
 
