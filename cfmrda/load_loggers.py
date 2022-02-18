@@ -94,18 +94,7 @@ def main(conf):
             logger = ExtLogger(row['logger'])
             update_params = {}
 
-            if row['logger'] == 'HAMLOG':
-                yield from exec_cur(cur, """
-                    delete from qso
-                    where upload_id in 
-                        (select id 
-                        from uploads 
-                        where ext_logger_id = %(id)s)""", row)
-                yield from exec_cur(cur, """
-                    delete from uploads
-                    where ext_logger_id = %(id)s""", row)
-
-            else:
+            if row['logger'] != 'HAMLOG':
 
                 yield from exec_cur(cur, """
                     select json_build_object('id', id, 
@@ -142,6 +131,17 @@ def main(conf):
                 update_params['state'] = 1
 
             if logger_data:
+
+                if row['logger'] == 'HAMLOG':
+                    yield from exec_cur(cur, """
+                        delete from qso
+                        where upload_id in 
+                            (select id 
+                            from uploads 
+                            where ext_logger_id = %(id)s)""", row)
+                    yield from exec_cur(cur, """
+                        delete from uploads
+                        where ext_logger_id = %(id)s""", row)
 
                 qso_count = 0
                 station_callsign_field = None if row['logger'] == 'eQSL'\
