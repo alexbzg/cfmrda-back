@@ -13,9 +13,8 @@ from common import site_conf
 
 class QRZComLink:
 
-    def __init__(self, loop):
+    def __init__(self):
         conf = site_conf()
-        self.loop = loop
         self.login = conf.get('QRZCom', 'login')
         self.password = conf.get('QRZCom', 'password')
         self.session_id = None
@@ -47,9 +46,9 @@ class QRZComLink:
         except Exception:
             logging.exception('Error logging into QRZ.com')
             if req:
-                logging.error('Http result code: ' + str(req.status_code()))
+                logging.error('Http result code: ' + str(req.status_code))
                 logging.error('Http response body: ' + req.text)
-            self.loop.call_later(60*10, self.get_session_id)
+            asyncio.get_running_loop().call_later(60*10, self.get_session_id)
 
     def get_data(self, callsign, bio=False):
         if self.session_id:
@@ -97,9 +96,8 @@ class QRZComLink:
 
 class QRZRuLink:
 
-    def __init__(self, loop):
+    def __init__(self):
         conf = site_conf()
-        self.loop = loop
         self.login = conf.get('QRZRu', 'login')
         self.password = conf.get('QRZRu', 'password')
         self._query_interval = conf.getfloat('QRZRu', 'query_interval')
@@ -157,7 +155,7 @@ class QRZRuLink:
                     logging.error('QRZ returned error: ' + \
                             r_dict['QRZDatabase']['Session']['error'])
                     self.session_task = \
-                        self.loop.call_later(self.session_interval_failure,\
+                        asyncio.get_running_loop().call_later(self.session_interval_failure,\
                         self.get_session_id)
                 else:
                     raise Exception('Wrong QRZ response')
@@ -167,12 +165,12 @@ class QRZRuLink:
                 logging.error('Http result code: ' + str(req.status_code))
                 logging.error('Http response body: ' + r_body)
             self.session_task = \
-                self.loop.call_later(self.session_interval_failure,\
+                asyncio.get_running_loop().call_later(self.session_interval_failure,\
                     self.get_session_id)
 
     @asyncio.coroutine
     def query(self, callsign):
-        _complete = asyncio.Event(loop=self.loop)
+        _complete = asyncio.Event()
         _data = None
 
         def callback(data):

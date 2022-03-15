@@ -16,18 +16,17 @@ class CfmrdaDbException(Exception):
         msg_trim = message.splitlines()[0].split('cfmrda_db_error:')[1]
         super().__init__(msg_trim)
 
-@asyncio.coroutine
-def to_dict(cur, keys=None):
+async def to_dict(cur, keys=None):
     if cur and cur.rowcount:
         columns_names = [col.name for col in cur.description]
         if cur.rowcount == 1 and not keys:
-            data = yield from cur.fetchone()
+            data = await cur.fetchone()
             if len(columns_names) == 1:
                 return data[0]
             else:
                 return dict(zip(columns_names, data))
         else:
-            data = yield from cur.fetchall()
+            data = await cur.fetchall()
             if ('id' in columns_names) and keys:
                 id_idx = columns_names.index('id')
                 return {row[id_idx]: dict(zip(columns_names, row)) \
@@ -56,15 +55,13 @@ def splice_params(data, params):
         for param in params \
         if param in data}
 
-@asyncio.coroutine
-def init_connection(conn):
-    conn.set_client_encoding('UTF8')
+async def init_connection(conn):
+    await conn.set_client_encoding('UTF8')
     logging.debug('new db connection')
 
-@asyncio.coroutine
-def exec_cur(cur, sql, params=None):
+async def exec_cur(cur, sql, params=None):
     try:
-        yield from cur.execute(sql, params)
+        await cur.execute(sql, params)
         return True
     except Exception as exc:
         trap_db_exception(exc, sql, params)
@@ -90,84 +87,76 @@ class DBConn:
         self.pool = None
         self.error = None
 
-    @asyncio.coroutine
-    def connect(self):
+    async def connect(self):
         try:
-            self.pool = yield from aiopg.create_pool(timeout=18000, maxsize=3,\
-                    on_connect=init_connection, **self.db_params)
+            self.pool = await aiopg.create_pool(timeout=18000, maxsize=3, **self.db_params)
             logging.debug('db connections pool created')
         except Exception:
             logging.exception('Error creating connection pool')
             logging.error(self.db_params)
 
-    @asyncio.coroutine
-    def fetch(self, sql, params=None):
+    async def fetch(self, sql, params=None):
         res = False
-        cur = yield from self.execute(sql, params)
+        cur = await self.execute(sql, params)
         if cur.rowcount:
-            res = yield from cur.fetchall()
+            res = await cur.fetchall()
         return res
 
-    @asyncio.coroutine
-    def param_update(self, table, id_params, upd_params):
-        return (yield from self.execute('update ' + table + \
+    async def param_update(self, table, id_params, upd_params):
+        return (await self.execute('update ' + table + \
                 ' set ' + params_str(upd_params, ', ') + \
                 " where " + params_str(id_params, ' and '), \
                 dict(id_params, **upd_params)))
 
-    @asyncio.coroutine
-    def param_delete(self, table, id_params):
-        return (yield from self.execute('delete from ' + table + \
+    async def param_delete(self, table, id_params):
+        return (await self.execute('delete from ' + table + \
                 " where " + params_str(id_params, ' and ') +\
                 " returning *", id_params))
 
-    @asyncio.coroutine
-    def param_update_insert(self, table, id_params, upd_params):
-        lookup = yield from self.get_object(table, id_params, False, True)
+    async def param_update_insert(self, table, id_params, upd_params):
+        lookup = await self.get_object(table, id_params, False, True)
         res = None
         if lookup:
-            res = yield from self.param_update(table, id_params, upd_params)
+            res = await self.param_update(table, id_params, upd_params)
         else:
-            res = yield from self.get_object(table, dict(id_params, **upd_params),\
+            res = await self.get_object(table, dict(id_params, **upd_params),\
                     True)
         return res
 
-    @asyncio.coroutine
-    def execute(self, sql, params=None, keys=None, progress=None):
+    async def execute(self, sql, params=None, keys=None, progress=None):
         res = False
-        with (yield from self.pool.cursor()) as cur:
-            try:
-                if self.verbose:
-                    logging.debug(sql)
-                    logging.debug(params)
-                if not params or isinstance(params, dict):
-                    yield from cur.execute(sql, params)
-                    res = (yield from to_dict(cur, keys))\
-                        if cur.description != None else True
-                else:
-                    yield from cur.execute('begin transaction;')
-                    cnt = 0
-                    cnt0 = 0
-                    for item in params:
-                        cnt0 += 1
-                        yield from cur.execute(sql, item)
-                        if cnt0 == 100:
-                            cnt += cnt0
-                            cnt0 = 0
-                            if progress:
-                                logging.debug(str(cnt) + '/' + str(len(params)))
-                    yield from cur.execute('commit transaction;')
-                    res = True
-            except Exception as exc:
-                if cur.connection.get_transaction_status() !=\
-                        TRANSACTION_STATUS_IDLE:
-                    yield from cur.execute('rollback transaction;')
-                trap_db_exception(exc, sql, params)
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                try:
+                    if self.verbose:
+                        logging.debug(sql)
+                        logging.debug(params)
+                    if not params or isinstance(params, dict):
+                        await cur.execute(sql, params)
+                        res = await to_dict(cur, keys) if cur.description is not None else True
+                    else:
+                        await cur.execute('begin transaction;')
+                        cnt = 0
+                        cnt0 = 0
+                        for item in params:
+                            cnt0 += 1
+                            await cur.execute(sql, item)
+                            if cnt0 == 100:
+                                cnt += cnt0
+                                cnt0 = 0
+                                if progress:
+                                    logging.debug(str(cnt) + '/' + str(len(params)))
+                        await cur.execute('commit transaction;')
+                        res = True
+                except Exception as exc:
+                    if cur.connection.get_transaction_status() !=\
+                            TRANSACTION_STATUS_IDLE:
+                        await cur.execute('rollback transaction;')
+                    trap_db_exception(exc, sql, params)
         return res
 
 
-    @asyncio.coroutine
-    def get_object(self, table, params, create=False, never_create=False):
+    async def get_object(self, table, params, create=False, never_create=False):
         sql = ''
         res = False
         if not create:
@@ -177,7 +166,7 @@ class DBConn:
                     if params[k] != None\
                     else k + " is null"\
                     for k in params.keys()]))
-            res = yield from self.execute(sql, params)
+            res = await self.execute(sql, params)
         if create or (not res and not never_create):
             keys = params.keys()
             sql = "insert into " + table + " (" + \
@@ -185,16 +174,14 @@ class DBConn:
                 ', '.join(["%(" + k + ")s" for k in keys]) + \
                 ") returning *"
             logging.debug('creating object in db')
-            res = yield from self.execute(sql, params)
+            res = await self.execute(sql, params)
         return res
 
-    @asyncio.coroutine
-    def check_upload_hash(self, hash_data):
+    async def check_upload_hash(self, hash_data):
         file_hash = hashlib.md5(hash_data).hexdigest()
         return file_hash
 
-    @asyncio.coroutine
-    def create_upload(self, callsign=None, date_start=None, date_end=None,\
+    async def create_upload(self, callsign=None, date_start=None, date_end=None,\
         file_hash=None, upload_type='adif', activators=None, qsos=None, ext_logger_id=None):
 
         res = {'message': 'Ошибка загрузки',\
@@ -209,9 +196,9 @@ class DBConn:
 
         logging.debug('create upload start')
 
-        with (yield from self.pool.cursor()) as cur:
+        with (await self.pool.cursor()) as cur:
             try:
-                yield from exec_cur(cur, 'begin transaction')
+                await exec_cur(cur, 'begin transaction')
                 logging.debug('transaction start')
 
                 upl_params = {'callsign': callsign,\
@@ -221,7 +208,7 @@ class DBConn:
                     'upload_type': upload_type,\
                     'ext_logger_id': ext_logger_id}
 
-                upl_res = yield from exec_cur(cur, """
+                upl_res = await exec_cur(cur, """
                     insert into uploads
                         (user_cs, date_start, date_end, hash,
                         upload_type, ext_logger_id)
@@ -233,7 +220,7 @@ class DBConn:
                     logging.error('upload create failed! Params:')
                     logging.error(upl_params)
                     raise Exception()
-                upl_id = (yield from cur.fetchone())[0]
+                upl_id = (await cur.fetchone())[0]
                 if not upl_id:
                     logging.error('upload create failed! Params:')
                     logging.error(upl_params)
@@ -244,7 +231,7 @@ class DBConn:
                     values (%(upload_id)s, %(activator)s)"""
                 for act in activators:
                     act_params = {'upload_id': upl_id, 'activator': act}
-                    if not (yield from exec_cur(cur, act_sql, act_params)):
+                    if not (await exec_cur(cur, act_sql, act_params)):
                         logging.error('activators create failed! Params:')
                         logging.error(act_params)
                         raise Exception()
@@ -267,39 +254,37 @@ class DBConn:
 
                 savepoint_fl = False
 
-                @asyncio.coroutine
-                def savepoint():
+                async                 def savepoint():
                     nonlocal savepoint_fl
                     if savepoint_fl:
-                        yield from exec_cur(cur, "release savepoint upl_savepoint;")
-                    yield from exec_cur(cur, "savepoint upl_savepoint;")
+                        await exec_cur(cur, "release savepoint upl_savepoint;")
+                    await exec_cur(cur, "savepoint upl_savepoint;")
                     savepoint_fl = True
 
-                @asyncio.coroutine
-                def rollback_savepoint():
-                    yield from exec_cur(cur, "rollback to savepoint upl_savepoint;")
+                async                 def rollback_savepoint():
+                    await exec_cur(cur, "rollback to savepoint upl_savepoint;")
 
-                yield from savepoint()
+                await savepoint()
                 for qso in qsos:
                     qso['upload_id'] = upl_id
                     try:
                         if ext_logger_id:
-                            cfm_res = yield from exec_cur(cur, cfm_sql, qso)
+                            cfm_res = await exec_cur(cur, cfm_sql, qso)
                             if cfm_res and cur.rowcount:
                                 continue
-                        qso_res = yield from exec_cur(cur, qso_sql, qso)
+                        qso_res = await exec_cur(cur, qso_sql, qso)
                         qso_id = None
                         if qso_res and cur.rowcount:
-                            qso_id = (yield from cur.fetchone())[0]
+                            qso_id = (await cur.fetchone())[0]
                         if qso_id:
                             res['qso']['ok'] += 1
-                            yield from savepoint()
+                            await savepoint()
                         else:
                             append_error('Некорректное QSO (не загружено)')
-                            yield from rollback_savepoint()
+                            await rollback_savepoint()
                     except CfmrdaDbException as exc:
                         append_error(str(exc))
-                        yield from rollback_savepoint()
+                        await rollback_savepoint()
 
                 if res['qso']['ok']:
                     res['message'] = 'OK'
@@ -307,58 +292,54 @@ class DBConn:
                     res['message'] = 'Не найдено корректных qso.'
                     raise Exception()
 
-                yield from exec_cur(cur, 'commit transaction')
+                await exec_cur(cur, 'commit transaction')
 
             except Exception:
                 logging.exception('create upload failed')
                 if cur.connection.get_transaction_status() !=\
                         TRANSACTION_STATUS_IDLE:
-                    yield from exec_cur(cur, 'rollback transaction;')
+                    await exec_cur(cur, 'rollback transaction;')
 
             return res
 
-    @asyncio.coroutine
-    def remove_upload(self, _id):
+    async def remove_upload(self, _id):
         """removes upload with all qso in it returns True on success else False"""
-        if (yield from self.execute("""delete from qso where upload_id = %(id)s""",\
+        if (await self.execute("""delete from qso where upload_id = %(id)s""",\
                 {'id': _id})):
-            if (yield from self.execute("""delete from uploads where id = %(id)s""",\
+            if (await self.execute("""delete from uploads where id = %(id)s""",\
                 {'id': _id})):
                 return True
         return False
 
-    @asyncio.coroutine
-    def get_old_callsigns(self, callsign, confirmed=False):
+    async def get_old_callsigns(self, callsign, confirmed=False):
         """returns array of old callsigns"""
         sql = """select array_agg(old)
             from old_callsigns
             where new = %(callsign)s"""
         if confirmed:
             sql += " and confirmed"
-        return (yield from self.execute(sql, {'callsign': callsign}))
+        return (await self.execute(sql, {'callsign': callsign}))
 
-    @asyncio.coroutine
-    def get_new_callsign(self, callsign):
+    async def get_new_callsign(self, callsign):
         """returns new callsign or False"""
-        return (yield from self.execute("""
+        return (await self.execute("""
             select new 
             from old_callsigns
             where confirmed and old = %(callsign)s
             """, {'callsign': callsign}))
 
-    @asyncio.coroutine
-    def set_old_callsigns(self, callsign, new_old, confirm=False):
+    async def set_old_callsigns(self, callsign, new_old, confirm=False):
         """changes old callsigns of the callsign returns False on db error,
         'OK' or warnings string"""
-        new_check = yield from self.get_new_callsign(callsign)
+        new_check = await self.get_new_callsign(callsign)
         if new_check:
             return "Позывной " + callsign + " назначен старым позывным для "\
                 + new_check + " и не может иметь старых позывных."
-        current_old = yield from self.get_old_callsigns(callsign)
+        current_old = await self.get_old_callsigns(callsign)
         if not current_old:
             current_old = []
         current_confirmed = [] if confirm else\
-            (yield from self.get_old_callsigns(callsign, True))
+            (await self.get_old_callsigns(callsign, True))
         if not current_confirmed:
             current_confirmed = []
         msg = ''
@@ -367,7 +348,7 @@ class DBConn:
                 if cs not in new_old and (cs not in current_confirmed or confirm)]
         to_confirm = []
         for _cs in new_old:
-            check = yield from self.execute("""select new
+            check = await self.execute("""select new
                 from old_callsigns 
                 where confirmed and old = %(cs)s and new <> %(new)s""",\
                 {'cs': _cs, 'new': callsign})
@@ -381,27 +362,26 @@ class DBConn:
                 if _cs not in current_old:
                     add.append({'old': _cs, 'new': callsign, 'confirmed': confirm})
         if add:
-            if not (yield from self.execute("""
+            if not (await self.execute("""
                 insert into old_callsigns (old, new, confirmed)
                 values (%(old)s, %(new)s, %(confirmed)s)""", add)):
                 return False
         if delete:
-            if not (yield from self.execute("""
+            if not (await self.execute("""
                 delete from old_callsigns
                 where old = %(old)s and new = %(new)s""", delete)):
                 return False
         if to_confirm:
-            if not (yield from self.execute("""
+            if not (await self.execute("""
                 update old_callsigns
                 set confirmed = true
                 where old =%(old)s and new = %(new)s""", to_confirm)):
                 return False
         return msg if msg else 'OK'
 
-    @asyncio.coroutine
-    def cfm_blacklist(self, callsign):
+    async def cfm_blacklist(self, callsign):
         """adds callsign to blacklist fro cfm requests"""
-        return (yield from self.execute("""
+        return (await self.execute("""
             insert into cfm_request_blacklist
             values (%(callsign)s)""",\
             {'callsign': callsign}, False))

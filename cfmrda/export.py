@@ -19,46 +19,45 @@ def set_local_owner(file):
         shutil.chown(CONF.get('web', 'root') + file,\
             user=CONF.get('web', 'user'), group=CONF.get('web', 'group'))
 
-@asyncio.coroutine
-def export_rankings():
+async def export_rankings():
     """rebuild rankings table in db and export top100 to json file for web"""
     logging.debug('export rankings')
 
     db_params = dict(CONF.items('db'))
     db_params.update(dict(CONF.items('db_maintenance')))
     _db = DBConn(db_params)
-    yield from _db.connect()
+    await _db.connect()
     os.system('systemctl stop clustercn')
-    yield from _db.execute("delete from rankings;")
+    await _db.execute("delete from rankings;")
     logging.debug('export rankings: rankings table cleared')
-    yield from _db.execute("vacuum full freeze verbose analyze rankings;")
+    await _db.execute("vacuum full freeze verbose analyze rankings;")
     logging.debug('export rankings: rankings table vacuumed')
-    yield from _db.execute("delete from rda_activator;")
+    await _db.execute("delete from rda_activator;")
     logging.debug('export rankings: rda_activator table cleared')
-    yield from _db.execute("vacuum full freeze verbose analyze rda_activator;")
+    await _db.execute("vacuum full freeze verbose analyze rda_activator;")
     logging.debug('export rankings: rda_activator table vacuumed')
-    yield from _db.execute("delete from rda_hunter;")
+    await _db.execute("delete from rda_hunter;")
     logging.debug('export rankings: rda_hunter table cleared')
-    yield from _db.execute("vacuum full freeze verbose analyze rda_hunter;")
+    await _db.execute("vacuum full freeze verbose analyze rda_hunter;")
     logging.debug('export rankings: rda_hunter table vacuumed')
-    yield from _db.execute("vacuum full freeze verbose analyze qso;")
+    await _db.execute("vacuum full freeze verbose analyze qso;")
     logging.debug('export rankings: qso table vacuumed')
 
-    yield from _db.execute("select from build_rankings()")
+    await _db.execute("select from build_rankings()")
     logging.debug('rankings table rebuilt')
 
-    rankings = yield from _db.execute("""
+    rankings = await _db.execute("""
                 select rankings_json(null, null, null, null, 104, null, null) as data
                 """, None, False)
 
     save_json(rankings, CONF.get('web', 'root') + '/json/rankings.json')
     set_local_owner('/json/rankings.json')
 
-    countries = yield from _db.execute("""
+    countries = await _db.execute("""
         select id from countries""", None, False)
     for country in countries:
         json_path = '/json/countries_rankings/' + str(country) + '.json'
-        rankings = yield from _db.execute("""
+        rankings = await _db.execute("""
                 select rankings_json(null, null, null, null, 104, null, %(id)s) as data
                 """, {'id': country}, False)
         save_json(rankings, CONF.get('web', 'root') + json_path)
@@ -70,7 +69,7 @@ def export_rankings():
     msc_json_path = CONF.get('web', 'root') + '/json/msc.json'
     msc_data = load_json(json_path) or {}
 
-    msc_data['qsoCount'] = (yield from _db.execute("""
+    msc_data['qsoCount'] = (await _db.execute("""
         select count(*) as qso_count
         from qso;    
     """, None, False))
@@ -78,16 +77,15 @@ def export_rankings():
     logging.debug('export qso count finished')
     os.system('systemctl start clustercn')
 
-@asyncio.coroutine
-def export_callsigns():
+async def export_callsigns():
     """export distinct callsigns into json array"""
     logging.debug('export callsigns')
 
     _db = DBConn(dict(CONF.items('db')))
-    yield from _db.connect()
+    await _db.connect()
 
 
-    callsigns = yield from _db.execute("""
+    callsigns = await _db.execute("""
         select distinct hunter from rda_hunter as h0
         where (select count(*) from rda_hunter as h1
             where h0.hunter = h1.hunter) > 4
@@ -95,15 +93,14 @@ def export_callsigns():
     save_json(callsigns, CONF.get('web', 'root') + '/json/callsigns.json')
     logging.debug('export callsigns finished')
 
-@asyncio.coroutine
-def export_recent_uploads():
+async def export_recent_uploads():
     """export 20 recent uploaded file batches to json file for web"""
     logging.debug('export recent uploads')
 
     _db = DBConn(dict(CONF.items('db')))
-    yield from _db.connect()
+    await _db.connect()
 
-    data = yield from _db.execute("""
+    data = await _db.execute("""
         select json_agg(json_build_object(
             'activators', activators,
             'rda', rda,
@@ -136,24 +133,23 @@ def export_recent_uploads():
     save_json(data, CONF.get('web', 'root') + '/json/recent_uploads.json')
     logging.debug('export recent uploads finished')
 
-@asyncio.coroutine
-def export_msc():
+async def export_msc():
     """export misc db data to json file for web"""
     logging.debug('export misc')
 
     _db = DBConn(dict(CONF.items('db')))
-    yield from _db.connect()
+    await _db.connect()
 
     json_path = CONF.get('web', 'root') + '/json/msc.json'
     data = load_json(json_path) or {}
 
-    data['unsortedQsl'] = (yield from _db.execute("""
+    data['unsortedQsl'] = (await _db.execute("""
         select count(*) as qsl_wait 
         from cfm_qsl_qso 
         where state is null;
     """, None, False))
 
-    data['userActivity'] = (yield from _db.execute("""
+    data['userActivity'] = (await _db.execute("""
         with qsl_data as 
             (select user_cs, state 
             from cfm_qsl_qso, cfm_qsl
@@ -179,16 +175,15 @@ def export_msc():
     save_json(data, json_path)
     logging.debug('export misc finished')
 
-@asyncio.coroutine
-def export_stat():
+async def export_stat():
     """export statistic data to json file for web"""
     logging.debug('export stats')
 
     _db = DBConn(dict(CONF.items('db')))
-    yield from _db.connect()
+    await _db.connect()
 
     data = {}
-    data['qso by rda'] = (yield from _db.execute("""
+    data['qso by rda'] = (await _db.execute("""
         select json_object_agg(rda, data) as data from
             (select rda, json_object_agg(band, data) as data from
                 (select rda, band, json_object_agg(mode, qso_count) as data from

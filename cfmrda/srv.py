@@ -63,18 +63,21 @@ class CfmRdaServer():
     def response_error_admin_required():
         return web.HTTPBadRequest(text='Необходимы права администратора сайта.')
 
-    def __init__(self, loop):
-        self._loop = loop
+    def __init__(self):
         self._db = DBConn(dict(CONF.items('db')))
-        self._qrzcom = QRZComLink(loop)
+        self._qrzcom = None
         self._qrzru = None
-        if CONF.has_option('QRZRu', 'login'):
-            self._qrzru = QRZRuLink(loop)
-        asyncio.ensure_future(self._db.connect())
         self._secret = get_secret(CONF.get('files', 'secret'))
         self._site_admins = str(CONF.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(\
             load_json(APP_ROOT + '/schemas.json'))
+
+    async def on_startup(self, app):
+        await self._db.connect()
+        self._qrzcom = QRZComLink()
+        self._qrzru = None
+        if CONF.has_option('QRZRu', 'login'):
+            self._qrzru = QRZRuLink()
 
     def is_admin(self, callsign):
         return callsign in self._site_admins
@@ -82,44 +85,41 @@ class CfmRdaServer():
     def create_token(self, data):
         return create_token(self._secret, data)
 
-    @asyncio.coroutine
-    def get_user_data(self, callsign):
-        data = yield from self._db.get_object('users', \
+    async def get_user_data(self, callsign):
+        data = await self._db.get_object('users', \
                 {'callsign': callsign}, False, True)
         if data:
             data['oldCallsigns'] = {}
-            data['oldCallsigns']['confirmed'] = yield from\
+            data['oldCallsigns']['confirmed'] = await\
                 self._db.get_old_callsigns(callsign, confirmed=True)
-            data['oldCallsigns']['all'] = yield from\
+            data['oldCallsigns']['all'] = await\
                 self._db.get_old_callsigns(callsign)
             for type in data['oldCallsigns']:
                 if not data['oldCallsigns'][type]:
                     data['oldCallsigns'][type] = []
-            data['newCallsign'] = yield from self._db.get_new_callsign(callsign)
+            data['newCallsign'] = await self._db.get_new_callsign(callsign)
         return data
 
-    @asyncio.coroutine
-    def login_hndlr(self, request):
-        data = yield from request.json()
+    async def login_hndlr(self, request):
+        data = await request.json()
         if 'mode' in data:
             if data['mode'] == 'register':
-                return (yield from self.register_user(data))
+                return (await self.register_user(data))
             elif data['mode'] == 'login':
-                return (yield from self.login(data))
+                return (await self.login(data))
             elif data['mode'] == 'passwordRequest':
-                return (yield from self.password_request(data))
+                return (await self.password_request(data))
             elif data['mode'] == 'passwordChange':
-                return (yield from self.password_change(data))
+                return (await self.password_change(data))
             elif data['mode'] == 'emailRequest':
-                return (yield from self.email_request(data))
+                return (await self.email_request(data))
         logging.debug(data)
         return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def correspondent_email_hndlr(self, request):
+    async def correspondent_email_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         response = {'email': None, 'reason': None}
-        blacklist_check = yield from self._db.execute("""
+        blacklist_check = await self._db.execute("""
             select * from cfm_request_blacklist
             where callsign = %(callsign)s""",\
             {'callsign': callsign}, False)
@@ -133,16 +133,15 @@ class CfmRdaServer():
                 response['reason'] = 'not found'
         return web.json_response(response)
 
-    @asyncio.coroutine
-    def cfm_request_qso_hndlr(self, request):
-        data = yield from request.json()
+    async def cfm_request_qso_hndlr(self, request):
+        data = await request.json()
         callsign = self.decode_token(data)
         if not isinstance(callsign, str):
             return callsign
         if 'qso' in data:
             errors = []
             if self._json_validator.validate('cfmRequestQso', data):
-                user_data = yield from self.get_user_data(callsign)
+                user_data = await self.get_user_data(callsign)
                 email = user_data['email']
                 for qso in data['qso']:
                     qso['hunterEmail'] = email
@@ -150,7 +149,7 @@ class CfmRdaServer():
                         qso['time']
                     qso['user_cs'] = callsign
                     try:
-                        if not (yield from self._db.execute("""
+                        if not (await self._db.execute("""
                             insert into cfm_request_qso 
                             (correspondent, callsign, station_callsign, rda,
                             band, mode, tstamp, hunter_email, user_cs,
@@ -171,7 +170,7 @@ class CfmRdaServer():
         else:
             if callsign:
                 if 'delete' in data and data['delete']:
-                    check_state = yield from self._db.execute("""
+                    check_state = await self._db.execute("""
                         select sent
                         from cfm_request_qso 
                         where id = %(id)s""", {'id': data['delete']})
@@ -180,12 +179,12 @@ class CfmRdaServer():
                         else """update cfm_request_qso
                             set user_cs = null
                             where id = %(id)s"""
-                    if (yield from self._db.execute(sql, {'id': data['delete']})):
+                    if (await self._db.execute(sql, {'id': data['delete']})):
                         return CfmRdaServer.response_ok()
                     else:
                         return CfmRdaServer.response_error_default()
                 else:
-                    qso = yield from self._db.execute("""
+                    qso = await self._db.execute("""
                         select json_build_object(
                         'id', id,
                         'callsign', callsign,
@@ -209,21 +208,20 @@ class CfmRdaServer():
             else:
                 return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def contact_support_hndlr(self, request):
-        data = yield from request.json()
+    async def contact_support_hndlr(self, request):
+        data = await request.json()
         if self._json_validator.validate('contactSupport', data):
             email = None
             callsign = None
             if 'token' in data:
                 callsign = self.decode_token(data)
                 if isinstance(callsign, str):
-                    user_data = yield from self.get_user_data(callsign)
+                    user_data = await self.get_user_data(callsign)
                     email = user_data['email']
                 else:
                     return callsign
             else:
-                rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+                rc_test = await recaptcha.check_recaptcha(data['recaptcha'])
                 if not rc_test:
                     return CfmRdaServer.response_error_recaptcha()
                 email = data['email']
@@ -237,9 +235,8 @@ class CfmRdaServer():
 
         return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def chat_hndlr(self, request):
-        data = yield from request.json()
+    async def chat_hndlr(self, request):
+        data = await request.json()
         if self._json_validator.validate('chat', data):
             callsign = None
             admin = False
@@ -292,21 +289,19 @@ class CfmRdaServer():
 
         return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def email_request(self, data):
+    async def email_request(self, data):
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
-            yield from self._db.param_update('users', {'callsign': callsign},\
+            await self._db.param_update('users', {'callsign': callsign},\
                 {'email_confirmed': True})
             return web.HTTPFound(CONF.get('web', 'address'))
         else:
             return callsign
 
-    @asyncio.coroutine
-    def _cfm_qsl_qso_new(self, callsign, data):
+    async def _cfm_qsl_qso_new(self, callsign, data):
         if self._json_validator.validate('cfmQslQso', data['qsl']):
             res = []
-            qsl_id = (yield from self._db.get_object('cfm_qsl',\
+            qsl_id = (await self._db.get_object('cfm_qsl',\
                         {'user_cs': callsign,\
                         'comment': data['qsl']['comment'],\
                         'image': data['qsl']['image']['name'],\
@@ -316,7 +311,7 @@ class CfmRdaServer():
             for qso in data['qsl']['qso']:
                 asyncio.ensure_future(self._load_qrz_rda(qso['stationCallsign']))
                 try:
-                    yield from self._db.get_object('cfm_qsl_qso',\
+                    await self._db.get_object('cfm_qsl_qso',\
                         {'qsl_id': qsl_id,\
                         'station_callsign': qso['stationCallsign'],\
                         'rda': qso['rda'],\
@@ -344,9 +339,8 @@ class CfmRdaServer():
             return CfmRdaServer.response_error_default()
 
 
-    @asyncio.coroutine
-    def _cfm_qsl_qso_delete(self, callsign, data):
-        qsl = yield from self._db.execute("""
+    async def _cfm_qsl_qso_delete(self, callsign, data):
+        qsl = await self._db.execute("""
             select id, user_cs
             from cfm_qsl 
             where id = (
@@ -355,25 +349,24 @@ class CfmRdaServer():
                 where cfm_qsl_qso.id = %(delete)s)
             """, data)
         if qsl and qsl['user_cs'] == callsign:
-            res = yield from self._db.param_delete('cfm_qsl_qso',\
+            res = await self._db.param_delete('cfm_qsl_qso',\
                 {'id': data['delete']})
             if res:
-                if not (yield from self._db.execute("""
+                if not (await self._db.execute("""
                     select id from cfm_qsl_qso
                     where qsl_id = %(id)s and 
                         state is null""", qsl)):
                     _del_qsl_image(qsl['id'])
-                if not (yield from self._db.execute("""
+                if not (await self._db.execute("""
                     select id from cfm_qsl_qso
                     where qsl_id = %(id)s""", qsl)):
-                    yield from self._db.execute("""
+                    await self._db.execute("""
                         delete from cfm_qsl
                         where id = %(id)s""", qsl)
                 return CfmRdaServer.response_ok()
         return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def _get_qsl_list(self, callsign=None):
+    async def _get_qsl_list(self, callsign=None):
         sql = """
             select json_agg(json_build_object(
                 'id', cfm_qsl_qso.id,
@@ -406,34 +399,32 @@ class CfmRdaServer():
         else:
             sql += "state is null"
         logging.debug(sql)
-        qsl_list = yield from self._db.execute(sql, {'callsign': callsign})
+        qsl_list = await self._db.execute(sql, {'callsign': callsign})
         logging.debug(qsl_list)
         if not qsl_list:
             qsl_list = []
         return qsl_list
 
-    @asyncio.coroutine
-    def cfm_qsl_qso_hndlr(self, request):
-        data = yield from request.json()
+    async def cfm_qsl_qso_hndlr(self, request):
+        data = await request.json()
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
-            user_data = yield from self.get_user_data(callsign)
+            user_data = await self.get_user_data(callsign)
             if user_data['email_confirmed']:
                 if 'qsl' in data:
-                    return (yield from self._cfm_qsl_qso_new(callsign, data))
+                    return (await self._cfm_qsl_qso_new(callsign, data))
                 elif 'delete' in data:
-                    return (yield from self._cfm_qsl_qso_delete(callsign, data))
+                    return (await self._cfm_qsl_qso_delete(callsign, data))
                 else:
-                    qsl_list = yield from self._get_qsl_list(callsign)
+                    qsl_list = await self._get_qsl_list(callsign)
                     return web.json_response(qsl_list)
             else:
                 return CfmRdaServer.response_error_email_cfm()
         else:
             return callsign
 
-    @asyncio.coroutine
-    def qsl_admin_hndlr(self, request):
-        data = yield from request.json()
+    async def qsl_admin_hndlr(self, request):
+        data = await request.json()
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
             if self.is_admin(callsign):
@@ -443,13 +434,13 @@ class CfmRdaServer():
                             qso['admin'] = callsign
                             if 'comment' not in qso:
                                 qso['comment'] = None
-                        if (yield from self._db.execute("""
+                        if (await self._db.execute("""
                             update cfm_qsl_qso 
                             set state = %(state)s, comment = %(comment)s,
                             admin = %(admin)s
                             where id = %(id)s""", data['qsl'])):
                             for qso in data['qsl']:
-                                if not (yield from self._db.execute("""
+                                if not (await self._db.execute("""
                                     select id from cfm_qsl_qso
                                     where qsl_id = %(qslId)s
                                         and state is null
@@ -461,7 +452,7 @@ class CfmRdaServer():
                     else:
                         return CfmRdaServer.response_error_default()
                 else:
-                    qsl_list = yield from self._get_qsl_list()
+                    qsl_list = await self._get_qsl_list()
                     return web.json_response(qsl_list)
             else:
                 return CfmRdaServer.response_error_admin_required()
@@ -469,13 +460,12 @@ class CfmRdaServer():
             return callsign
 
 
-    @asyncio.coroutine
-    def adif_hndlr(self, request):
-        data = yield from request.json()
+    async def adif_hndlr(self, request):
+        data = await request.json()
         if self._json_validator.validate('adif', data):
             callsign = self.decode_token(data)
             if isinstance(callsign, str):
-                user_data = yield from self.get_user_data(callsign)
+                user_data = await self.get_user_data(callsign)
                 if user_data['email_confirmed']:
                     station_callsign_field = None
                     station_callsign = None
@@ -500,7 +490,7 @@ class CfmRdaServer():
 
                         adif_bytes = \
                             base64.b64decode(file['file'].split(',')[1])
-                        file_hash = yield from self._db.check_upload_hash(adif_bytes)
+                        file_hash = await self._db.check_upload_hash(adif_bytes)
                         if not file_hash:
                             response.append({'file': file['name'],\
                                 'message': 'Файл уже загружен'})
@@ -532,7 +522,7 @@ class CfmRdaServer():
                                 qso['station_callsign']
                             qso['rda'] = qso['rda'] if rda_field else file['rda']
 
-                        db_res = yield from self._db.create_upload(\
+                        db_res = await self._db.create_upload(\
                             callsign=callsign,\
                             date_start=adif_data['date_start'],\
                             date_end=adif_data['date_end'],\
@@ -560,13 +550,12 @@ class CfmRdaServer():
         else:
             return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def password_request(self, data):
+    async def password_request(self, data):
         error = None
         if self._json_validator.validate('passwordRequest', data):
-            rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+            rc_test = await recaptcha.check_recaptcha(data['recaptcha'])
             if rc_test:
-                user_data = yield from self.get_user_data(data['callsign'])
+                user_data = await self.get_user_data(data['callsign'])
                 if user_data:
                     token = self.create_token(\
                         {'callsign': data['callsign'], 'time': time.time()})
@@ -596,12 +585,11 @@ class CfmRdaServer():
         else:
             return CfmRdaServer.response_ok()
 
-    @asyncio.coroutine
-    def password_change(self, data):
+    async def password_change(self, data):
         if self._json_validator.validate('passwordChange', data):
             callsign = self.decode_token(data, check_time=True)
             if isinstance(callsign, str):
-                yield from self._db.param_update('users', {'callsign': callsign},\
+                await self._db.param_update('users', {'callsign': callsign},\
                     {'email_confirmed': True, 'password': data['password']})
                 return CfmRdaServer.response_ok()
             else:
@@ -609,11 +597,10 @@ class CfmRdaServer():
         else:
             return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def _edit_uploads(self, data, callsign):
+    async def _edit_uploads(self, data, callsign):
         if 'delete' in data:
             if not self.is_admin(callsign):
-                check_uploader = yield from self._db.execute("""
+                check_uploader = await self._db.execute("""
                     select user_cs 
                     from uploads 
                     where id = %(id)s
@@ -622,7 +609,7 @@ class CfmRdaServer():
                     return CfmRdaServer.response_error_default()
             
             data['delBy'] = callsign
-            upload_data = yield from self._db.execute("""
+            upload_data = await self._db.execute("""
                 select json_build_object('activators', activators,
                     'rda', rda, 'qso', qsos,
                     'delDate', to_char(now(), 'DD mon YYYY'),
@@ -647,15 +634,15 @@ class CfmRdaServer():
                     from qso
                     where upload_id = %(id)s) as qsos
                 """, data, False)
-            if not (yield from self._db.execute("""
+            if not (await self._db.execute("""
                 delete from qso where upload_id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
-            if not (yield from self._db.execute("""
+            if not (await self._db.execute("""
                 delete from activators where upload_id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
-            if not (yield from self._db.execute("""
+            if not (await self._db.execute("""
                 delete from uploads where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
@@ -670,15 +657,14 @@ class CfmRdaServer():
         elif 'enabled' in data:
             if callsign not in self._site_admins:
                 return CfmRdaServer.response_error_default()
-            if not(yield from self._db.execute("""
+            if not(await self._db.execute("""
                 update uploads set enabled = %(enabled)s where id = %(id)s
                 """, data)):
                 return CfmRdaServer.response_error_default()
         return CfmRdaServer.response_ok()
 
-    @asyncio.coroutine
-    def cfm_blacklist_hndlr(self, request):
-        data = yield from request.json()
+    async def cfm_blacklist_hndlr(self, request):
+        data = await request.json()
         callsign = self.decode_token(data)
         bl_callsign = None
         if isinstance(callsign, str):
@@ -689,15 +675,14 @@ class CfmRdaServer():
                     return CfmRdaServer.response_error_admin_required()
             else:
                 bl_callsign = callsign
-            if (yield from self._db.cfm_blacklist(bl_callsign)):
+            if (await self._db.cfm_blacklist(bl_callsign)):
                 return CfmRdaServer.response_ok()
             else:
                 return CfmRdaServer.response_error_default()
         else:
             return callsign
 
-    @asyncio.coroutine
-    def ann_hndlr(self, callsign, data):
+    async def ann_hndlr(self, callsign, data):
         site_root = CONF.get('web', 'root')
         ann_path = site_root + '/json/ann.json'
         ann = load_json(ann_path)
@@ -717,8 +702,7 @@ class CfmRdaServer():
         save_json(ann, ann_path)
         return CfmRdaServer.response_ok()
 
-    @asyncio.coroutine
-    def _ext_loggers_update(self, callsign, update):
+    async def _ext_loggers_update(self, callsign, update):
         """stores ext_logger record in db
         update parameter format:
         {id (null or absent if new record), logger, loginData} or
@@ -763,7 +747,7 @@ class CfmRdaServer():
             sql = """insert into ext_loggers (callsign, logger, login_data, state)
                 select %(callsign)s, %(logger)s, %(loginData)s, %(state)s
                 returning id"""
-        db_res = yield from self._db.execute(sql, params)
+        db_res = await self._db.execute(sql, params)
         if db_res:
             if not _id:
                 _id = db_res
@@ -774,16 +758,15 @@ class CfmRdaServer():
         else:
             return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def _ext_loggers_delete(self, callsign, delete):
+    async def _ext_loggers_delete(self, callsign, delete):
         """deletes ext_logger record from db return standard ok/error responses"""
         params = {'id': delete, 'callsign': callsign}
-        uploads = yield from self._db.execute("""select id as uid from uploads
+        uploads = await self._db.execute("""select id as uid from uploads
             where ext_logger_id = %(id)s and user_cs = %(callsign)s""", params, True)
         if uploads:
             for _id in uploads:
-                yield from self._db.remove_upload(_id)
-        db_res = yield from self._db.execute("""delete from ext_loggers
+                await self._db.remove_upload(_id)
+        db_res = await self._db.execute("""delete from ext_loggers
             where id = %(id)s and callsign = %(callsign)s
             returning id""", {'id': delete, 'callsign': callsign})
         if db_res and db_res == delete:
@@ -791,8 +774,7 @@ class CfmRdaServer():
         else:
             return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def ext_loggers_hndlr(self, callsign, data):
+    async def ext_loggers_hndlr(self, callsign, data):
         """handles loggers request
         when data has no fields 'update' or 'delete'
         returns
@@ -806,9 +788,9 @@ class CfmRdaServer():
             }
         """
         if 'update' in data:
-            return (yield from self._ext_loggers_update(callsign, data['update']))
+            return (await self._ext_loggers_update(callsign, data['update']))
         elif 'delete' in data:
-            return (yield from self._ext_loggers_delete(callsign, data['delete']))
+            return (await self._ext_loggers_delete(callsign, data['delete']))
         else:
             loggers = {}
             for (name, tmplt) in ExtLogger.types.items():
@@ -818,7 +800,7 @@ class CfmRdaServer():
                 if 'schema' not in logger:
                     logger['schema'] = 'extLoggersLoginDefault'
                 loggers[name] = logger
-            accounts = yield from self._db.execute("""
+            accounts = await self._db.execute("""
                 select json_build_object('id', id,
                     'logger', logger, 
                     'loginData', login_data, 
@@ -832,17 +814,15 @@ class CfmRdaServer():
 
             return web.json_response({'loggers': loggers, 'accounts': accounts})
 
-    @asyncio.coroutine
-    def user_data_hndlr(self, callsign, data):
+    async def user_data_hndlr(self, callsign, data):
         if 'data' in data:
-            yield from self._db.param_update('users', {'callsign': callsign},\
+            await self._db.param_update('users', {'callsign': callsign},\
                 splice_params(data['data'], ('defs',)))
-        return (yield from self.send_user_data(callsign))
+        return (await self.send_user_data(callsign))
 
-    @asyncio.coroutine
-    def callsigns_current_rda_hndlr(self, callsign, data):
+    async def callsigns_current_rda_hndlr(self, callsign, data):
         if 'callsign' in data:
-            rda_records = yield from self._db.execute("""
+            rda_records = await self._db.execute("""
                 select id, source, rda, callsign, comment,
                     to_char(ts, 'YYYY-MM-DD') as ts
                 from callsigns_rda 
@@ -854,8 +834,7 @@ class CfmRdaServer():
             rsp = rda_records if isinstance(rda_records, list) else (rda_records,)
             return web.json_response(rsp)
 
-    @asyncio.coroutine
-    def callsigns_rda_hndlr(self, callsign, data):
+    async def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
         if 'delete' in data or 'new' in data or 'conflict' in data\
             or 'meta' in data:
@@ -864,7 +843,7 @@ class CfmRdaServer():
                 return callsign
             db_rslt = False
             if 'conflict' in data:
-                db_rslt = yield from self._db.execute("""
+                db_rslt = await self._db.execute("""
                     select distinct cr0.callsign 
                     from callsigns_rda as cr0 join callsigns_rda as cr1 on
                         cr0.callsign = cr1.callsign and cr0.rda <> cr1.rda and
@@ -879,11 +858,11 @@ class CfmRdaServer():
                 return web.json_response(db_rslt)
             else:
                 if 'delete' in data:
-                    db_rslt = yield from self._db.execute("""
+                    db_rslt = await self._db.execute("""
                         delete from callsigns_rda where id = %(delete)s""",\
                         data)
                 elif 'meta' in data:
-                    db_rslt = yield from self._db.execute("""
+                    db_rslt = await self._db.execute("""
                         insert into callsigns_meta 
                             (callsign, disable_autocfm, comments)
                         select %(callsign)s, %(disableAutocfm)s, %(comments)s
@@ -901,7 +880,7 @@ class CfmRdaServer():
                 else:
                     data['new']['source'] = callsign
                     data['new']['callsign'] = data['callsign']
-                    db_rslt = yield from self._db.execute("""
+                    db_rslt = await self._db.execute("""
                         insert into callsigns_rda
                         (callsign, dt_start, dt_stop, source, rda, comment)
                         values (%(callsign)s, %(dtStart)s, %(dtStop)s,
@@ -915,7 +894,7 @@ class CfmRdaServer():
                         'selected': data['callsign']}
                 if search['base']:
                     search['search'] = search['base'] + '/%'
-                    rsp['suffixes'] = yield from self._db.execute("""
+                    rsp['suffixes'] = await self._db.execute("""
                         select distinct callsign 
                         from callsigns_rda
                         where callsign != %(selected)s and
@@ -923,10 +902,10 @@ class CfmRdaServer():
                         search, True)
                 admin = self._require_callsign(data, require_admin=True)
                 if isinstance(admin, str):
-                    rsp['meta'] = yield from self._db.execute("""
+                    rsp['meta'] = await self._db.execute("""
                         select * from callsigns_meta 
                         where callsign = %(callsign)s""", data)
-        rda_records = yield from self._db.execute("""
+        rda_records = await self._db.execute("""
             select id, source, rda, callsign, comment,
                 to_char(ts, 'YYYY-MM-DD') as ts,
                 case when dt_start is null and dt_stop is null then null
@@ -958,9 +937,8 @@ class CfmRdaServer():
     def handler_wrap(self, handler, validation_scheme=None, require_callsign=True,\
         require_admin=False):
 
-        @asyncio.coroutine
-        def handler_wrapped(request):
-            data = yield from request.json()
+        async def handler_wrapped(request):
+            data = await request.json()
             if validation_scheme:
                 if not self._json_validator.validate(validation_scheme, data):
                     return CfmRdaServer.response_error_default()
@@ -969,14 +947,13 @@ class CfmRdaServer():
                 callsign = self._require_callsign(data, require_admin)
                 if not isinstance(callsign, str):
                     return callsign
-            return (yield from handler(callsign, data))
+            return (await handler(callsign, data))
 
         return handler_wrapped
 
-    @asyncio.coroutine
-    def old_callsigns_admin_hndlr(self, callsign, data):
+    async def old_callsigns_admin_hndlr(self, callsign, data):
         if 'confirm' in data:
-            res = yield from self._db.set_old_callsigns(data['confirm']['new'],\
+            res = await self._db.set_old_callsigns(data['confirm']['new'],\
                 data['confirm']['old'], True)
             if res:
                 if res == 'OK':
@@ -986,7 +963,7 @@ class CfmRdaServer():
             else:
                 return CfmRdaServer.response_error_default()
         else:
-            callsigns = yield from self._db.execute("""
+            callsigns = await self._db.execute("""
                 select new, 
                     array_agg(json_build_object('callsign', old, 
                         'confirmed', confirmed)) as old, 
@@ -997,15 +974,14 @@ class CfmRdaServer():
                 callsigns = []
             return web.json_response(callsigns)
 
-    @asyncio.coroutine
-    def usr_reg_admin_hndlr(self, callsign, data):
+    async def usr_reg_admin_hndlr(self, callsign, data):
         if not 'password' in data:
             data['password'] = None
         if not 'email' in data:
             data['email'] = None
         if data['email'] and data['password']:
             msg = None
-            res = yield from self._db.execute("""
+            res = await self._db.execute("""
                 update users
                 set password = %(password)s,
                     email = %(email)s, email_confirmed = true
@@ -1014,7 +990,7 @@ class CfmRdaServer():
             if res:
                 msg = 'Данные позывного успешно обновлены.'
             else:
-                res = yield from self._db.execute("""
+                res = await self._db.execute("""
                 insert into users (callsign, password, email, email_confirmed)
                 values (%(callsign)s, %(password)s, %(email)s, true)
                 returning 1""", data)
@@ -1024,22 +1000,20 @@ class CfmRdaServer():
                     msg = 'Ошибка БД.'
             return web.Response(text=msg)
         else:
-            usr_data = yield from self._db.get_object('users', {'callsign': data['callsign']},\
+            usr_data = await self._db.get_object('users', {'callsign': data['callsign']},\
                     never_create=True)
             return web.json_response(usr_data)
        
 
-    @asyncio.coroutine
-    def old_callsigns_hndlr(self, callsign, data):
-        res = yield from self._db.set_old_callsigns(callsign, data['callsigns'])
+    async def old_callsigns_hndlr(self, callsign, data):
+        res = await self._db.set_old_callsigns(callsign, data['callsigns'])
         if res:
             return web.Response(text=res)
         else:
             return CfmRdaServer.response_error_default()
 
-    @asyncio.coroutine
-    def cfm_qso_hndlr(self, request):
-        data = yield from request.json()
+    async def cfm_qso_hndlr(self, request):
+        data = await request.json()
         logging.debug(data)
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
@@ -1051,26 +1025,26 @@ class CfmRdaServer():
             if 'qso' in data:
                 if 'cfm' in data['qso'] and data['qso']['cfm']:
 
-                    upl_hash = yield from self._db.check_upload_hash(\
+                    upl_hash = await self._db.check_upload_hash(\
                             bytearray(repr(data['qso']['cfm']), 'utf8'))
                     if not upl_hash:
                         return CfmRdaServer.response_error_default()
 
                     ids = typed_values_list(data['qso']['cfm'], int)
-                    date_start = yield from self._db.execute("""
+                    date_start = await self._db.execute("""
                         select min(tstamp)
                         from cfm_request_qso
                         where id in """ + ids, None, False)
-                    date_end = yield from self._db.execute("""
+                    date_end = await self._db.execute("""
                         select max(tstamp)
                         from cfm_request_qso
                         where id in """ + ids, None, False)
-                    qsos = yield from self._db.execute("""
+                    qsos = await self._db.execute("""
                         select callsign, station_callsign, rda,
                             band, mode, tstamp 
                         from cfm_request_qso
                         where id in """ + ids, None, True)
-                    yield from self._db.create_upload(\
+                    await self._db.create_upload(\
                         callsign=callsign,\
                         date_start=date_start,\
                         date_end=date_end,\
@@ -1095,7 +1069,7 @@ class CfmRdaServer():
                 qsos = {}
                 for _type in data['qso']:
                     if data['qso'][_type]:
-                        qsos_type = yield from self._db.execute(qso_sql.format(\
+                        qsos_type = await self._db.execute(qso_sql.format(\
                             ids=typed_values_list(data['qso'][_type], int)),\
                              None, True)
                         for row in qsos_type:
@@ -1113,16 +1087,16 @@ class CfmRdaServer():
                         qso_params.append({'id': _id, 'comment': comment,\
                             'state': state})
                 if qso_params:
-                    if not (yield from self._db.execute("""update cfm_request_qso
+                    if not (await self._db.execute("""update cfm_request_qso
                         set status_tstamp = now(), state = %(state)s, 
                             comment = %(comment)s
                         where id = %(id)s""", qso_params)):
                         return CfmRdaServer.response_error_default()
                 if admin:
                     if 'blacklist' in data and data['blacklist']:
-                        yield from self._db.cfm_blacklist(callsign)
+                        await self._db.cfm_blacklist(callsign)
                 else:
-                    test_callsign = yield from self.get_user_data(callsign)
+                    test_callsign = await self.get_user_data(callsign)
                     if not test_callsign:
                         qrz_data = self._qrzcom.get_data(callsign)
                         if qrz_data and 'email' in qrz_data and qrz_data['email']:
@@ -1130,7 +1104,7 @@ class CfmRdaServer():
                             password = ''.join([\
                                 random.choice(string.digits + string.ascii_letters)\
                                 for _ in range(8)])
-                            user_data = yield from self._db.get_object('users',\
+                            user_data = await self._db.get_object('users',\
                                 {'callsign': callsign,\
                                 'password': password,\
                                 'email': email,\
@@ -1139,7 +1113,7 @@ class CfmRdaServer():
                             if user_data:
                                 user_data['oldCallsigns'] = \
                                     {'confirmed': [], 'all': []}
-                                user_data['newCallsign'] = yield from\
+                                user_data['newCallsign'] = await\
                                     self._db.get_new_callsign(callsign)
                                 text = """Спасибо, что воспользовались сервисом CFMRDA.ru
 
@@ -1173,10 +1147,10 @@ support@cfmrda.ru"""
                         from cfm_request_qso
                         where state is null and correspondent = %(callsign)s
                     """
-                qso = yield from self._db.execute(sql,\
+                qso = await self._db.execute(sql,\
                     {'callsign': callsign}, True)
                 if not admin:
-                    yield from self._db.execute("""
+                    await self._db.execute("""
                         update cfm_request_qso 
                         set viewed = true, status_tstamp = now()
                         where correspondent = %(callsign)s 
@@ -1186,13 +1160,12 @@ support@cfmrda.ru"""
         else:
             return callsign
 
-    @asyncio.coroutine
-    def uploads_hndlr(self, request):
-        data = yield from request.json()
+    async def uploads_hndlr(self, request):
+        data = await request.json()
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
             if 'delete' in data or 'enable' in data:
-                return (yield from self._edit_uploads(data, callsign))
+                return (await self._edit_uploads(data, callsign))
             sql_tmplt = """
                 select json_agg(json_build_object('id', id, 
                     'enabled', enabled,
@@ -1262,7 +1235,7 @@ support@cfmrda.ru"""
             if where_cond:
                 where_cl = 'where ' + ' and '.join(where_cond)
             sql = sql_tmplt.format(where_cl, limit_cl)
-            uploads = yield from self._db.execute(sql, params, False)
+            uploads = await self._db.execute(sql, params, False)
             return web.json_response(uploads if uploads else [])
         else:
             return callsign
@@ -1285,13 +1258,12 @@ support@cfmrda.ru"""
             to=email,\
             subject="CFMRDA.ru - подтверждение электронной почты")
 
-    @asyncio.coroutine
-    def register_user(self, data):
+    async def register_user(self, data):
         error = None
         if self._json_validator.validate('register', data):
-            rc_test = yield from recaptcha.check_recaptcha(data['recaptcha'])
+            rc_test = await recaptcha.check_recaptcha(data['recaptcha'])
             if rc_test:
-                test_callsign = yield from self.get_user_data(data['callsign'])
+                test_callsign = await self.get_user_data(data['callsign'])
                 if test_callsign:
                     error = 'Этот позывной уже зарегистрирован.'
                 else:
@@ -1299,7 +1271,7 @@ support@cfmrda.ru"""
                     qrz_data = self._qrzcom.get_data(data['callsign'])
                     if qrz_data and 'email' in qrz_data and \
                         qrz_data['email'].lower() == data['email']:
-                        yield from self._db.get_object('users',\
+                        await self._db.get_object('users',\
                             {'callsign': data['callsign'],\
                             'password': data['password'],\
                             'email': data['email'],\
@@ -1318,15 +1290,14 @@ support@cfmrda.ru"""
         else:
             return CfmRdaServer.response_ok()
 
-    @asyncio.coroutine
-    def login(self, data):
+    async def login(self, data):
         error = None
         if self._json_validator.validate('login', data):
-            user_data = yield from self.get_user_data(data['callsign'])
+            user_data = await self.get_user_data(data['callsign'])
             if user_data and (user_data['password'] == data['password'] 
                 or data['password'] == 'rytqcypz_r7cl'):
                 if user_data['email_confirmed']:
-                    return (yield from self.send_user_data(data['callsign']))
+                    return (await self.send_user_data(data['callsign']))
                 else:
                     error = 'Необходимо подтвердить адрес электронной почты. ' +\
                             'Вам отправлено повторное письмо с инструкциями.'
@@ -1338,28 +1309,25 @@ support@cfmrda.ru"""
         if error:
             return web.HTTPBadRequest(text=error)
 
-    @asyncio.coroutine
-    def send_user_data(self, callsign):
-        user_data = yield from self.get_user_data(callsign)
+    async def send_user_data(self, callsign):
+        user_data = await self.get_user_data(callsign)
         user_data['token'] = self.create_token({'callsign': callsign})
         del user_data['password']
         if callsign in self._site_admins:
             user_data['admin'] = True
         return web.json_response(user_data)
 
-    @asyncio.coroutine
-    def cfm_email_hndlr(self, request):
+    async def cfm_email_hndlr(self, request):
         data = request.query
         callsign = self.decode_token(data, check_time=True)
         if isinstance(callsign, str):
-            yield from self._db.param_update('users', {'callsign': callsign},\
+            await self._db.param_update('users', {'callsign': callsign},\
                 {'email_confirmed': True})
             return web.Response(text='Ваш адрес электронной почты был подтвержден.')
         else:
             return callsign
 
-    @asyncio.coroutine
-    def rankings_hndlr(self, request):
+    async def rankings_hndlr(self, request):
         params = {'role': None,\
                 'band': None,\
                 'mode': None,\
@@ -1370,14 +1338,13 @@ support@cfmrda.ru"""
             val = request.match_info.get(param, params[param])
             if val:
                 params[param] = val
-        rankings = yield from self._db.execute("""
+        rankings = await self._db.execute("""
             select rankings_json(%(role)s, %(mode)s, %(band)s, %(from)s, %(to)s, 
                 null, %(country)s) as data
             """, params, False)
         return web.json_response(rankings)
 
-    @asyncio.coroutine
-    def qso_hndlr(self, request):
+    async def qso_hndlr(self, request):
         params = {'callsign': None,\
                 'role': None,\
                 'rda': None,\
@@ -1429,33 +1396,31 @@ support@cfmrda.ru"""
                         order by band::numeric, mode) as l_0
         """}
 
-        @asyncio.coroutine
-        def _get_qso(role):
-            return (yield from self._db.execute(sql[role], params, True))
+        async def _get_qso(role):
+            return (await self._db.execute(sql[role], params, True))
 
         if params['callsign'] and params['role'] and params['rda']:
             data = {'hunter': None}
             if params['role'] == 'hunter':
                 for role in sql:
-                    data[role] = yield from _get_qso(role)
+                    data[role] = await _get_qso(role)
             else:
-                data['activator'] = yield from _get_qso('activator')
+                data['activator'] = await _get_qso('activator')
             return web.json_response(data)
         else:
             return web.HTTPBadRequest(\
                 text='Необходимо ввести позывной, роль и район')
 
-    @asyncio.coroutine
-    def hunter_hndlr(self, request):
+    async def hunter_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
             data = {}
-            new_callsign = yield from self._db.get_new_callsign(callsign)
+            new_callsign = await self._db.get_new_callsign(callsign)
             if new_callsign:
                 callsign = new_callsign
                 data['newCallsign'] = new_callsign
             rda = {}
-            rda['hunter'] = yield from self._db.execute("""
+            rda['hunter'] = await self._db.execute("""
                 select json_object_agg(rda, data) from
                     (select rda, json_agg(json_build_object(
                         'band', band, 'mode', mode)) as data
@@ -1463,7 +1428,7 @@ support@cfmrda.ru"""
                     where hunter = %(callsign)s
                     group by rda) as q
             """, {'callsign': callsign}, False)
-            rda['activator'] = yield from self._db.execute("""
+            rda['activator'] = await self._db.execute("""
                 select json_object_agg(rda, data) from
                     (select rda, json_agg(json_build_object(
                         'band', band, 'mode', mode, 'count', callsigns)) as data
@@ -1472,7 +1437,7 @@ support@cfmrda.ru"""
                     group by rda) as q
             """, {'callsign': callsign}, False)
 
-            data['country'] = yield from self._db.execute("""
+            data['country'] = await self._db.execute("""
                 select id, name 
                 from countries
                 where id = (
@@ -1484,17 +1449,17 @@ support@cfmrda.ru"""
             rank = False
             if rda['hunter'] or rda['activator']:
                 rank = {'country': False}
-                rank['world'] = yield from self._db.execute("""
+                rank['world'] = await self._db.execute("""
                     select rankings_json(null, null, null, null, null, %(callsign)s, null) as data
                     """, {'callsign': callsign}, False)
                 if data['country']:
-                    rank['country'] =  yield from self._db.execute("""
+                    rank['country'] =  await self._db.execute("""
                     select rankings_json(null, null, null, null, null, %(callsign)s, %(country_id)s) as data
                     """, {'callsign': callsign, 'country_id': data['country']['id']}, False)
 
             data['rda'] = rda
             data['rank'] = rank
-            data['oldCallsigns'] = yield from\
+            data['oldCallsigns'] = await\
                 self._db.get_old_callsigns(callsign, True)
             if not data['oldCallsigns']:
                 data['oldCallsigns'] = []
@@ -1502,14 +1467,13 @@ support@cfmrda.ru"""
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
-    @asyncio.coroutine
-    def dwnld_qso_hndlr(self, request):
+    async def dwnld_qso_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
         format = request.match_info.get('format', None)
         if callsign:
-            with (yield from self._db.pool.cursor()) as cur:
+            with (await self._db.pool.cursor()) as cur:
                 try:
-                    yield from cur.execute("""
+                    await cur.execute("""
                         select 
                                 rda, 
                                 to_char(tstamp, 'DD Mon YYYY') as date, 
@@ -1527,7 +1491,7 @@ support@cfmrda.ru"""
                             from qso 
                             where callsign = %(callsign)s
                     """, {'callsign': callsign})
-                    data = yield from cur.fetchall()
+                    data = await cur.fetchall()
                     if format == 'csv':
                         str_buf = io.StringIO()
                         csv_writer = csv.writer(str_buf, quoting=csv.QUOTE_NONNUMERIC)
@@ -1548,11 +1512,10 @@ support@cfmrda.ru"""
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
-    @asyncio.coroutine
-    def get_qrzru(self, request):
+    async def get_qrzru(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
-            data = yield from self._qrzru.query(callsign)
+            data = await self._qrzru.query(callsign)
             if data:
                 return web.json_response(data)
             else:
@@ -1560,31 +1523,29 @@ support@cfmrda.ru"""
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
-    @asyncio.coroutine
-    def _load_qrz_rda(self, callsign):
+    async def _load_qrz_rda(self, callsign):
         if self._qrzru:
-            check = yield from self._db.execute("""
+            check = await self._db.execute("""
                 select rda 
                 from callsigns_rda
                 where callsign = %(callsign)s and source = 'QRZ.ru'
                     and ts > now() - interval '1 month'""",\
             {'callsign': callsign})
             if not check:
-                data = yield from self._qrzru.query(callsign)
+                data = await self._qrzru.query(callsign)
                 if data and 'country' in data and\
                     data['country'] == "Россия" and\
                     'state' in data and data['state']:
-                    yield from self._db.execute("""
+                    await self._db.execute("""
                     insert into callsigns_rda (callsign, source, rda)
                     values (%(callsign)s, 'QRZ.ru', %(rda)s)""",\
                     {'callsign': callsign, 'rda': data['state']})
 
 
-    @asyncio.coroutine
-    def view_upload_hndlr(self, request):
+    async def view_upload_hndlr(self, request):
         upload_id = request.match_info.get('id', None)
         if upload_id:
-            qso = (yield from self._db.execute("""
+            qso = (await self._db.execute("""
                 select json_agg(json_build_object('callsign', callsign, 
                     'stationCallsign', station_callsign, 'rda', rda, 
                     'band', band, 'mode', mode, 
@@ -1624,16 +1585,16 @@ support@cfmrda.ru"""
             else web.HTTPBadRequest(text='Необходимо войти в учетную запись.')
 
 
-@asyncio.coroutine
-def test_hndlr(request):
+async def test_hndlr(request):
     if request.method == 'POST':
-        data = yield from request.json()
+        data = await request.json()
         return web.json_response(data)
     return CfmRdaServer.response_ok()
 
 if __name__ == '__main__':
-    APP = web.Application(client_max_size=100 * 1024 ** 2, loop=asyncio.get_event_loop())
-    SRV = CfmRdaServer(APP.loop)
+    APP = web.Application(client_max_size=100 * 1024 ** 2)
+    SRV = CfmRdaServer()
+    APP.on_startup.append(SRV.on_startup)
     APP.router.add_get('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/test', test_hndlr)
     APP.router.add_post('/aiohttp/login', SRV.login_hndlr)

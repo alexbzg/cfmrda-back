@@ -19,4 +19,4 @@ def get_secret(fpath):
 
 def create_token(secret, data):
     """creates web token"""
-    return jwt.encode(data, secret, algorithm='HS256').decode('utf-8')
+    return jwt.encode(data, secret, algorithm='HS256')
