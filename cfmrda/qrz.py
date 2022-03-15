@@ -122,7 +122,7 @@ class QRZRuLink:
 
     def start_queue_task(self):
         self.stop_queue_task()
-        self.queue_task = asyncio.async(self.do_queue_task())
+        self.queue_task = asyncio.ensure_future(self.do_queue_task())
 
     def stop_queue_task(self):
         if self.queue_task:

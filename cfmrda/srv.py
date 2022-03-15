@@ -70,7 +70,7 @@ class CfmRdaServer():
         self._qrzru = None
         if CONF.has_option('QRZRu', 'login'):
             self._qrzru = QRZRuLink(loop)
-        asyncio.async(self._db.connect())
+        asyncio.ensure_future(self._db.connect())
         self._secret = get_secret(CONF.get('files', 'secret'))
         self._site_admins = str(CONF.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(\
@@ -314,7 +314,7 @@ class CfmRdaServer():
                             if 'imageBack' in data['qsl']\
                                 else None}, True))['id']
             for qso in data['qsl']['qso']:
-                asyncio.async(self._load_qrz_rda(qso['stationCallsign']))
+                asyncio.ensure_future(self._load_qrz_rda(qso['stationCallsign']))
                 try:
                     yield from self._db.get_object('cfm_qsl_qso',\
                         {'qsl_id': qsl_id,\
