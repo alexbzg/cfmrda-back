@@ -1,6 +1,6 @@
 [Unit]
 Description=cfmrda-dev backend server
-After=network.target postgresql@9.4-main.service 
+After=network.target postgresql@13-main.service 
 
 [Service]
 ExecStart=/usr/local/cfmrda-dev/cfmrda/srv.py

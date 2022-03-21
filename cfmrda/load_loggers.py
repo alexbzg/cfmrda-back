@@ -12,19 +12,18 @@ from db import DBConn, exec_cur, splice_params
 from ham_radio import load_adif, BANDS_WL
 from ext_logger import ExtLogger
 
-@asyncio.coroutine
-def main(conf):
+async def main(conf):
     """does the job"""
     db_params = dict(conf.items('db'))
 
     _db = DBConn(db_params)
-    yield from _db.connect()
+    await _db.connect()
 
     reload_interval = conf.get('web', 'elog_reload', fallback='7 days')
 
-    with (yield from _db.pool.cursor()) as cur:
+    with (await _db.pool.cursor()) as cur:
 
-        yield from exec_cur(cur, """
+        await exec_cur(cur, """
             select json_build_object('id', id, 'callsign', callsign, 
                 'logger', logger, 'login_data', login_data, 
                 'qso_count', qso_count, 'last_updated', to_char(last_updated, 'YYYY-MM-DD'))
@@ -32,14 +31,13 @@ def main(conf):
             where state = 0 and 
                 (last_updated is null or last_updated < now() - interval %(reload_interval)s)
             """, {'reload_interval': reload_interval})
-        loggers = yield from cur.fetchall()
+        loggers = await cur.fetchall()
         if not loggers:
             logging.debug('No updates are due today.')
             return
 
-        @asyncio.coroutine
-        def rda_search(qso):
-            yield from exec_cur(cur, """
+        async def rda_search(qso):
+            await exec_cur(cur, """
                     select json_build_object('rda', rda, 'start', dt_start, 
                         'stop', dt_stop)
                     from callsigns_rda
@@ -48,18 +46,18 @@ def main(conf):
                         (dt_stop is null or dt_stop >= %(tstamp)s)
                 """, qso)
             if cur.rowcount == 1:
-                return (yield from cur.fetchone())[0]['rda']
+                return (await cur.fetchone())[0]['rda']
             elif cur.rowcount == 0:
                 return None
             else:
-                rda_data = yield from cur.fetchall()
-                yield from exec_cur(cur, """
+                rda_data = await cur.fetchall()
+                await exec_cur(cur, """
                     select disable_autocfm 
                     from callsigns_meta
                     where callsign = %(station_callsign)s
                 """, qso)
                 if cur.rowcount == 1:
-                    disable_autocfm = (yield from cur.fetchone())[0]
+                    disable_autocfm = (await cur.fetchone())[0]
                     if disable_autocfm:
                         return None
                 rdas = {'def': [], 'undef': []}
@@ -77,9 +75,8 @@ def main(conf):
                 else:
                     return None
 
-        @asyncio.coroutine
-        def rda_check(qso):
-            yield from exec_cur(cur, """
+        async def rda_check(qso):
+            await exec_cur(cur, """
                 select from qso 
                 where callsign = %(callsign)s and rda = %(rda)s and
                     band = %(band)s and mode = %(mode)s
@@ -96,7 +93,7 @@ def main(conf):
 
             if row['logger'] != 'HAMLOG':
 
-                yield from exec_cur(cur, """
+                await exec_cur(cur, """
                     select json_build_object('id', id, 
                         'station_callsign', station_callsign, 'rda', rda,
                         'tstamp', tstamp)
@@ -105,20 +102,20 @@ def main(conf):
                         (select id 
                         from uploads 
                         where ext_logger_id = %(id)s)""", row)
-                prev_qsos = yield from cur.fetchall()
+                prev_qsos = await cur.fetchall()
                 for qso_data in prev_qsos:
                     qso = qso_data[0]
-                    rda = yield from rda_search(qso)
+                    rda = await rda_search(qso)
                     if rda:
                         if rda != qso['rda']:
                             qso['rda'] = rda
-                            yield from exec_cur(cur, """
+                            await exec_cur(cur, """
                                 update qso
                                 set rda = %(rda)s
                                 where id = %(id)s
                                 """, qso)
                     else:
-                        yield from exec_cur(cur, """
+                        await exec_cur(cur, """
                             delete from qso
                             where id = %(id)s""", qso)
 
@@ -133,13 +130,13 @@ def main(conf):
             if logger_data:
 
                 if row['logger'] == 'HAMLOG':
-                    yield from exec_cur(cur, """
+                    await exec_cur(cur, """
                         delete from qso
                         where upload_id in 
                             (select id 
                             from uploads 
                             where ext_logger_id = %(id)s)""", row)
-                    yield from exec_cur(cur, """
+                    await exec_cur(cur, """
                         delete from uploads
                         where ext_logger_id = %(id)s""", row)
 
@@ -161,7 +158,7 @@ def main(conf):
                                     'band': BANDS_WL[entry['band']],\
                                     'mode': 'SSB' if entry['mainmode'] == 'PH' else entry['mainmode'],\
                                     'tstamp': entry['date']}
-                                if not (yield from rda_check(qso)):
+                                if not (await rda_check(qso)):
                                     qsos.append(qso)
                                     if not date_start or date_start > qso['tstamp']:
                                         date_start = qso['tstamp']
@@ -187,13 +184,13 @@ def main(conf):
                                 qso['callsign'], qso['station_callsign'] = \
                                     callsign, qso['callsign']
 
-                                rda = yield from rda_search(qso)
+                                rda = await rda_search(qso)
                                 if rda:
                                     qso['rda'] = rda
                                 else:
                                     continue
 
-                                if not (yield from rda_check(qso)):
+                                if not (await rda_check(qso)):
                                     if not date_start or date_start > qso['tstamp']:
                                         date_start = qso['tstamp']
                                     if not date_end or date_end < qso['tstamp']:
@@ -207,9 +204,9 @@ def main(conf):
   
                 if qsos:
                     logging.info(str(len(qsos)) + ' new rda qso found.')
-                    #file_hash = yield from _db.check_upload_hash(adif.encode('utf-8'))
+                    #file_hash = await _db.check_upload_hash(adif.encode('utf-8'))
 
-                    db_res = yield from _db.create_upload(\
+                    db_res = await _db.create_upload(\
                         callsign=row['callsign'],\
                         upload_type=row['logger'],\
                         date_start=date_start,\
@@ -226,7 +223,7 @@ def main(conf):
                     'state': 0,\
                     'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
-                yield from _db.param_update('ext_loggers', splice_params(row, ('id',)),\
+                await _db.param_update('ext_loggers', splice_params(row, ('id',)),\
                     update_params)
                 logging.debug('logger data updated')
 
