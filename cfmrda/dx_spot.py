@@ -4,12 +4,12 @@ import os
 import re
 #coding=utf-8
 
-APP_PATH_path = os.path.dirname(os.path.realpath(__file__))
+APP_PATH = os.path.dirname(os.path.realpath(__file__))
 MODES_MAP = []
-with open(app_path + '/bandMap.txt', 'r' ) as f_band_map:
+with open(APP_PATH + '/bandMap.txt', 'r' ) as f_band_map:
     re_band_map = re.compile(r"^(\d+\.?\d*)\s*-?(\d+\.?\d*)\s+(\S+)(\r\n)?$")
     for line in f_band_map.readlines():
-        m = re_band_map.match( line )
+        m = re_band_map.match(line)
         if m:
             MODES_MAP.append([m.group(3), float(m.group(1)), float(m.group(2))])
 
@@ -38,7 +38,7 @@ MODES = {
                 'PSK', 'JT65', 'FSK', 'OLIVIA', 'SSTV',
                 'JT9', 'FT8')
         }
-subModes = {'RTTY': None, 'JT65': None, 'PSK': ('PSK31', 'PSK63', 'PSK125')}
+SUB_MODES = {'RTTY': None, 'JT65': None, 'PSK': ('PSK31', 'PSK63', 'PSK125')}
 
 def find_diap(diaps, value):
     for diap in diaps:
@@ -53,7 +53,7 @@ class DX(object):
         self.is_beacon = False
         self.country = params.get('country')
         self.text = params.get('text') or ''
-        self.freq = params.get('freq')
+        self.freq = float(params.get('freq'))
         self.cs = params.get('cs')
         if '/QRP' in self.cs:
             self.cs = self.cs.replace( '/QRP', '' )
@@ -63,6 +63,7 @@ class DX(object):
         self.de = params.get('de')
         self.lotw = params.get('lotw')
         self.eqsl = params.get('eqsl')
+        self.time = params.get('time')
 
         txt = self.text.lower()
         if 'ncdxf' in txt or 'beacon' in txt or 'bcn' in txt or '/B' in self.cs:
@@ -93,11 +94,11 @@ class DX(object):
                         break
         if not self.mode and self.freq:
             mode_by_map = find_diap(MODES_MAP, self.freq)
-            if mode_by_Map:
+            if mode_by_map:
                 if mode_by_map == 'BCN':
                     self.is_beacon = True
                     return
-                self.setMode(mode_by_map)
+                self.set_mode(mode_by_map)
 
         slash_pos = self.cs.find( '/' )
         if self.cs.endswith('/AM') or self.cs.endswith('/MM') or self.sub_mode == 'PSK125':
@@ -120,7 +121,7 @@ class DX(object):
                     break
             if alias:
                 break
-        if SUB_MODES.has_key(alias):
+        if alias in SUB_MODES:
             if SUB_MODES[alias]:
                 t = self.text.upper()
                 for sub_mode in SUB_MODES[alias]:
@@ -136,5 +137,24 @@ class DX(object):
                         break
             if not self.sub_mode:
                 self.sub_mode = SUB_MODES[alias][0]
+
+
+    def toDict(self):
+        if self.is_beacon:
+            return { 'beacon': True }
+        return {
+            'cs': self.cs,
+            'qrp': self.qrp,
+            'text': self.text,
+            'de': self.de,
+            'freq': self.freq,
+            'time': f'{self.time[:2]}:{self.time[2:4]}',
+            'country' : self.country,
+            'mode': self.mode,
+            'subMode': self.sub_mode,
+            'band': self.band,
+            'lotw': self.lotw,
+            'eqsl': self.eqsl
+            }
 
 

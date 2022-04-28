@@ -87,6 +87,11 @@ class DBConn:
         self.pool = None
         self.error = None
 
+    async def disconnect(self):
+        if self.pool:
+            self.pool.close()
+            await self.pool.wait_closed()
+
     async def connect(self):
         try:
             self.pool = await aiopg.create_pool(timeout=18000, maxsize=3, **self.db_params)
