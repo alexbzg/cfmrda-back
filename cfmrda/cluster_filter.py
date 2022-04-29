@@ -31,7 +31,7 @@ async def perform(conf):
             for line in fdx:
                 cs, freq, de, txt, dt, lotw, eqsl, cnt, band, country, _ = line.split('^')
 
-                if prev and dt == prev['time'] and prev['cs'] == cs:
+                if prev and dt == prev['dt'] and prev['cs'] == cs:
                     break
                 if 'Russia' in country:
                     rda = None
@@ -47,9 +47,10 @@ async def perform(conf):
                         item_d['rda'] = rda
                         rda_dx.insert(idx, item_d)
                         idx += 1
-            if len(rda_dx) > list_length:
-                rda_dx = rda_dx[:list_length]
-            save_json(rda_dx, rda_dx_fname)
+            if idx > 0:
+                if len(rda_dx) > list_length:
+                    rda_dx = rda_dx[:list_length]
+                save_json(rda_dx, rda_dx_fname)
     await _db.disconnect()
 
 def main():

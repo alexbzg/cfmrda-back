@@ -152,6 +152,7 @@ class DX(object):
             'text': self.text,
             'de': self.de,
             'freq': self.freq,
+            'dt': self.time,
             'time': f'{self.time[:2]}:{self.time[2:4]}',
             'country' : self.country,
             'mode': self.mode,
