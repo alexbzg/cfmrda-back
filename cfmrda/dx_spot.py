@@ -3,6 +3,7 @@
 import os
 import re
 #coding=utf-8
+from ham_radio import BANDS_WL
 
 APP_PATH = os.path.dirname(os.path.realpath(__file__))
 MODES_MAP = []
@@ -70,7 +71,10 @@ class DX(object):
             self.is_beacon = True
             return
         
-        self.band = params.get('band')
+        band = params.get('band')
+        if band in BANDS_WL:
+            band = BANDS_WL[band]
+        self.band = band
         self.mode = None
         self.sub_mode = None
         if params.get('mode'):

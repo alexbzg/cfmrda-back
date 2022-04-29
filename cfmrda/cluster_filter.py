@@ -34,6 +34,7 @@ async def perform(conf):
                 if prev and dt == prev['time'] and prev['cs'] == cs:
                     break
                 if 'Russia' in country:
+                    rda = None
                     await exec_cur(cur, """
                             select rda 
                             from callsigns_rda
@@ -41,7 +42,7 @@ async def perform(conf):
                         """, {'cs': cs})
                     if cur.rowcount == 1:
                         rda = (await cur.fetchone())[0]
-                        item = DX(cs=cs, freq=freq, time=dt, text=txt, lotw=lotw, eqsl=eqsl, band=band)
+                        item = DX(cs=cs, freq=freq, de=de, time=dt, text=txt, lotw=lotw, eqsl=eqsl, band=band)
                         item_d = item.toDict()
                         item_d['rda'] = rda
                         rda_dx.insert(idx, item_d)
