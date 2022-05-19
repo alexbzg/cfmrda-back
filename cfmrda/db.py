@@ -94,7 +94,7 @@ class DBConn:
 
     async def connect(self):
         try:
-            self.pool = await aiopg.create_pool(timeout=18000, maxsize=3, **self.db_params)
+            self.pool = await aiopg.create_pool(timeout=30000, maxsize=3, **self.db_params)
             logging.debug('db connections pool created')
         except Exception:
             logging.exception('Error creating connection pool')

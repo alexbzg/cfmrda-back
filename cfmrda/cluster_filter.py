@@ -1,65 +1,38 @@
 #!/usr/bin/python3
 #coding=utf-8
 """functions for exporting stats data from db to frontend json files"""
-import asyncio
-import logging
+import argparse
 
 from common import site_conf, start_logging
-from db import DBConn, exec_cur
 from json_utils import load_json, save_json
-from dx_spot import DX
+import cluster_consumer
 
-async def perform(conf):
-    """cluster filtering"""
-    logging.debug('cluster filtering')
-    list_length = conf.getint('cluster', 'list_length')
+argparser = argparse.ArgumentParser(usage="-c clears previous data -a consumes all data")
+argparser.add_argument('-c', action='store_true')
+argparser.add_argument('-a', action='store_true')
+args = argparser.parse_args()
 
-    _db = DBConn(dict(conf.items('db')))
-    await _db.connect()
+conf = site_conf()
+start_logging('cluster')
+list_length = conf.getint('cluster', 'list_length')
 
+dx_data = cluster_consumer.get_data('cfmrda', dict(conf['cluster_db']), all_data=args.a,
+        spot_filter={'rda': {'$nin': [None, '?']}})
 
-    rda_dx_fname = conf.get('web', 'root') + '/json/dx.json'
+rda_dx_fname = conf.get('web', 'root') + '/json/dx.json'
+rda_dx = []
+if not args.c:
     rda_dx = load_json(rda_dx_fname)
-    prev = None
-    if rda_dx:
-        prev = rda_dx[0]
-    else:
+    if not rda_dx:
         rda_dx = []
-    idx = 0
-    with open(conf.get('files', 'cluster'), 'r') as fdx:
-        with (await _db.pool.cursor()) as cur:
-            for line in fdx:
-                cs, freq, de, txt, dt, lotw, eqsl, cnt, band, country, _ = line.split('^')
+idx = 0
 
-                if prev and dt == prev['dt'] and prev['cs'] == cs:
-                    break
-                if 'Russia' in country:
-                    rda = None
-                    await exec_cur(cur, """
-                            select rda 
-                            from callsigns_rda
-                            where callsign = %(cs)s and dt_stop is null
-                        """, {'cs': cs})
-                    if cur.rowcount == 1:
-                        rda = (await cur.fetchone())[0]
-                        item = DX(cs=cs, freq=freq, de=de, time=dt, text=txt, lotw=lotw, eqsl=eqsl, band=band)
-                        item_d = item.toDict()
-                        item_d['rda'] = rda
-                        rda_dx.insert(idx, item_d)
-                        idx += 1
-            if idx > 0:
-                if len(rda_dx) > list_length:
-                    rda_dx = rda_dx[:list_length]
-                save_json(rda_dx, rda_dx_fname)
-    await _db.disconnect()
-
-def main():
-    """call from shell"""
-    conf = site_conf()
-    start_logging('cluster')
-
-    asyncio.get_event_loop().run_until_complete(perform(conf))
-
-if __name__ == "__main__":
-    main()
-
+with open(conf.get('files', 'cluster'), 'r') as fdx:
+    for item in dx_data:
+        del item['_id']
+        rda_dx.insert(idx, item)
+        idx += 1
+    if idx > 0:
+        if len(rda_dx) > list_length:
+            rda_dx = rda_dx[:list_length]
+        save_json(rda_dx, rda_dx_fname)
