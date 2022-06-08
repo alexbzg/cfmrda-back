@@ -30,7 +30,7 @@ idx = 0
 with open(conf.get('files', 'cluster'), 'r') as fdx:
     for item in dx_data:
         del item['_id']
-        rda_dx = [x for x in rda_dx if x['ts'] >=  item['ts'] - 5400
+        rda_dx = [x for x in rda_dx if x['ts'] <=  item['ts'] - 5400
             or x['cs'] != item['cs'] or not -1 < x['freq'] - item['freq'] < 1]
 
         rda_dx.insert(idx, item)
