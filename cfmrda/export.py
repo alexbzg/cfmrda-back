@@ -6,7 +6,7 @@ import logging
 import argparse
 import os
 import shutil
-
+import datetime
 from common import site_conf, start_logging
 from db import DBConn
 from json_utils import save_json, load_json
@@ -27,21 +27,21 @@ async def export_rankings():
     db_params.update(dict(CONF.items('db_maintenance')))
     _db = DBConn(db_params)
     await _db.connect()
-    os.system('systemctl stop clustercn')
-    await _db.execute("delete from rankings;")
-    logging.debug('export rankings: rankings table cleared')
-    await _db.execute("vacuum full freeze verbose analyze rankings;")
-    logging.debug('export rankings: rankings table vacuumed')
-    await _db.execute("delete from rda_activator;")
-    logging.debug('export rankings: rda_activator table cleared')
-    await _db.execute("vacuum full freeze verbose analyze rda_activator;")
-    logging.debug('export rankings: rda_activator table vacuumed')
-    await _db.execute("delete from rda_hunter;")
-    logging.debug('export rankings: rda_hunter table cleared')
-    await _db.execute("vacuum full freeze verbose analyze rda_hunter;")
-    logging.debug('export rankings: rda_hunter table vacuumed')
-    await _db.execute("vacuum full freeze verbose analyze qso;")
-    logging.debug('export rankings: qso table vacuumed')
+    if datetime.now().weekday() == 6:
+        await _db.execute("delete from rankings;")
+        logging.debug('export rankings: rankings table cleared')
+        await _db.execute("vacuum full freeze verbose analyze rankings;")
+        logging.debug('export rankings: rankings table vacuumed')
+        await _db.execute("delete from rda_activator;")
+        logging.debug('export rankings: rda_activator table cleared')
+        await _db.execute("vacuum full freeze verbose analyze rda_activator;")
+        logging.debug('export rankings: rda_activator table vacuumed')
+        await _db.execute("delete from rda_hunter;")
+        logging.debug('export rankings: rda_hunter table cleared')
+        await _db.execute("vacuum full freeze verbose analyze rda_hunter;")
+        logging.debug('export rankings: rda_hunter table vacuumed')
+        await _db.execute("vacuum full freeze verbose analyze qso;")
+        logging.debug('export rankings: qso table vacuumed')
 
     await _db.execute("select from build_rankings()")
     logging.debug('rankings table rebuilt')
