@@ -27,7 +27,7 @@ async def export_rankings():
     db_params.update(dict(CONF.items('db_maintenance')))
     _db = DBConn(db_params)
     await _db.connect()
-    if datetime.now().weekday() == 6:
+    if datetime.datetime.now().weekday() == 6:
         await _db.execute("delete from rankings;")
         logging.debug('export rankings: rankings table cleared')
         await _db.execute("vacuum full freeze verbose analyze rankings;")
