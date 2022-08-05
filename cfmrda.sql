@@ -17,38 +17,147 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: br_t(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.br_t() RETURNS TABLE(activator character, rda character, mode character, band character, callsigns integer)
+    LANGUAGE plpgsql
+    AS $$
+declare activator_row record;
+	
+begin
+for activator_row in 
+    select distinct activators.activator from activators
+        union
+        select distinct qso.activator from qso where qso.activator is not null
+loop
+    for activator, rda, mode, band, callsigns
+ in
+      select qso.activator, qso.rda, qso.mode, qso.band, count(distinct (qso.callsign, qso.dt)) as callsigns from
+          (select activators.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt 
+              from qso join activators on qso.upload_id = activators.upload_id
+              where activators.activator = activator_row.activator
+                  union all
+              select qso.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt from qso
+              where qso.activator = activator_row.activator) as qso
+              group by qso.activator, qso.rda, qso.mode, qso.band
+    loop
+        return next;
+    end loop;
+end loop;
+return;
+end
+$$;
+
+
+ALTER FUNCTION public.br_t() OWNER TO postgres;
+
+--
+-- Name: br_t0(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.br_t0() RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+declare activator_row record;
+	
+begin
+for activator_row in 
+    select distinct activators.activator from activators
+        union
+        select distinct qso.activator from qso where qso.activator is not null
+loop
+	insert into ra_t (activator, rda, mode, band, callsigns)
+		select qso.activator, qso.rda, qso.mode, qso.band, count(distinct (qso.callsign, qso.dt)) as callsigns from
+		  (select activators.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt 
+			  from qso join activators on qso.upload_id = activators.upload_id
+			  where activators.activator = activator_row.activator
+				  union all
+			  select qso.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt from qso
+			  where qso.activator = activator_row.activator) as qso
+			  group by qso.activator, qso.rda, qso.mode, qso.band;
+end loop;
+end
+$$;
+
+
+ALTER FUNCTION public.br_t0() OWNER TO postgres;
+
+--
 -- Name: build_rankings(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.build_rankings() RETURNS void
     LANGUAGE plpgsql
     AS $$
-declare _9band_tr smallint;
+declare 
+	activator_row record;
+	_9band_tr smallint;
+
 begin
-
+RAISE LOG 'build_rankings: start';
 -- rda
-
+/*
 delete from rda_activator;
-lock table rda_hunter in SHARE ROW EXCLUSIVE mode;
-delete from rda_hunter;
+delete from rda_hunter 
+where 1 not in (select 1 from qso 
+        where qso.callsign = hunter and qso.mode = rda_hunter.mode and 
+            qso.band = rda_hunter.band and qso.rda = rda_hunter.rda);
+RAISE LOG 'build_rankings: rda tables were purged';
+*/
+/*
+insert into rda_hunter (hunter, mode, band, rda)
+WITH RECURSIVE cte AS (
+   (   -- parentheses required
+   SELECT callsign, mode, band, rda
+   FROM   qso
+   ORDER  BY 1
+   LIMIT  1
+   )
+   UNION ALL
+   SELECT l.*
+   FROM   cte c
+   CROSS  JOIN LATERAL (
+      SELECT callsign, mode, band, rda
+      FROM   qso q
+      WHERE  q.callsign > q.callsign or 
+	   	(q.callsign = c.callsign and q.mode > c.mode) or  -- lateral reference
+	    (q.callsign = c.callsign and q.mode = c.mode and q.band > c.band) or 
+	    (q.callsign = c.callsign and q.mode = c.mode and q.band = c.band and q.rda > c.rda)
+      ORDER  BY 1
+      LIMIT  1
+      ) l
+   ) table cte
+on conflict on constraint rda_hunter_uq do nothing;
 
 insert into rda_hunter (hunter, mode, band, rda)
-select distinct callsign, mode, band, rda from qso;
+select distinct callsign, mode, band, rda from qso
+on conflict on constraint rda_hunter_uq do nothing;
 
-insert into rda_activator (activator, rda, mode, band, callsigns)
-select activator, rda, mode, band, count(distinct (callsign, dt)) as callsigns from
-(select activators.activator, rda, mode, band, callsign, dt 
-from qso join activators on qso.upload_id = activators.upload_id
-union all
-select activator, rda, mode, band, callsign, dt from qso
-where upload_id is null) as qso
-group by activator, rda, mode, band;
+RAISE LOG 'build_rankings: rda_hunter was built';
+*/
+for activator_row in 
+    select distinct activators.activator from activators
+        union
+        select distinct qso.activator from qso where qso.activator is not null
+loop
+	insert into rda_activator (activator, rda, mode, band, callsigns)
+		select qso.activator, qso.rda, qso.mode, qso.band, count(distinct (qso.callsign, qso.dt)) as callsigns from
+		  (select activators.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt 
+			  from qso join activators on qso.upload_id = activators.upload_id
+			  where activators.activator = activator_row.activator
+				  union all
+			  select qso.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt from qso
+			  where qso.activator = activator_row.activator) as qso
+			  group by qso.activator, qso.rda, qso.mode, qso.band;
+end loop;
+RAISE LOG 'build_rankings: rda_activator was built';
 
 insert into rda_hunter
 select activator, rda, band, mode
 from rda_activator
-where callsigns > 49 and not exists 
-(select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator.rda and rda_hunter.band = rda_activator.band and rda_hunter.mode = rda_activator.mode);
+where callsigns > 49
+on conflict on constraint rda_hunter_uq do nothing;
 
 insert into rda_hunter
 select activator, rda, band, null
@@ -57,8 +166,7 @@ from
 from rda_activator
 group by activator, rda, band
 having sum(callsigns) > 49) as rda_activator_tm
-where not exists
-(select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tm.rda and rda_hunter.band = rda_activator_tm.band);
+on conflict on constraint rda_hunter_uq do nothing;
 
 insert into rda_hunter
 select activator, rda, null, null
@@ -70,6 +178,7 @@ having sum(callsigns) > 99) as rda_activator_tt
 where not exists
 (select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tt.rda);
 
+RAISE LOG 'build_rankings: activators data was appended to rda_hunter';
 -- rankings 
 
 delete from rankings;
@@ -210,6 +319,8 @@ group by hunter, band) as s
 group by hunter
 window w as (order by sum(points) desc);
 
+RAISE LOG 'build_rankings: main rankings are ready';
+
 -- countries
 insert into callsigns_countries (callsign, country_id)
 select distinct rankings.callsign, 
@@ -221,7 +332,9 @@ select distinct rankings.callsign,
 from rankings left join callsigns_countries on rankings.callsign = callsigns_countries.callsign
 where callsigns_countries.callsign is null;
 
+RAISE LOG 'build_rankings: countries callsigns were assigned';
 --- 9BANDS 900+---
+
 _9band_tr = 100;
 
 while exists (select callsign from rankings where role = 'hunter' and mode = 'total' and band = '9BAND' and _count = 9*_9band_tr)
@@ -240,6 +353,8 @@ while exists (select callsign from rankings where role = 'hunter' and mode = 'to
   _9band_tr = _9band_tr + 100;
 end loop;
 
+RAISE LOG 'build_rankings: 9bands loop is finished';
+
 --- country rankings---
 update rankings as r set country_rank = cr._rank, country_row = cr._row
 from
@@ -249,11 +364,102 @@ from
 	order by _row) as cr
 where r.role = cr.role and r.mode = cr.mode and r.band = cr.band and r.callsign = cr.callsign;
 
+RAISE LOG 'build_rankings: counries rankings are ready';
+
 end
 $$;
 
 
 ALTER FUNCTION public.build_rankings() OWNER TO postgres;
+
+--
+-- Name: build_rankings_activator_data(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.build_rankings_activator_data() RETURNS void
+    LANGUAGE plpgsql
+    AS $$declare 
+	activator_row record;
+begin
+RAISE LOG 'build_rankings: activator data build up start';
+for activator_row in 
+    select distinct activators.activator from activators
+        union
+        select distinct qso.activator from qso where qso.activator is not null
+loop
+	insert into rda_activator (activator, rda, mode, band, callsigns)
+		select qso.activator, qso.rda, qso.mode, qso.band, count(distinct (qso.callsign, qso.dt)) as callsigns from
+		  (select activators.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt 
+			  from qso join activators on qso.upload_id = activators.upload_id
+			  where activators.activator = activator_row.activator
+				  union all
+			  select qso.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt from qso
+			  where qso.activator = activator_row.activator) as qso
+			  group by qso.activator, qso.rda, qso.mode, qso.band;
+end loop;
+RAISE LOG 'build_rankings: rda_activator was built';
+
+insert into rda_hunter
+select activator, rda, band, null
+from
+(select activator, rda, band
+from rda_activator
+group by activator, rda, band
+having sum(callsigns) > 49) as rda_activator_tm
+on conflict on constraint rda_hunter_uq do nothing;
+
+insert into rda_hunter
+select activator, rda, null, null
+from
+(select activator, rda
+from rda_activator
+group by activator, rda
+having sum(callsigns) > 99) as rda_activator_tt
+where not exists
+(select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tt.rda);
+
+RAISE LOG 'build_rankings: activators data was merged with rda_hunter';
+end;$$;
+
+
+ALTER FUNCTION public.build_rankings_activator_data() OWNER TO postgres;
+
+--
+-- Name: build_rankings_countries(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.build_rankings_countries() RETURNS void
+    LANGUAGE plpgsql
+    AS $$begin
+-- countries
+insert into callsigns_countries (callsign, country_id)
+select distinct rankings.callsign, 
+	(select country_id 
+	 	from country_prefixes 
+	 	where rankings.callsign like prefix || '%'
+		order by character_length(prefix) desc 
+	 	limit 1) 
+from rankings left join callsigns_countries on rankings.callsign = callsigns_countries.callsign
+where callsigns_countries.callsign is null;
+
+RAISE LOG 'build_rankings: countries callsigns were assigned';
+--- 9BANDS 900+---
+
+--- country rankings---
+update rankings as r set country_rank = cr._rank, country_row = cr._row
+from
+(select role, mode, band, rankings.callsign, country_id, _count, rank() over w as _rank, 
+	row_number() over w as _row from rankings join callsigns_countries on rankings.callsign = callsigns_countries.callsign 
+	window w as (partition by role, mode, band, country_id order by _count desc)
+	order by _row) as cr
+where r.role = cr.role and r.mode = cr.mode and r.band = cr.band and r.callsign = cr.callsign;
+
+RAISE LOG 'build_rankings: rankings by country are ready';
+end
+$$;
+
+
+ALTER FUNCTION public.build_rankings_countries() OWNER TO postgres;
 
 --
 -- Name: build_rankings_data(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -306,6 +512,202 @@ $$;
 
 
 ALTER FUNCTION public.build_rankings_data() OWNER TO postgres;
+
+--
+-- Name: build_rankings_main(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.build_rankings_main() RETURNS void
+    LANGUAGE plpgsql
+    AS $$declare 
+	_9band_tr smallint;
+
+begin
+delete from rankings;
+
+with rda_act_m_b as 
+(select activator, mode, band, rda
+from rda_activator
+where callsigns > 49),
+
+act_m_b as 
+(select activator, mode, band, count(rda), rank() over w, row_number() over w
+from rda_act_m_b
+group by activator, mode, band
+window w as (partition by mode, band order by count(rda) desc)),
+
+act_t_b as
+(select activator, band, count(rda), rank() over w, row_number() over w 
+from
+(select activator, rda, band
+from rda_activator
+group by activator, rda, band
+having sum(callsigns) > 49) as act_total_band_f
+group by activator, band
+window w as (partition by band order by count(rda) desc)),
+
+hnt_t_b as 
+(select 'hunter', 'total', band, hunter, count(distinct rda), rank() over w, row_number() over w
+from rda_hunter
+where band is not null
+group by hunter, band
+window w as (partition by band order by count(distinct rda) desc))
+
+insert into rankings
+
+-- ACTIVATORS --
+
+-- mode, band
+select 'activator', mode, band, activator, count, rank, row_number from act_m_b 
+
+union all
+
+-- mode, bandsSum
+select 'activator', mode, 'bandsSum', activator, sum(count), rank() over w, row_number() over w 
+from act_m_b
+group by activator, mode
+window w as (partition by mode order by sum(count) desc)
+
+union all
+
+-- mode, total
+select 'activator', mode, 'total', activator, count(rda), rank() over w, row_number() over w 
+from
+(select activator, mode, rda
+from rda_activator
+group by activator, mode, rda
+having sum(callsigns) > 99) as act_m_total_f
+group by activator, mode
+window w as (partition by mode order by count(rda) desc)
+
+union all
+-- total, total
+select 'activator', 'total', 'total', activator, count(rda), rank() over w, row_number() over w 
+from
+(select activator, rda
+from rda_activator
+group by activator, rda
+having sum(callsigns) > 99) as act_total_total_f
+group by activator
+window w as (order by count(rda) desc)
+
+union all
+-- total, bandsSum
+select 'activator', 'total', 'bandsSum', activator, sum(count), rank() over w, row_number() over w 
+from act_t_b
+group by activator
+window w as (order by sum(count) desc)
+
+union all
+--total, band
+select 'activator', 'total', band, activator, count, rank, row_number
+from act_t_b
+
+--- HUNTERS ---
+
+union all
+--mode, band
+select 'hunter', mode, band, hunter, count(*), rank() over w, row_number() over w 
+from rda_hunter
+where mode is not null and band is not null
+group by hunter, mode, band
+window w as (partition by mode, band order by count(*) desc)
+
+union all
+--mode, bandsSum
+select 'hunter', mode, 'bandsSum', hunter, count(*), rank() over w, row_number() over w 
+from rda_hunter
+where mode is not null
+group by hunter, mode
+window w as (partition by mode order by count(*) desc)
+
+union all
+--mode, total
+select 'hunter', mode, 'total', hunter, count(distinct rda), rank() over w, row_number() over w 
+from rda_hunter
+where mode is not null
+group by hunter, mode
+window w as (partition by mode order by count(distinct rda) desc)
+
+union all
+--total, total
+select 'hunter', 'total', 'total', hunter, count(distinct rda), rank() over w, row_number() over w 
+from rda_hunter
+where band is not null
+group by hunter
+window w as (order by count(distinct rda) desc)
+
+union all
+--total, band
+select 'hunter', 'total', band, hunter, count, rank, row_number
+from hnt_t_b
+
+union all
+--total, bandsSum 
+select 'hunter', 'total', 'bandsSum', hunter, sum(count), rank() over w, row_number() over w
+from hnt_t_b
+group by hunter
+window w as (order by sum(count) desc)
+
+--- 9BANDS ---
+
+union all
+
+select 'hunter', 'total', '9BAND', hunter, sum(points), rank() over w, row_number() over w from
+(select hunter, band, least(100, count(distinct rda)) as points
+from rda_hunter
+where band is not null
+group by hunter, band) as s
+group by hunter
+window w as (order by sum(points) desc);
+
+RAISE LOG 'build_rankings: main rankings are ready';
+
+_9band_tr = 100;
+
+while exists (select callsign from rankings where role = 'hunter' and mode = 'total' and band = '9BAND' and _count = 9*_9band_tr)
+  loop
+   update rankings set _count = new_count, _rank = new_rank, _row = new_row
+   from
+    (select hunter, sum(points) as new_count, rank() over w as new_rank, row_number() over w as new_row 
+    from
+      (select hunter, band, least(_9band_tr + 100, count(distinct rda)) as points
+      from rda_hunter
+      where band is not null and hunter in (select callsign from rankings where role = 'hunter' and mode = 'total' and band = '9BAND' and _count = 9*_9band_tr)
+      group by hunter, band) as s
+    group by hunter
+    window w as (order by sum(points) desc)) as p2
+   where callsign = hunter and role = 'hunter' and mode = 'total' and band = '9BAND';
+  _9band_tr = _9band_tr + 100;
+end loop;
+
+RAISE LOG 'build_rankings: 9bands loop is finished';
+end
+$$;
+
+
+ALTER FUNCTION public.build_rankings_main() OWNER TO postgres;
+
+--
+-- Name: build_rankings_purge_rda(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.build_rankings_purge_rda() RETURNS void
+    LANGUAGE plpgsql
+    AS $$begin
+RAISE LOG 'build_rankings: rda tables purge start';
+-- rda
+
+delete from rda_activator;
+delete from rda_hunter 
+where 1 not in (select 1 from qso 
+        where qso.callsign = hunter and qso.mode = rda_hunter.mode and 
+            qso.band = rda_hunter.band and qso.rda = rda_hunter.rda);
+RAISE LOG 'build_rankings: rda tables were purged';
+end$$;
+
+
+ALTER FUNCTION public.build_rankings_purge_rda() OWNER TO postgres;
 
 --
 -- Name: check_qso(character varying, character varying, character, character, character, timestamp without time zone); Type: FUNCTION; Schema: public; Owner: postgres
@@ -726,6 +1128,9 @@ CREATE FUNCTION public.tf_old_callsigns_aiu() RETURNS trigger
         where a2.activator = new.new and a2.upload_id = a1.upload_id);
     delete from activators 
       where activator = new.old;
+    update rda_hunter 
+      set hunter = new.new
+      where hunter = new.old;
   end if;
   return new;
 end$$;
@@ -741,15 +1146,30 @@ CREATE FUNCTION public.tf_qso_ai() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 begin
-  if not exists (select from rda_hunter where rda = new.rda and hunter = new.callsign and mode = new.mode and band = new.band)
-  then
-    insert into rda_hunter values (new.callsign, new.rda, new.band, new.mode);
-  end if;
+  insert into rda_hunter values (new.callsign, new.rda, new.band, new.mode)
+  on conflict on constraint rda_hunter_uq do nothing;
   return new;
  end$$;
 
 
 ALTER FUNCTION public.tf_qso_ai() OWNER TO postgres;
+
+--
+-- Name: tf_qso_au(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.tf_qso_au() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$begin
+  if old.rda <> new.rda then
+      insert into rda_hunter values (new.callsign, new.rda, new.band, new.mode)
+      on conflict on constraint rda_hunter_uq do nothing;
+  end if;
+  return new;
+end$$;
+
+
+ALTER FUNCTION public.tf_qso_au() OWNER TO postgres;
 
 --
 -- Name: tf_qso_bi(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -1183,6 +1603,21 @@ ALTER SEQUENCE public.qso_id_seq OWNED BY public.qso.id;
 
 
 --
+-- Name: ra_t; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ra_t (
+    activator character varying(32) NOT NULL,
+    rda character(5) NOT NULL,
+    band character varying(8) NOT NULL,
+    mode character varying(16) NOT NULL,
+    callsigns bigint
+);
+
+
+ALTER TABLE public.ra_t OWNER TO postgres;
+
+--
 -- Name: rankings; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1486,6 +1921,14 @@ ALTER TABLE ONLY public.cfm_requests
 
 
 --
+-- Name: ra_t ra_t_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ra_t
+    ADD CONSTRAINT ra_t_pkey PRIMARY KEY (activator, rda, band, mode);
+
+
+--
 -- Name: rankings rankings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1615,7 +2058,7 @@ CREATE UNIQUE INDEX old_callsigns_uq ON public.old_callsigns USING btree (old) W
 -- Name: qso_act_mode_band_rda_callsign_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX qso_act_mode_band_rda_callsign_idx ON public.qso USING btree (activator, mode, band, rda, callsign) WHERE (activator IS NOT NULL);
+CREATE INDEX qso_act_mode_band_rda_callsign_idx ON public.qso USING btree (activator, mode, band, rda, callsign, dt) WHERE (activator IS NOT NULL);
 
 
 --
@@ -1630,6 +2073,13 @@ CREATE INDEX qso_callsign_mode_band_rda_idx ON public.qso USING btree (callsign,
 --
 
 CREATE INDEX qso_upload_id_mode_band_rda_callsign_dt_idx ON public.qso USING btree (upload_id, mode, band, rda, callsign, dt);
+
+
+--
+-- Name: ra_t_activator_rda_band_mode_callsigns_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX ra_t_activator_rda_band_mode_callsigns_idx ON public.ra_t USING btree (activator, rda, band, mode, callsigns);
 
 
 --
@@ -1742,8 +2192,6 @@ CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON public.old_callsig
 --
 
 CREATE TRIGGER tr_qso_ai AFTER INSERT ON public.qso FOR EACH ROW EXECUTE FUNCTION public.tf_qso_ai();
-
-ALTER TABLE public.qso DISABLE TRIGGER tr_qso_ai;
 
 
 --
@@ -2012,6 +2460,13 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.qso TO "www
 --
 
 GRANT ALL ON SEQUENCE public.qso_id_seq TO "www-group";
+
+
+--
+-- Name: TABLE ra_t; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.ra_t TO "www-group";
 
 
 --
