@@ -29,6 +29,14 @@ async def export_rankings():
     do_maint = datetime.datetime.now().weekday() == 6
     await _db.connect()
 
+    msc_json_path = CONF.get('web', 'root') + '/json/msc.json'
+    def update_msc_data(**upd_data):
+        msc_data = load_json(json_path) or {}
+        msc_data.update(upd_data)
+        save_json(msc_data, msc_json_path)
+
+    update_msc_data(statsDate=None)
+
     await _db.execute('select from build_rankings_purge_rda();')
     if do_maint:
         await _db.execute("vacuum full freeze verbose analyze rda_activator;")
@@ -37,7 +45,7 @@ async def export_rankings():
         logging.debug('export rankings: rda_hunter table vacuumed')
 
     await _db.execute('select from build_rankings_activator_data();')
-    
+
     if do_maint:
         await _db.execute('delete from rankings;')
         await _db.execute("vacuum full freeze verbose analyze rankings;")
@@ -45,8 +53,8 @@ async def export_rankings():
         await _db.execute("vacuum full freeze verbose analyze qso;")
         logging.debug('export rankings: qso table vacuumed')
 
-    await _db.execute("select from build_rankings_main();")    
-    await _db.execute("select from build_rankings_countries();")    
+    await _db.execute("select from build_rankings_main();")
+    await _db.execute("select from build_rankings_countries();")
 
     rankings = await _db.execute("""
                 select rankings_json(null, null, null, null, 104, null, null) as data
@@ -68,14 +76,18 @@ async def export_rankings():
     logging.debug('export rankings finished')
 
     logging.debug('export qso count')
-    msc_json_path = CONF.get('web', 'root') + '/json/msc.json'
-    msc_data = load_json(json_path) or {}
 
-    msc_data['qsoCount'] = (await _db.execute("""
+    msc_data = load_json(json_path) or {}
+    save_json(msc_data, msc_json_path)
+
+    update_msc_data(statsDate=datetime.datetime.utcnow().strftime('%d %b %Y %M:%Hz'))
+
+    qso_count = await _db.execute("""
         select count(*) as qso_count
         from qso;    
-    """, None, False))
-    save_json(msc_data, msc_json_path)
+    """, None, False)
+
+    update_msc_data(qsoCount=qso_count)
     logging.debug('export qso count finished')
 
 async def export_callsigns():
