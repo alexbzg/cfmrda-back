@@ -31,7 +31,7 @@ async def export_rankings():
 
     msc_json_path = CONF.get('web', 'root') + '/json/msc.json'
     def update_msc_data(**upd_data):
-        msc_data = load_json(json_path) or {}
+        msc_data = load_json(msc_json_path) or {}
         msc_data.update(upd_data)
         save_json(msc_data, msc_json_path)
 
@@ -80,7 +80,7 @@ async def export_rankings():
     msc_data = load_json(json_path) or {}
     save_json(msc_data, msc_json_path)
 
-    update_msc_data(statsDate=datetime.datetime.utcnow().strftime('%d %b %Y %M:%Hz'))
+    update_msc_data(statsDate=datetime.datetime.utcnow().strftime('%d %b %Y %H:%Mz'))
 
     qso_count = await _db.execute("""
         select count(*) as qso_count

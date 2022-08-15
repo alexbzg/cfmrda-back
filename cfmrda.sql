@@ -400,6 +400,12 @@ end loop;
 RAISE LOG 'build_rankings: rda_activator was built';
 
 insert into rda_hunter
+select activator, rda, band, mode
+from rda_activator
+where callsigns > 49
+on conflict on constraint rda_hunter_uq do nothing;
+
+insert into rda_hunter
 select activator, rda, band, null
 from
 (select activator, rda, band
@@ -1128,8 +1134,11 @@ CREATE FUNCTION public.tf_old_callsigns_aiu() RETURNS trigger
         where a2.activator = new.new and a2.upload_id = a1.upload_id);
     delete from activators 
       where activator = new.old;
-    update rda_hunter 
-      set hunter = new.new
+    insert into rda_hunter (hunter, rda, band, mode)
+      select new.new, rda, band, mode
+        from rda_hunter where hunter = new.old
+        on conflict on constraint rda_hunter_uq do nothing;
+    delete from rda_hunter
       where hunter = new.old;
   end if;
   return new;
