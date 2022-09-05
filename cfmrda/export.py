@@ -27,6 +27,7 @@ async def export_rankings():
     db_params.update(dict(CONF.items('db_maintenance')))
     _db = DBConn(db_params)
     do_maint = datetime.datetime.now().weekday() == 6
+    do_countries = datetime.datetime.now().weekday() == 5
     await _db.connect()
 
     msc_json_path = CONF.get('web', 'root') + '/json/msc.json'
@@ -54,7 +55,9 @@ async def export_rankings():
         logging.debug('export rankings: qso table vacuumed')
 
     await _db.execute("select from build_rankings_main();")
-    await _db.execute("select from build_rankings_countries();")
+
+    if do_countries:
+        await _db.execute("select from build_rankings_countries();")
 
     rankings = await _db.execute("""
                 select rankings_json(null, null, null, null, 104, null, null) as data
@@ -63,21 +66,22 @@ async def export_rankings():
     save_json(rankings, CONF.get('web', 'root') + '/json/rankings.json')
     set_local_owner('/json/rankings.json')
 
-    countries = await _db.execute("""
-        select id from countries""", None, False)
-    for country in countries:
-        json_path = '/json/countries_rankings/' + str(country) + '.json'
-        rankings = await _db.execute("""
-                select rankings_json(null, null, null, null, 104, null, %(id)s) as data
-                """, {'id': country}, False)
-        save_json(rankings, CONF.get('web', 'root') + json_path)
-        set_local_owner(json_path)
+    if do_countries:
+        countries = await _db.execute("""
+            select id from countries""", None, False)
+        for country in countries:
+            json_path = '/json/countries_rankings/' + str(country) + '.json'
+            rankings = await _db.execute("""
+                    select rankings_json(null, null, null, null, 104, null, %(id)s) as data
+                    """, {'id': country}, False)
+            save_json(rankings, CONF.get('web', 'root') + json_path)
+            set_local_owner(json_path)
 
     logging.debug('export rankings finished')
 
     logging.debug('export qso count')
 
-    msc_data = load_json(json_path) or {}
+    msc_data = load_json(msc_json_path) or {}
     save_json(msc_data, msc_json_path)
 
     update_msc_data(statsDate=datetime.datetime.utcnow().strftime('%d %b %Y %H:%Mz'))

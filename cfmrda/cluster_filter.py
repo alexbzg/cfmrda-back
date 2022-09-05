@@ -16,7 +16,7 @@ conf = site_conf()
 start_logging('cluster')
 list_length = conf.getint('cluster', 'list_length')
 
-dx_data = cluster_consumer.get_data('cfmrda', dict(conf['cluster_db']), all_data=args.a,
+dx_data = cluster_consumer.get_data(dict(conf['cluster_db']), all_data=args.a,
         spot_filter={'rda': {'$nin': [None, '?']}})
 
 rda_dx_fname = conf.get('web', 'root') + '/json/dx.json'

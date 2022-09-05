@@ -525,7 +525,8 @@ ALTER FUNCTION public.build_rankings_data() OWNER TO postgres;
 
 CREATE FUNCTION public.build_rankings_main() RETURNS void
     LANGUAGE plpgsql
-    AS $$declare 
+    AS $$
+declare 
 	_9band_tr smallint;
 
 begin
@@ -665,7 +666,20 @@ from rda_hunter
 where band is not null
 group by hunter, band) as s
 group by hunter
-window w as (order by sum(points) desc);
+window w as (order by sum(points) desc)
+
+--- 9BANDS EXTREME---
+
+union all
+
+select 'hunter', 'total', '9BAND-X', hunter, count(*), rank() over w, row_number() over w 
+from (select hunter, rda
+from rda_hunter
+where band is not null
+group by hunter, rda
+having count(distinct band) = 9) as s0
+group by hunter
+window w as (order by count(*) desc);
 
 RAISE LOG 'build_rankings: main rankings are ready';
 
@@ -2201,6 +2215,13 @@ CREATE TRIGGER tr_old_callsigns_aiu AFTER INSERT OR UPDATE ON public.old_callsig
 --
 
 CREATE TRIGGER tr_qso_ai AFTER INSERT ON public.qso FOR EACH ROW EXECUTE FUNCTION public.tf_qso_ai();
+
+
+--
+-- Name: qso tr_qso_au; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_qso_au AFTER UPDATE ON public.qso FOR EACH ROW EXECUTE FUNCTION public.tf_qso_au();
 
 
 --
