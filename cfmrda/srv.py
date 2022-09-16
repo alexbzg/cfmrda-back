@@ -1512,6 +1512,51 @@ support@cfmrda.ru"""
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
+    async def dwnld_hunter_rda_hndlr(self, request):
+        callsign = request.match_info.get('callsign', None)
+        format = request.match_info.get('format', None)
+        if callsign:
+            with (await self._db.pool.cursor()) as cur:
+                try:
+                    await cur.execute("""
+						select 
+							count(distinct band) as bands, 
+							rda.rda,
+							string_agg(distinct mode, ' ' order by mode) filter (where band = '1.8') as "1.8",
+							string_agg(distinct mode, ' ' order by mode) filter (where band = '3.5') as "3.5",
+							string_agg(distinct mode, ' ' order by mode) filter (where band = '7') as "7",
+                            string_agg(distinct mode, ' ' order by mode) filter (where band = '10') as "10",
+                            string_agg(distinct mode, ' ' order by mode) filter (where band = '14') as "14",
+                            string_agg(distinct mode, ' ' order by mode) filter (where band = '18') as "18",
+                            string_agg(distinct mode, ' ' order by mode) filter (where band = '21') as "21",
+                            string_agg(distinct mode, ' ' order by mode) filter (where band = '24') as "24",
+                            string_agg(distinct mode, ' ' order by mode) filter (where band = '28') as "28"
+                        from rda left join rda_hunter on rda.rda = rda_hunter.rda 
+                        where hunter = %(callsign)s 
+                        group by rda.rda
+                    """, {'callsign': callsign})
+                    data = await cur.fetchall()
+                    if format == 'csv':
+                        str_buf = io.StringIO()
+                        csv_writer = csv.writer(str_buf, quoting=csv.QUOTE_NONNUMERIC)
+                        csv_writer.writerow(['Bands', 'RDA', '1.8', '3.5', '7', '10',\
+                            '14', '18', '21', '24', '28'])
+                        for row in data:
+                            csv_writer.writerow(row)
+                        return web.Response(
+                            headers={'Content-Disposition': 'Attachment;filename=' +\
+                                    callsign + datetime.now().strftime('_%d_%b_%Y') +\
+                                    '.csv'},\
+                            body=str_buf.getvalue().encode())
+                    else:
+                        return web.json_response(data)
+                except Exception:
+                    logging.exception('error while importing rda hunter data for callsign ' + callsign)
+                    return CfmRdaServer.response_error_default()
+        else:
+            return web.HTTPBadRequest(text='Необходимо ввести позывной')
+
+
     async def get_qrzru(self, request):
         callsign = request.match_info.get('callsign', None)
         if callsign:
@@ -1637,5 +1682,7 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/upload/{id}', SRV.view_upload_hndlr)
     APP.router.add_get('/aiohttp/download/qso/{callsign}/{format}', SRV.dwnld_qso_hndlr)
     APP.router.add_get('/aiohttp/download/qso/{callsign}', SRV.dwnld_qso_hndlr)
+    APP.router.add_get('/aiohttp/download/hunter_rda/{callsign}/{format}', SRV.dwnld_hunter_rda_hndlr)
+    APP.router.add_get('/aiohttp/download/hunter_rda/{callsign}', SRV.dwnld_hunter_rda_hndlr)
     APP.router.add_get('/aiohttp/qrzru/{callsign}', SRV.get_qrzru)
     web.run_app(APP, path=CONF.get('files', 'server_socket'))
