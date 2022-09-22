@@ -104,15 +104,15 @@ class CfmRdaServer():
         data = await request.json()
         if 'mode' in data:
             if data['mode'] == 'register':
-                return (await self.register_user(data))
+                return await self.register_user(data)
             elif data['mode'] == 'login':
-                return (await self.login(data))
+                return await self.login(data)
             elif data['mode'] == 'passwordRequest':
-                return (await self.password_request(data))
+                return await self.password_request(data)
             elif data['mode'] == 'passwordChange':
-                return (await self.password_change(data))
+                return await self.password_change(data)
             elif data['mode'] == 'emailRequest':
-                return (await self.email_request(data))
+                return await self.email_request(data)
         logging.debug(data)
         return CfmRdaServer.response_error_default()
 
@@ -1544,9 +1544,8 @@ support@cfmrda.ru"""
                         for row in data:
                             csv_writer.writerow(row)
                         return web.Response(
-                            headers={'Content-Disposition': 'Attachment;filename=' +\
-                                    callsign + datetime.now().strftime('_%d_%b_%Y') +\
-                                    '.csv'},\
+                            headers={'Content-Disposition': 'Attachment;filename=' +
+                                    f"{callsign}_bands{datetime.now().strftime('_%d_%b_%Y')}.csv"},
                             body=str_buf.getvalue().encode())
                     else:
                         return web.json_response(data)

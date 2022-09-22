@@ -223,6 +223,7 @@ async def main(conf):
                     'state': 0,\
                     'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
+            if update_params:
                 await _db.param_update('ext_loggers', splice_params(row, ('id',)),\
                     update_params)
                 logging.debug('logger data updated')
