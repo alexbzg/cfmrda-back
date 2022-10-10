@@ -1164,7 +1164,7 @@ support@cfmrda.ru"""
         data = await request.json()
         callsign = self.decode_token(data)
         if isinstance(callsign, str):
-            if 'delete' in data or 'enable' in data:
+            if 'delete' in data or 'enabled' in data:
                 return (await self._edit_uploads(data, callsign))
             sql_tmplt = """
                 select json_agg(json_build_object('id', id, 
