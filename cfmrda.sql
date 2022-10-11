@@ -17,6 +17,20 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: tablefunc; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS tablefunc WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION tablefunc; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION tablefunc IS 'functions that manipulate whole tables, including crosstab';
+
+
+--
 -- Name: br_t(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -714,17 +728,21 @@ ALTER FUNCTION public.build_rankings_main() OWNER TO postgres;
 
 CREATE FUNCTION public.build_rankings_purge_rda() RETURNS void
     LANGUAGE plpgsql
-    AS $$begin
+    AS $$
+begin
 RAISE LOG 'build_rankings: rda tables purge start';
 -- rda
 
 delete from rda_activator;
 delete from rda_hunter 
-where 1 not in (select 1 from qso 
+where 1 not in (select 1 from qso left join uploads
+		on qso.upload_id = uploads.id
         where qso.callsign = hunter and qso.mode = rda_hunter.mode and 
-            qso.band = rda_hunter.band and qso.rda = rda_hunter.rda);
+            qso.band = rda_hunter.band and qso.rda = rda_hunter.rda and 
+			(qso.upload_id is null or uploads.enabled));
 RAISE LOG 'build_rankings: rda tables were purged';
-end$$;
+end
+$$;
 
 
 ALTER FUNCTION public.build_rankings_purge_rda() OWNER TO postgres;

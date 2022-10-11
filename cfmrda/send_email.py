@@ -14,7 +14,7 @@ def send_email(**email):
     my_address = conf.get('email', 'address')
     msg = MIMEMultipart()
     msg.attach(MIMEText(email['text'].encode('utf-8'), 'plain', 'UTF-8'))
-    msg['from'] = email['fr']
+    msg['reply-to'] = email['fr']
     msg['to'] = email['to']
     msg['MIME-Version'] = "1.0"
     msg['Subject'] = email['subject']
