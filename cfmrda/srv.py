@@ -1476,20 +1476,18 @@ support@cfmrda.ru"""
                     await cur.execute("""
                         select 
                                 rda, 
-                                to_char(tstamp, 'DD Mon YYYY') as date, 
-                                to_char(tstamp, 'HH24:MI') as time, 
+                                to_char(qso.tstamp, 'DD Mon YYYY') as date, 
+                                to_char(qso.tstamp, 'HH24:MI') as time, 
                                 band, 
                                 mode, 
                                 station_callsign, 
                                 coalesce(
-                                    (
-                                        select user_cs 
-                                        from uploads 
-                                        where uploads.id = qso.upload_id), 
+                                    uploads.user_cs, 
                                     '(QSL card)') as uploader, 
                                 to_char(rec_ts, 'DD Mon YYYY') as rec_date
-                            from qso 
-                            where callsign = %(callsign)s
+                            from qso left join uploads on upload_id = uploads.id
+                            where callsign = %(callsign)s and 
+                                (uploads.id is null or uploads.enabled)
                     """, {'callsign': callsign})
                     data = await cur.fetchall()
                     if format == 'csv':
