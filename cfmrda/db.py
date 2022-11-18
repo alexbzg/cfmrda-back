@@ -154,7 +154,7 @@ class DBConn:
                         await cur.execute('commit transaction;')
                         res = True
                 except Exception as exc:
-                    if cur.connection.get_transaction_status() !=\
+                    if await cur.connection.get_transaction_status() !=\
                             TRANSACTION_STATUS_IDLE:
                         await cur.execute('rollback transaction;')
                     trap_db_exception(exc, sql, params)

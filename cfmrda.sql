@@ -753,9 +753,12 @@ ALTER FUNCTION public.build_rankings_purge_rda() OWNER TO postgres;
 
 CREATE FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) RETURNS record
     LANGUAGE plpgsql
-    AS $$declare 
+    AS $$
+declare 
   str_callsign character varying(32);
   str_station_callsign character varying(32);
+  blacklist_begin date;
+  blacklist_end date;
 begin
   str_callsign = strip_callsign(_callsign);
   str_station_callsign = strip_callsign(_station_callsign);
@@ -771,6 +774,15 @@ begin
   then
     raise 'cfmrda_db_error:Мода SSB некорректна на диапазоне 10MHz';
   end if;
+  select date_begin, date_end  into blacklist_begin, blacklist_end
+  	from stations_blacklist
+	where _station_callsign = stations_blacklist.callsign and
+		(date_begin is null or _ts >= stations_blacklist.date_begin) and 
+		(date_end is null or _ts >= stations_blacklist.date_end);
+  if found
+  then
+	raise 'cfmrda_db_error:Станция в черном списке: % с % по %', _station_callsign, coalesce(blacklist_begin::text, '-'), coalesce(blacklist_end::text, '-');    
+  end if;
   /*check and replace obsolete callsign */
   select old_callsigns.new into new_callsign
     from old_callsigns 
@@ -783,8 +795,8 @@ begin
   select old_rda.new into new_rda
     from old_rda 
     where old_rda.old = _rda and 
-	(dt_start < _ts or dt_start is null) and
-	(dt_stop > _ts or dt_stop is null);
+	(dt_start is null or dt_start < _ts) and
+	(dt_stop is null or dt_stop > _ts);
   if not found
   then  
     new_rda = _rda;
@@ -803,7 +815,8 @@ begin
             errcode='CR001',
             message='cfmrda_db_error:Связь уже внесена в базу данных';
   end if;
- end$$;
+ end
+$$;
 
 
 ALTER FUNCTION public.check_qso(_callsign character varying, _station_callsign character varying, _rda character, _band character, _mode character, _ts timestamp without time zone, OUT new_callsign character varying, OUT new_rda character varying) OWNER TO postgres;
@@ -1730,6 +1743,19 @@ CREATE TABLE public.stat_log (
 ALTER TABLE public.stat_log OWNER TO postgres;
 
 --
+-- Name: stations_blacklist; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.stations_blacklist (
+    callsign character varying(64) NOT NULL,
+    date_begin date,
+    date_end date
+);
+
+
+ALTER TABLE public.stations_blacklist OWNER TO postgres;
+
+--
 -- Name: uploads; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2007,6 +2033,14 @@ ALTER TABLE ONLY public.rda
 
 ALTER TABLE ONLY public.stat_log
     ADD CONSTRAINT stat_log_pkey PRIMARY KEY (tstamp, msg);
+
+
+--
+-- Name: stations_blacklist stations_blacklist_callsign_date_begin_date_end_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.stations_blacklist
+    ADD CONSTRAINT stations_blacklist_callsign_date_begin_date_end_key UNIQUE (callsign, date_begin, date_end);
 
 
 --
@@ -2550,6 +2584,13 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.rda_hunter 
 --
 
 GRANT INSERT ON TABLE public.stat_log TO "www-group";
+
+
+--
+-- Name: TABLE stations_blacklist; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,DELETE,UPDATE ON TABLE public.stations_blacklist TO "www-group";
 
 
 --
