@@ -59,6 +59,8 @@ async def export_rankings():
     if do_countries:
         await _db.execute("select from build_rankings_countries();")
 
+    await _db.execute("select from build_activators_rating();")
+
     rankings = await _db.execute("""
                 select rankings_json(null, null, null, null, 104, null, null) as data
                 """, None, False)

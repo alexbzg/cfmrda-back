@@ -1565,6 +1565,31 @@ support@cfmrda.ru"""
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
+    async def get_activators_rating(self, request):        
+        year = int(request.match_info.get('year', None))
+        if not year:
+            return web.HTTPBadRequest(text='Необходимо ввести год')
+        rating = await self._db.execute("""
+               select * from (
+                    select activator, rating, 
+                            rank() over w as act_rank, 
+                            row_number() over w as act_row
+                        from activators_rating
+                        where qso_year = %(year)s
+                        window w as (order by rating desc)
+                    ) as ww
+                    where act_row < 104
+                    order by act_rank""",\
+            {'year': year}, keys=False)
+        return web.json_response(rating)
+
+    async def get_activators_rating_years(self, request):        
+        rating_years = await self._db.execute("""
+            select distinct qso_year 
+                from activators_rating
+                order by qso_year desc""", keys=False)
+        return web.json_response(rating_years)
+
     async def _load_qrz_rda(self, callsign):
         if self._qrzru:
             check = await self._db.execute("""
@@ -1682,4 +1707,7 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/download/hunter_rda/{callsign}/{format}', SRV.dwnld_hunter_rda_hndlr)
     APP.router.add_get('/aiohttp/download/hunter_rda/{callsign}', SRV.dwnld_hunter_rda_hndlr)
     APP.router.add_get('/aiohttp/qrzru/{callsign}', SRV.get_qrzru)
+    APP.router.add_get('/aiohttp/activators_rating/{year}', SRV.get_activators_rating)
+    APP.router.add_get('/aiohttp/activators_rating', SRV.get_activators_rating_years)
+
     web.run_app(APP, path=CONF.get('files', 'server_socket'))

@@ -98,6 +98,44 @@ $$;
 ALTER FUNCTION public.br_t0() OWNER TO postgres;
 
 --
+-- Name: build_activators_rating(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.build_activators_rating() RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+declare 
+	activator_row record;
+begin
+RAISE LOG 'build_activators_raiting start';
+for activator_row in 
+    select distinct activators.activator from activators
+        union
+        select distinct qso.activator from qso where qso.activator is not null
+loop
+	insert into activators_rating (activator, qso_year, rating)
+		select activator, qso_year, sum(points * mult) as rating from
+			(select activator, rda, qso_year, sum(qso_count) as points, count(*) filter (where qso_count > 49) as mult from 
+				(select activator, rda, band, qso_year, count(distinct callsign) as qso_count from
+					(select activators.activator, qso.rda, qso.band, qso.callsign, extract(year from qso.dt) as qso_year
+			  			from qso join activators on qso.upload_id = activators.upload_id
+			  			where activators.activator = activator_row.activator
+				  	union all
+			  		select qso.activator, qso.rda, qso.band, qso.callsign, extract(year from qso.dt) as qso_year from qso
+			  			where qso.activator = activator_row.activator) as qsos
+			group by activator, rda, band, qso_year) as rda_qsos
+		group by activator, rda, qso_year) as rda_points
+		where mult > 0
+	group by activator, qso_year;	
+end loop;
+RAISE LOG 'build_activators_raiting finish';
+end;
+$$;
+
+
+ALTER FUNCTION public.build_activators_rating() OWNER TO postgres;
+
+--
 -- Name: build_rankings(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1272,6 +1310,19 @@ CREATE TABLE public.activators (
 ALTER TABLE public.activators OWNER TO postgres;
 
 --
+-- Name: activators_rating; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.activators_rating (
+    activator character varying(32) NOT NULL,
+    qso_year smallint NOT NULL,
+    rating integer NOT NULL
+);
+
+
+ALTER TABLE public.activators_rating OWNER TO postgres;
+
+--
 -- Name: active_locks; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1868,6 +1919,14 @@ ALTER TABLE ONLY public.activators
 
 
 --
+-- Name: activators_rating activators_rating_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.activators_rating
+    ADD CONSTRAINT activators_rating_pkey PRIMARY KEY (activator, qso_year);
+
+
+--
 -- Name: callsigns_countries callsigns_country_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2348,6 +2407,13 @@ ALTER TABLE ONLY public.uploads
 
 
 --
+-- Name: FUNCTION build_activators_rating(); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.build_activators_rating() TO "www-group";
+
+
+--
 -- Name: FUNCTION build_rankings_data(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2395,6 +2461,13 @@ GRANT ALL ON FUNCTION public.tf_qso_bi() TO "www-group";
 --
 
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.activators TO "www-group";
+
+
+--
+-- Name: TABLE activators_rating; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.activators_rating TO "www-group";
 
 
 --
