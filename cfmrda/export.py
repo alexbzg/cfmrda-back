@@ -51,6 +51,13 @@ async def export_rankings():
         await _db.execute('delete from rankings;')
         await _db.execute("vacuum full freeze verbose analyze rankings;")
         logging.debug('export rankings: rankings table vacuumed')
+        await _db.execute('delete from activators_rating;')
+        await _db.execute("vacuum full freeze verbose analyze activators_rating;")
+        logging.debug('export rankings: activators_rating table vacuumed')
+        await _db.execute('delete from activators_rating_detail;')
+        await _db.execute("vacuum full freeze verbose analyze activators_rating_detail;")
+        logging.debug('export rankings: activators_rating_detail table vacuumed')
+
         await _db.execute("vacuum full freeze verbose analyze qso;")
         logging.debug('export rankings: qso table vacuumed')
 

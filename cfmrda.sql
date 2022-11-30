@@ -108,26 +108,33 @@ declare
 	activator_row record;
 begin
 RAISE LOG 'build_activators_raiting start';
+delete from activators_rating;
+delete from activators_rating_detail;
 for activator_row in 
     select distinct activators.activator from activators
         union
         select distinct qso.activator from qso where qso.activator is not null
 loop
+	insert into activators_rating_detail (activator, qso_year, rda, points, mult)
+		select activator, qso_year, rda, sum(qso_count) as points, count(*) filter (where qso_count > 49) as mult from 
+			(select activator, rda, band, qso_year, count(distinct callsign) as qso_count from
+				(select activators.activator, qso.rda, qso.band, qso.callsign, extract(year from qso.dt) as qso_year
+			  		from qso join activators on qso.upload_id = activators.upload_id
+			  		where (station_callsign like '%/M' or station_callsign like '%/P') and activators.activator = activator_row.activator
+				union all
+			  	select qso.activator, qso.rda, qso.band, qso.callsign, extract(year from qso.dt) as qso_year from qso
+			  		where (station_callsign like '%/M' or station_callsign like '%/P') and activator = activator_row.activator
+				) as qsos
+				group by activator, rda, band, qso_year) as rda_qsos
+			group by activator, rda, qso_year
+		 	having count(*) filter (where qso_count > 49) > 0;
 	insert into activators_rating (activator, qso_year, rating)
-		select activator, qso_year, sum(points * mult) as rating from
-			(select activator, rda, qso_year, sum(qso_count) as points, count(*) filter (where qso_count > 49) as mult from 
-				(select activator, rda, band, qso_year, count(distinct callsign) as qso_count from
-					(select activators.activator, qso.rda, qso.band, qso.callsign, extract(year from qso.dt) as qso_year
-			  			from qso join activators on qso.upload_id = activators.upload_id
-			  			where activators.activator = activator_row.activator
-				  	union all
-			  		select qso.activator, qso.rda, qso.band, qso.callsign, extract(year from qso.dt) as qso_year from qso
-			  			where qso.activator = activator_row.activator) as qsos
-			group by activator, rda, band, qso_year) as rda_qsos
-		group by activator, rda, qso_year) as rda_points
-		where mult > 0
-	group by activator, qso_year;	
+		select activator_row.activator, qso_year, sum(points * mult) as rating 
+			from activators_rating_detail
+			where activator = activator_row.activator
+			group by qso_year;	
 end loop;
+
 RAISE LOG 'build_activators_raiting finish';
 end;
 $$;
@@ -1323,6 +1330,21 @@ CREATE TABLE public.activators_rating (
 ALTER TABLE public.activators_rating OWNER TO postgres;
 
 --
+-- Name: activators_rating_detail; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.activators_rating_detail (
+    activator character varying(32) NOT NULL,
+    qso_year smallint NOT NULL,
+    rda character(5) NOT NULL,
+    points integer NOT NULL,
+    mult smallint NOT NULL
+);
+
+
+ALTER TABLE public.activators_rating_detail OWNER TO postgres;
+
+--
 -- Name: active_locks; Type: VIEW; Schema: public; Owner: postgres
 --
 
@@ -1919,6 +1941,14 @@ ALTER TABLE ONLY public.activators
 
 
 --
+-- Name: activators_rating_detail activators_rating_detail_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.activators_rating_detail
+    ADD CONSTRAINT activators_rating_detail_pkey PRIMARY KEY (activator, qso_year, rda);
+
+
+--
 -- Name: activators_rating activators_rating_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2203,6 +2233,13 @@ CREATE INDEX qso_callsign_mode_band_rda_idx ON public.qso USING btree (callsign,
 
 
 --
+-- Name: qso_expedition_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX qso_expedition_idx ON public.qso USING btree (upload_id, activator, rda, band, callsign, date_part('year'::text, dt)) WHERE (((station_callsign)::text ~~ '%/M'::text) OR ((station_callsign)::text ~~ '%/P'::text));
+
+
+--
 -- Name: qso_upload_id_mode_band_rda_callsign_dt_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2468,6 +2505,13 @@ GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.activators 
 --
 
 GRANT ALL ON TABLE public.activators_rating TO "www-group";
+
+
+--
+-- Name: TABLE activators_rating_detail; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.activators_rating_detail TO www;
 
 
 --

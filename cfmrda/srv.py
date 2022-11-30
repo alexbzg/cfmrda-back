@@ -1566,10 +1566,23 @@ support@cfmrda.ru"""
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
     async def get_activators_rating(self, request):        
-        year = int(request.match_info.get('year', None))
+        year = request.match_info.get('year', None)
+        if year != 'total':
+            year = int(request.match_info.get('year', None))
         if not year:
             return web.HTTPBadRequest(text='Необходимо ввести год')
-        rating = await self._db.execute("""
+        rating_sql = """
+               select * from (
+				select activator, sum(rating) as rating,
+					rank() over w as act_rank,
+					row_number() over w as act_row
+					from activators_rating
+					group by activator
+					window w as (order by sum(rating) desc)
+				) as ww
+				where act_row < 106
+				order by act_rank 
+                """ if year == 'total' else """
                select * from (
                     select activator, rating, 
                             rank() over w as act_rank, 
@@ -1578,9 +1591,36 @@ support@cfmrda.ru"""
                         where qso_year = %(year)s
                         window w as (order by rating desc)
                     ) as ww
-                    where act_row < 104
-                    order by act_rank""",\
+                    where act_row < 106
+                    order by act_rank
+                """
+        rating = await self._db.execute(rating_sql,
             {'year': year}, keys=False)
+        if isinstance(rating, dict):
+            rating = [rating]
+        return web.json_response(rating)
+
+    async def get_activators_rating_detail(self, request):        
+        year = request.match_info.get('year', None)
+        activator = request.match_info.get('activator', None)
+        if not year or not activator:
+            return web.HTTPBadRequest(text='Необходимо ввести год и позывной активатора')
+        rating_sql = """
+				select rda, qso_year, points, mult, points * mult as total
+				    from activators_rating_detail
+                    where activator = %(activator)s
+				order by qso_year, rda
+                """ if year == 'total' else """
+				select rda, points, mult, points * mult as total
+				    from activators_rating_detail
+                    where qso_year = %(year)s and
+                        activator = %(activator)s
+				order by rda
+                """ 
+        rating = await self._db.execute(rating_sql,
+                {'year': year, 'activator': activator}, keys=False)
+        if isinstance(rating, dict):
+            rating = [rating]
         return web.json_response(rating)
 
     async def get_activators_rating_years(self, request):        
@@ -1708,6 +1748,8 @@ if __name__ == '__main__':
     APP.router.add_get('/aiohttp/download/hunter_rda/{callsign}', SRV.dwnld_hunter_rda_hndlr)
     APP.router.add_get('/aiohttp/qrzru/{callsign}', SRV.get_qrzru)
     APP.router.add_get('/aiohttp/activators_rating/{year}', SRV.get_activators_rating)
+    APP.router.add_get('/aiohttp/activators_rating/{year}/{activator}', 
+		SRV.get_activators_rating_detail)
     APP.router.add_get('/aiohttp/activators_rating', SRV.get_activators_rating_years)
 
     web.run_app(APP, path=CONF.get('files', 'server_socket'))
