@@ -117,12 +117,12 @@ for activator_row in
 loop
 	insert into activators_rating_detail (activator, qso_year, rda, points, mult)
 		select activator, qso_year, rda, sum(qso_count) as points, count(*) filter (where qso_count > 49) as mult from 
-			(select activator, rda, band, qso_year, count(distinct callsign) as qso_count from
-				(select activators.activator, qso.rda, qso.band, qso.callsign, extract(year from qso.dt) as qso_year
+			(select activator, rda, band, qso_year, count(distinct (callsign, mode)) as qso_count from
+				(select activators.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year
 			  		from qso join activators on qso.upload_id = activators.upload_id
 			  		where (station_callsign like '%/M' or station_callsign like '%/P') and activators.activator = activator_row.activator
 				union all
-			  	select qso.activator, qso.rda, qso.band, qso.callsign, extract(year from qso.dt) as qso_year from qso
+			  	select qso.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year from qso
 			  		where (station_callsign like '%/M' or station_callsign like '%/P') and activator = activator_row.activator
 				) as qsos
 				group by activator, rda, band, qso_year) as rda_qsos
