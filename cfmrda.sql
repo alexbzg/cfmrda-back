@@ -129,7 +129,7 @@ loop
 			group by activator, rda, qso_year
 		 	having count(*) filter (where qso_count > 49) > 0;
 	insert into activators_rating (activator, qso_year, rating)
-		select activator_row.activator, qso_year, sum(points * mult) as rating 
+		select activator_row.activator, qso_year, sum(points * mult) * count(*) as rating 
 			from activators_rating_detail
 			where activator = activator_row.activator
 			group by qso_year;	
