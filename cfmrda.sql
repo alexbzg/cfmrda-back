@@ -119,8 +119,9 @@ loop
 		select activator, qso_year, rda, sum(qso_count) as points, count(*) filter (where qso_count > 49) as mult from 
 			(select activator, rda, band, qso_year, count(distinct (callsign, mode)) as qso_count from
 				(select activators.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year
-			  		from qso join activators on qso.upload_id = activators.upload_id
-			  		where (station_callsign like '%/M' or station_callsign like '%/P') and activators.activator = activator_row.activator
+			  		from qso join activators on qso.upload_id = activators.upload_id join uploads on qso.upload_id = uploads.id
+			  		where (station_callsign like '%/M' or station_callsign like '%/P') and uploads.enabled and 
+				 		activators.activator = activator_row.activator 
 				union all
 			  	select qso.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year from qso
 			  		where (station_callsign like '%/M' or station_callsign like '%/P') and activator = activator_row.activator
@@ -1126,7 +1127,8 @@ ALTER FUNCTION public.tf_callsigns_rda_bi() OWNER TO postgres;
 
 CREATE FUNCTION public.tf_cfm_qsl_qso_bi() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$declare 
+    AS $$
+declare 
   new_rda character varying(5);
 begin
   /*check and replace obsolete rda*/
@@ -1146,7 +1148,10 @@ begin
   then
     raise 'cfmrda_db_error:Некорректный район RDA (%)', new.rda;    
   end if;    
-  if exists (select from qso where qso.callsign = strip_callsign(new.callsign) and qso.rda = new_rda and qso.band = new.band and qso.mode = new.mode) then
+  if exists (select from qso left join uploads on upload_id = uploads.id 
+			 where qso.callsign = strip_callsign(new.callsign) and qso.rda = new_rda 
+			 	and qso.band = new.band and qso.mode = new.mode 
+				and (upload_id is null or uploads.enabled)) then
     raise 'cfmrda_db_error:Этот RDA у вас уже подтвержден ⇒ <b>(%, %, %)</b> ⇐ This RDA is already confirmed for you.', new.rda, new.mode, new.band || 'MHz';
   end if;
   if (now() - new.tstamp < interval '10 days')
