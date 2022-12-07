@@ -7,6 +7,8 @@ from datetime import datetime
 import fcntl
 import sys
 
+from requests.exceptions import ReadTimeout
+
 from common import site_conf, start_logging
 from db import DBConn, exec_cur, splice_params
 from ham_radio import load_adif, BANDS_WL
@@ -28,7 +30,7 @@ async def main(conf):
                 'logger', logger, 'login_data', login_data, 
                 'qso_count', qso_count, 'last_updated', to_char(last_updated, 'YYYY-MM-DD'))
             from ext_loggers 
-            where state = 0 and 
+            where state = 0 and
                 (last_updated is null or last_updated < now() - interval %(reload_interval)s)
             """, {'reload_interval': reload_interval})
         loggers = await cur.fetchall()
@@ -87,6 +89,7 @@ async def main(conf):
             return cur.rowcount
 
         for row_data in loggers:
+            logging.info(f"start processing {row_data}")
             row = row_data[0]
             logger = ExtLogger(row['logger'])
             update_params = {}
@@ -123,9 +126,10 @@ async def main(conf):
             try:
                 logger_data = logger.load(row['login_data'])
                 logging.info(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
-            except Exception:
+            except Exception as exc:
                 logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
-                update_params['state'] = 1
+                if not isinstance(exc, ReadTimeout):
+                    update_params['state'] = 1
 
             if logger_data:
 
@@ -235,11 +239,11 @@ if __name__ == "__main__":
     logging.debug('start loading loggers')
 
     PID_FILENAME = CONF.get('files', 'loggers_pid')
-    PID_FILE = open(PID_FILENAME, 'w')
-    try:
-        fcntl.lockf(PID_FILE, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except IOError:
-        logging.error('another instance is running')
-        sys.exit(0)
+    with open(PID_FILENAME, 'w') as PID_FILE:
+        try:
+            fcntl.lockf(PID_FILE, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except IOError:
+            logging.error('another instance is running')
+            sys.exit(0)
 
     asyncio.get_event_loop().run_until_complete(main(CONF))
