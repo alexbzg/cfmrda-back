@@ -14,8 +14,7 @@ from ham_radio import Pfx, detect_rda
 RE_SPECIAL = re.compile(r'\d\d')
 
 
-@asyncio.coroutine
-def main():
+async def main():
     logger = logging.getLogger('')
     handler = logging.handlers.WatchedFileHandler('/var/log/cfmrda.qrz.log')
     handler.setFormatter(logging.Formatter(\
@@ -24,27 +23,29 @@ def main():
     logger.addHandler(handler)
     handler.setLevel(logging.DEBUG)
 
-    conf = site_conf()
-    _db = DBConn(conf.items('db'))
-    yield from _db.connect()
-    qrzru = QRZRuLink(asyncio.get_event_loop())
+    CONF = site_conf()
+
+    db_params = dict(CONF.items('db'))
+    _db = DBConn(db_params)
+    await _db.connect()
+    
+    qrzru = QRZRuLink()
     pfx = Pfx('/usr/local/webcluster/cty.dat')
 
-    @asyncio.coroutine
-    def db_write(data):
+    async def db_write(data):
         try:
-            yield from _db.execute("""
+            await _db.execute("""
                 insert into callsigns_rda (callsign, source, rda)
                 values (%(callsign)s, 'QRZ.ru', %(rda)s)""", data)
         except CfmrdaDbException:
             pass
 
-    callsigns = yield from _db.execute(\
+    callsigns = await _db.execute(\
         """select distinct hunter from rda_hunter
             where not exists
                 (select from callsigns_rda
                 where callsign = hunter and
-                    source = 'QRZ.ru' and ts > now() - interval '2 days)'
+                    source = 'QRZ.ru' and ts > now() - interval '2 days')
         """)
     logging.debug('callsigns list received -- ' + str(len(callsigns)))
     params = []
@@ -59,11 +60,11 @@ def main():
             if m_special:
                 continue
             ru_cnt += 1
-            data = yield from qrzru.query(_cs)
+            data = await qrzru.query(_cs)
             if data and 'state' in data and data['state']:
                 rda = detect_rda(data['state'])
                 fnd_cnt += 1
-                yield from db_write({'callsign': _cs, 'rda': rda})
+                await db_write({'callsign': _cs, 'rda': rda})
                 logging.debug(_cs + ' found')
                 if len(params) >= 100:
                     logging.debug('Processed ' + str(cnt) + '/' + str(ru_cnt) + '/'\

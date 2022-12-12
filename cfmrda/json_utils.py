@@ -35,7 +35,7 @@ def load_json(path_json):
 
 def save_json(data, path_json):
     """saves data to json file"""
-    with open(path_json, 'w') as file:
+    with open(path_json, 'w', encoding='utf-8') as file:
         json.dump(data, file, ensure_ascii=False)
 
 def deep_copy_trunc(src, size_limit=1024):

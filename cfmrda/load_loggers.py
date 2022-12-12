@@ -30,7 +30,7 @@ async def main(conf):
                 'logger', logger, 'login_data', login_data, 
                 'qso_count', qso_count, 'last_updated', to_char(last_updated, 'YYYY-MM-DD'))
             from ext_loggers 
-            where state = 0 and
+            where state = 0 and 
                 (last_updated is null or last_updated < now() - interval %(reload_interval)s)
             """, {'reload_interval': reload_interval})
         loggers = await cur.fetchall()
@@ -89,8 +89,8 @@ async def main(conf):
             return cur.rowcount
 
         for row_data in loggers:
-            logging.info(f"start processing {row_data}")
             row = row_data[0]
+            logging.info(f"start processing {row}")
             logger = ExtLogger(row['logger'])
             update_params = {}
 
@@ -125,9 +125,9 @@ async def main(conf):
             logger_data = None
             try:
                 logger_data = logger.load(row['login_data'])
-                logging.info(row['callsign'] + ' ' + row['logger'] + ' data was downloaded.')
+                logging.info(f"{row['callsign']} {row['logger']} data was downloaded.")
             except Exception as exc:
-                logging.exception(row['callsign'] + ' ' + row['logger'] + ' error occured')
+                logging.exception(f"{row['callsign']} {row['logger']} error occured")
                 if not isinstance(exc, ReadTimeout):
                     update_params['state'] = 1
 
@@ -242,8 +242,9 @@ if __name__ == "__main__":
     with open(PID_FILENAME, 'w') as PID_FILE:
         try:
             fcntl.lockf(PID_FILE, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            asyncio.get_event_loop().run_until_complete(main(CONF))
         except IOError:
             logging.error('another instance is running')
             sys.exit(0)
 
-    asyncio.get_event_loop().run_until_complete(main(CONF))
+

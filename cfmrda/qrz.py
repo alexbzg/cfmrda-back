@@ -131,7 +131,8 @@ class QRZRuLink:
         if self.queue_task:
             self.stop_queue_task()
             self.session_id = None
-            self.session_task = self.loop.call_later(self._query_interval, self.get_session_id)
+            self.session_task = asyncio.get_running_loop().call_later(
+                    self._query_interval, self.get_session_id)
             return
         if self.session_task:
             self.session_task.cancel()
@@ -147,7 +148,7 @@ class QRZRuLink:
                 self.session_id = r_dict['QRZDatabase']['Session']['session_id']
                 self.start_queue_task()
                 self.session_task = \
-                    self.loop.call_later(self._session_interval_success,\
+                    asyncio.get_running_loop().call_later(self._session_interval_success,\
                     self.get_session_id)
                 logging.debug('New qrz.ru session id:' + self.session_id)
             else:
