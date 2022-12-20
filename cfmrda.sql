@@ -824,7 +824,7 @@ begin
   	from stations_blacklist
 	where _station_callsign = stations_blacklist.callsign and
 		(date_begin is null or _ts >= stations_blacklist.date_begin) and 
-		(date_end is null or _ts >= stations_blacklist.date_end);
+		(date_end is null or _ts <= stations_blacklist.date_end);
   if found
   then
 	raise 'cfmrda_db_error:Станция в черном списке: % с % по %', _station_callsign, coalesce(blacklist_begin::text, '-'), coalesce(blacklist_end::text, '-');    
@@ -1152,7 +1152,7 @@ begin
 			 where qso.callsign = strip_callsign(new.callsign) and qso.rda = new_rda 
 			 	and qso.band = new.band and qso.mode = new.mode 
 				and (upload_id is null or uploads.enabled)) then
-    raise 'cfmrda_db_error:Этот RDA у вас уже подтвержден ⇒ <b>(%, %, %)</b> ⇐ This RDA is already confirmed for you.', new.rda, new.mode, new.band || 'MHz';
+    raise 'cfmrda_db_error:Этот RDA у вас уже подтвержден ⇒ <b>(%, %, %)</b> ⇐ This RDA is already confirmed for you.', new_rda, new.mode, new.band || 'MHz';
   end if;
   if (now() - new.tstamp < interval '10 days')
   then
