@@ -36,7 +36,10 @@ async def main():
         try:
             await _db.execute("""
                 insert into callsigns_rda (callsign, source, rda)
-                values (%(callsign)s, 'QRZ.ru', %(rda)s)""", data)
+                values (%(callsign)s, 'QRZ.ru', %(rda)s)
+                on conflict (callsign) where source::text = 'QRZ.ru'::text do update
+                    set rda = %(rda)s, ts = now()
+                """, data)
         except CfmrdaDbException:
             pass
 

@@ -6,11 +6,12 @@ import datetime
 import logging
 
 import requests
+from requests.exceptions import ReadTimeout
 
 from ham_radio import RDA_START_DATE
 
 class SessionTimeout(requests.Session):
-    def __init__(self, timeout=(3.05, 12.05), **kwargs):
+    def __init__(self, timeout=(3.05, 90.05), **kwargs):
         super().__init__(**kwargs)
         self.timeout = timeout
 
@@ -105,25 +106,41 @@ class ExtLogger():
                 re_adif = re.compile(r'downloadedfiles/(.*)\.adi')
 
                 def get_eqsl_adifs(date_from, date_till):
-                    logging.debug(f"trying to get eQSL data from {date_from} to {date_till}")
-                    rsp = ssn.get('https://www.eqsl.cc/QSLCard/DownloadInbox.cfm?LimitDateLo=' +\
-                    eqsl_date_format(date_from) + '&LimitDateHi=' +\
-                    eqsl_date_format(date_till))
-                    rsp.raise_for_status()
-                    if 'You can only download 50000 records at one time' in rsp.text:
-                        logging.debug("too many qsos")
-                        date_mid = date_from + (date_till - date_from) / 2
-                        get_eqsl_adifs(date_from, date_mid)
-                        get_eqsl_adifs(date_mid, date_till)
-                    else:
-                        mo_adif = re_adif.search(rsp.text)
-                        if mo_adif:
-                            logging.debug("got data link")
-                            rsp_adif = ssn.get('https://www.eqsl.cc/qslcard/downloadedfiles/' +\
-                                mo_adif.group(1) + '.adi')
-                            rsp_adif.raise_for_status()
-                            adifs.append(rsp_adif.text)
-                            logging.debug("completed")
+                    logging.warning(f"trying to get eQSL data from {date_from} to {date_till}")
+                    rsp, retries  = None, 0
+                    while retries < 5:
+                        try:
+                            rsp = ssn.get('https://www.eqsl.cc/QSLCard/DownloadInbox.cfm?LimitDateLo=' +\
+                                eqsl_date_format(date_from) + '&LimitDateHi=' +\
+                                eqsl_date_format(date_till))
+                            rsp.raise_for_status()
+                            break
+                        except ReadTimeout:
+                            logging.warning(f"read timeout {retries}")
+                            retries += 1
+                    if rsp:
+                        if 'You can only download 50000 records at one time' in rsp.text:
+                            logging.debug("too many qsos")
+                            date_mid = date_from + (date_till - date_from) / 2
+                            get_eqsl_adifs(date_from, date_mid)
+                            get_eqsl_adifs(date_mid, date_till)
+                        else:
+                            mo_adif = re_adif.search(rsp.text)
+                            if mo_adif:
+                                logging.debug("got data link")
+                                retries, rsp_adif = 0, None
+                                while retries < 5:
+                                    try:
+                                        rsp_adif = ssn.get('https://www.eqsl.cc/qslcard/downloadedfiles/' +\
+                                            mo_adif.group(1) + '.adi')
+                                        break
+                                    except ReadTimeout:
+                                        logging.warning(f"read timeout {retries}")
+                                        retries += 1
+                                if rsp_adif:
+                                    rsp_adif.raise_for_status()
+                                    adifs.append(rsp_adif.text)
+                                    logging.info("completed")
 
                 get_eqsl_adifs(RDA_START_DATE, datetime.date.today())
 

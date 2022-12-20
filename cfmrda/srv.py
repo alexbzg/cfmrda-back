@@ -1399,7 +1399,7 @@ support@cfmrda.ru"""
         async def _get_qso(role):
             return (await self._db.execute(sql[role], params, True))
 
-        if params['callsign'] and params['role'] and params['rda']:
+        if params['callsign'] and params['role']:
             data = {'hunter': None}
             if params['role'] == 'hunter':
                 for role in sql:
