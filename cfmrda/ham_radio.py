@@ -35,6 +35,25 @@ RDA_START_DATE = date(1991, 12, 6)
 
 PFX_RU = ['R', 'R2F', 'R9', 'R1FJ']
 
+def freq_to_band(freq: float):
+    if freq <= 2000:
+        return '160M'
+    if freq <= 4000:
+        return '80M'
+    if freq <= 7300:
+        return '40M'
+    if freq <= 10150:
+        return '30M'
+    if freq <= 14350:
+        return '20M'
+    if freq <= 18168:
+        return '17M'
+    if freq <= 21450:
+        return '15M'
+    if freq <= 24990:
+        return '12M'
+    return '10M'
+
 class Pfx():
     """class for determining prefix/country by callsign"""
 
@@ -139,8 +158,15 @@ def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activato
                 if qso['band'] in BANDS_WL:
                     qso['band'] = BANDS_WL[qso['band']]
             if qso['band'] not in BANDS:
-                append_error('Поле не найдено или некорректно (BAND)')
-                continue
+                try:
+                    freq = float(get_adif_field(line, 'FREQ')) * 1000
+                except Exception as exc:
+                    pass
+                if freq:
+                    qso['band'] = BANDS_WL[freq_to_band(freq)]
+                else:
+                    append_error('Поле не найдено или некорректно (BAND/FREQ)')
+                    continue
 
             if qso['callsign'] and strip_callsign_flag:
                 qso['callsign'] = strip_callsign(qso['callsign'])
