@@ -1305,6 +1305,23 @@ $$;
 
 ALTER FUNCTION public.tf_qso_bi() OWNER TO postgres;
 
+--
+-- Name: tf_users_ai(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.tf_users_ai() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  insert into ext_loggers (callsign, logger, login_data, state)
+    values (new.callsign, 'HAMLOG', ('{"call": "' || new.callsign || '"}')::json, 0);
+  return new;
+end
+$$;
+
+
+ALTER FUNCTION public.tf_users_ai() OWNER TO postgres;
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -2382,6 +2399,13 @@ CREATE TRIGGER tr_qso_au AFTER UPDATE ON public.qso FOR EACH ROW EXECUTE FUNCTIO
 --
 
 CREATE TRIGGER tr_qso_bi BEFORE INSERT ON public.qso FOR EACH ROW EXECUTE FUNCTION public.tf_qso_bi();
+
+
+--
+-- Name: users tr_users_ai; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER tr_users_ai AFTER INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION public.tf_users_ai();
 
 
 --

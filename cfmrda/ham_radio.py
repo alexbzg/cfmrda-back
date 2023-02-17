@@ -158,6 +158,7 @@ def load_adif(adif, station_callsign_field=None, rda_field=None, ignore_activato
                 if qso['band'] in BANDS_WL:
                     qso['band'] = BANDS_WL[qso['band']]
             if qso['band'] not in BANDS:
+                freq = None
                 try:
                     freq = float(get_adif_field(line, 'FREQ')) * 1000
                 except Exception as exc:
