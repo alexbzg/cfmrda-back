@@ -23,7 +23,11 @@ async def export_rankings():
     """rebuild rankings table in db and export top100 to json file for web"""
     logging.debug('export rankings')
 
-    db_params = dict(CONF.items('db')True 
+    db_params = dict(CONF.items('db'))
+    db_params.update(dict(CONF.items('db_maintenance')))
+    _db = DBConn(db_params)
+    do_maint = datetime.datetime.now().weekday() == 3
+    do_countries = True #do_maint
     await _db.connect()
 
     msc_json_path = CONF.get('web', 'root') + '/json/msc.json'
