@@ -1504,7 +1504,8 @@ CREATE TABLE public.cfm_qsl_qso (
     comment character varying(256),
     status_date timestamp without time zone,
     admin character varying(64),
-    qsl_id integer NOT NULL
+    qsl_id integer NOT NULL,
+    hold boolean DEFAULT false
 );
 
 

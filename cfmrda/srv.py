@@ -386,6 +386,7 @@ class CfmRdaServer():
                 'newCallsign', new_callsign,
                 'date', to_char(tstamp, 'DD mon YYYY'),
                 'time', to_char(tstamp, 'HH24:MI'),
+                'hold', hold,
                 'state', state,
                 'admin', admin,
                 'commentQso', cfm_qsl_qso.comment,
@@ -436,8 +437,10 @@ class CfmRdaServer():
                                 qso['comment'] = None
                         if (await self._db.execute("""
                             update cfm_qsl_qso 
-                            set state = %(state)s, comment = %(comment)s,
-                            admin = %(admin)s
+                            set state = %(state)s, 
+                                hold = %(hold)s,
+                                comment = %(comment)s,
+                                admin = %(admin)s
                             where id = %(id)s""", data['qsl'])):
                             for qso in data['qsl']:
                                 if not (await self._db.execute("""
