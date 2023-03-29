@@ -7,12 +7,10 @@ from datetime import datetime
 import fcntl
 import sys
 
-from requests.exceptions import ReadTimeout
-
 from common import site_conf, start_logging
 from db import DBConn, exec_cur, splice_params
 from ham_radio import load_adif, BANDS_WL
-from ext_logger import ExtLogger
+from ext_logger import ExtLogger, ExtLoggerException
 
 async def main(conf):
     """does the job"""
@@ -49,33 +47,34 @@ async def main(conf):
                 """, qso)
             if cur.rowcount == 1:
                 return (await cur.fetchone())[0]['rda']
-            elif cur.rowcount == 0:
+            if cur.rowcount == 0:
                 return None
-            else:
-                rda_data = await cur.fetchall()
-                await exec_cur(cur, """
-                    select disable_autocfm 
-                    from callsigns_meta
-                    where callsign = %(station_callsign)s
-                """, qso)
-                if cur.rowcount == 1:
-                    disable_autocfm = (await cur.fetchone())[0]
-                    if disable_autocfm:
-                        return None
-                rdas = {'def': [], 'undef': []}
-                for rda_row in rda_data:
-                    rda_entry = rda_row[0]
-                    entry_type = rdas['def'] if rda_entry['start']\
-                        or rda_entry['stop']\
-                        else rdas['undef']
-                    if rda_entry['rda'] not in entry_type:
-                        entry_type.append(rda_entry['rda'])
-                entry_type = rdas['def'] if rdas['def']\
-                    else rdas['undef']
-                if len(entry_type) == 1:
-                    return entry_type[0]
-                else:
+
+            rda_data = await cur.fetchall()
+            await exec_cur(cur, """
+                select disable_autocfm 
+                from callsigns_meta
+                where callsign = %(station_callsign)s
+            """, qso)
+            if cur.rowcount == 1:
+                disable_autocfm = (await cur.fetchone())[0]
+                if disable_autocfm:
                     return None
+            rdas = {'def': [], 'undef': []}
+            for rda_row in rda_data:
+                rda_entry = rda_row[0]
+                entry_type = rdas['def'] if rda_entry['start']\
+                    or rda_entry['stop']\
+                    else rdas['undef']
+                if rda_entry['rda'] not in entry_type:
+                    entry_type.append(rda_entry['rda'])
+            entry_type = rdas['def'] if rdas['def']\
+                else rdas['undef']
+
+            if len(entry_type) == 1:
+                return entry_type[0]
+
+            return None
 
         async def rda_check(qso):
             await exec_cur(cur, """
@@ -128,7 +127,7 @@ async def main(conf):
                 logging.info(f"{row['callsign']} {row['logger']} data was downloaded.")
             except Exception as exc:
                 logging.exception(f"{row['callsign']} {row['logger']} error occured")
-                if not isinstance(exc, ReadTimeout):
+                if isinstance(exc, ExtLoggerException):
                     update_params['state'] = 1
 
             if logger_data:
@@ -156,13 +155,13 @@ async def main(conf):
 
                         for entry in logger_data:
                             if entry['band'] in BANDS_WL:
-                                qso = {'callsign': entry['mycall'],\
-                                    'station_callsign': entry['hiscall'],\
-                                    'rda': entry['rda'],\
-                                    'band': BANDS_WL[entry['band']],\
-                                    'mode': 'SSB' if entry['mainmode'] == 'PH' else entry['mainmode'],\
+                                qso = {'callsign': entry['mycall'],
+                                    'station_callsign': entry['hiscall'],
+                                    'rda': entry['rda'],
+                                    'band': BANDS_WL[entry['band']],
+                                    'mode': 'SSB' if entry['mainmode'] == 'PH' else entry['mainmode'],
                                     'tstamp': entry['date']}
-                                if not (await rda_check(qso)):
+                                if not await rda_check(qso):
                                     qsos.append(qso)
                                     if not date_start or date_start > qso['tstamp']:
                                         date_start = qso['tstamp']
@@ -194,7 +193,7 @@ async def main(conf):
                                 else:
                                     continue
 
-                                if not (await rda_check(qso)):
+                                if not await rda_check(qso):
                                     if not date_start or date_start > qso['tstamp']:
                                         date_start = qso['tstamp']
                                     if not date_end or date_end < qso['tstamp']:
@@ -205,7 +204,7 @@ async def main(conf):
                 except Exception:
                     logging.exception('Error parsing elog data')
                 logging.info(str(qso_count) + ' qsos were downloaded.')
-  
+
                 if qsos:
                     logging.info(str(len(qsos)) + ' new rda qso found.')
                     #file_hash = await _db.check_upload_hash(adif.encode('utf-8'))
@@ -246,5 +245,3 @@ if __name__ == "__main__":
         except IOError:
             logging.error('another instance is running')
             sys.exit(0)
-
-
