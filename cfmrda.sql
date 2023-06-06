@@ -120,11 +120,11 @@ loop
 			(select activator, rda, band, qso_year, count(distinct (callsign, mode)) as qso_count from
 				(select activators.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year
 			  		from qso join activators on qso.upload_id = activators.upload_id join uploads on qso.upload_id = uploads.id
-			  		where (station_callsign like '%/M' or station_callsign like '%/P') and uploads.enabled and 
+			  		where station_callsign like '%/_' and uploads.enabled and 
 				 		activators.activator = activator_row.activator 
 				union all
 			  	select qso.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year from qso
-			  		where (station_callsign like '%/M' or station_callsign like '%/P') and activator = activator_row.activator
+			  		where station_callsign like '%/_' and activator = activator_row.activator
 				) as qsos
 				group by activator, rda, band, qso_year) as rda_qsos
 			group by activator, rda, qso_year
@@ -806,15 +806,19 @@ declare
   blacklist_begin date;
   blacklist_end date;
 begin
+  if (_ts < '06-12-1991') 
+  then
+    raise 'cfmrda_db_error:Связь проведена до начала программы RDA (06-12-1991)';
+  end if;
+  if (_station_callsign like '%SWL' and _station_callsign not like '__SWL' and _station_callsign not like '___SWL') 
+  then
+    raise 'cfmrda_db_error:Информация о связи от наблюдателя (SWL)';
+  end if;
   str_callsign = strip_callsign(_callsign);
   str_station_callsign = strip_callsign(_station_callsign);
   if str_callsign is null or str_station_callsign is null or str_callsign = str_station_callsign
   then
     raise 'cfmrda_db_error:Позывной некорректен или совпадает с позывным корреспондента';
-  end if;
-  if (_ts < '06-12-1991') 
-  then
-    raise 'cfmrda_db_error:Связь проведена до начала программы RDA (06-12-1991)';
   end if;
   if (_band = '10' and _mode = 'SSB')
   then
@@ -1315,6 +1319,8 @@ CREATE FUNCTION public.tf_users_ai() RETURNS trigger
 begin
   insert into ext_loggers (callsign, logger, login_data, state)
     values (new.callsign, 'HAMLOG', ('{"call": "' || new.callsign || '"}')::json, 0);
+  insert into ext_loggers (callsign, logger, login_data, state)
+    values (new.callsign, 'RDAWARD', ('{"cs": "' || new.callsign || '"}')::json, 0);	
   return new;
 end
 $$;

@@ -41,7 +41,11 @@ class ExtLogger():
             'HAMLOG': {\
                'loginDataFields': ['call'],\
                'schema': 'extLoggersLoginHAMLOG'
-               }\
+               },
+            'RDAWARD': {\
+               'loginDataFields': ['cs'],\
+               'schema': 'extLoggersLoginRDAWARD'
+               }
             }
 
     states = {0: 'OK',\
@@ -88,8 +92,15 @@ class ExtLogger():
         rsp.raise_for_status()
         return rsp
 
+    @staticmethod
+    def request_rdaward(method, login_data):
+        login_data.update({'old': 'on'})
+        rsp = requests.request(method, 'https://r1cf.ru/rdaloc/rda_cs_qso.php', params=login_data)
+        rsp.raise_for_status()
+        return rsp
+
     def load(self, login_data, **kwparams):
-        if self.type != 'HAMLOG':
+        if self.type != 'HAMLOG' and self.type != 'RDAWARD':
             ssn = self.login(login_data)
             adifs = []
 
@@ -146,6 +157,10 @@ class ExtLogger():
 
             return adifs
 
-        #HAMLOG download
-        rsp = ExtLogger.request_hamlog('GET', login_data)
+        elif self.type == 'HAMLOG':
+            rsp = ExtLogger.request_hamlog('GET', login_data)
+
+        elif self.type == 'RDAWARD':
+            rsp = ExtLogger.request_rdaward('GET', login_data)
+
         return rsp.json()

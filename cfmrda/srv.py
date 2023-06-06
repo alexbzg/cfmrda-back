@@ -908,7 +908,7 @@ class CfmRdaServer():
                     rsp['meta'] = await self._db.execute("""
                         select * from callsigns_meta 
                         where callsign = %(callsign)s""", data)
-        rda_records = await self._db.execute("""
+        rda_records = await self._db.execute(f"""
             select id, source, rda, callsign, comment,
                 to_char(ts, 'YYYY-MM-DD') as ts,
                 case when dt_start is null and dt_stop is null then null
@@ -918,10 +918,19 @@ class CfmRdaServer():
                         'from ' || to_char(dt_start, 'DD mon YYYY')
                     else to_char(dt_start, 'DD mon YYYY') || ' - ' ||
                         to_char(dt_stop, 'DD mon YYYY')
-                end as period
-            from callsigns_rda where """ +\
-            params_str(splice_params(data, ('callsign', 'rda')), ' and ') +\
-            """
+                end as period,
+                (select array_agg(band) from
+                    (select distinct band from
+                        (select band from qso 
+                            where activator = callsigns_rda.callsign and 
+                                rda = callsigns_rda.rda
+                        union all
+                        select band 
+                            from qso join activators on qso.upload_id = activators.upload_id 
+                            where activators.activator = callsigns_rda.callsign and
+                                qso.rda = callsigns_rda.rda) as all_bands) as dist_bands) as bands_list
+            from callsigns_rda 
+            where {params_str(splice_params(data, ('callsign', 'rda')), ' and ')}
             order by coalesce(dt_start, dt_stop) desc
             """, data, False)
         rsp['rdaRecords'] = rda_records if isinstance(rda_records, list) else (rda_records,)
@@ -1364,7 +1373,7 @@ support@cfmrda.ru"""
                 'time', to_char(qso.tstamp, 'HH24:MI'),
                 'stationCallsign', station_callsign,
                 'uploadId', uploads.id,
-                'uploadType', coalesce( upload_type, 'QSL card'),
+                'uploadType', coalesce(upload_type, 'QSL card'),
                 'uploader', uploads.user_cs) as data
         from qso left join uploads on qso.upload_id = uploads.id
         where callsign = %(callsign)s and 
@@ -1487,6 +1496,7 @@ support@cfmrda.ru"""
                                 coalesce(
                                     uploads.user_cs, 
                                     '(QSL card)') as uploader, 
+                                coalesce(upload_type, 'QSL card'),
                                 to_char(rec_ts, 'DD Mon YYYY') as rec_date
                             from qso left join uploads on upload_id = uploads.id
                             where callsign = %(callsign)s and 

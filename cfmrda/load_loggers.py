@@ -28,7 +28,7 @@ async def main(conf):
                 'logger', logger, 'login_data', login_data, 
                 'qso_count', qso_count, 'last_updated', to_char(last_updated, 'YYYY-MM-DD'))
             from ext_loggers 
-            where state = 0 and 
+            where state = 0 and
                 (last_updated is null or last_updated < now() - interval %(reload_interval)s)
             """, {'reload_interval': reload_interval})
         loggers = await cur.fetchall()
@@ -93,7 +93,7 @@ async def main(conf):
             logger = ExtLogger(row['logger'])
             update_params = {}
 
-            if row['logger'] != 'HAMLOG':
+            if row['logger'] != 'HAMLOG' and row['logger'] != 'RDAWARD':
 
                 await exec_cur(cur, """
                     select json_build_object('id', id, 
@@ -132,7 +132,7 @@ async def main(conf):
 
             if logger_data:
 
-                if row['logger'] == 'HAMLOG':
+                if row['logger'] == 'HAMLOG' or row['logger'] == 'RDAWARD':
                     await exec_cur(cur, """
                         delete from qso
                         where upload_id in 
@@ -151,11 +151,12 @@ async def main(conf):
 
                 try:
 
-                    if row['logger'] == 'HAMLOG':
+                    if row['logger'] == 'HAMLOG' or row['logger'] == 'RDAWARD':
 
                         for entry in logger_data:
                             if entry['band'] in BANDS_WL:
-                                qso = {'callsign': entry['mycall'],
+                                qso = {'callsign': row['callsign'],
+                                    'old_callsign': entry.get('mycall'),
                                     'station_callsign': entry['hiscall'],
                                     'rda': entry['rda'],
                                     'band': BANDS_WL[entry['band']],
