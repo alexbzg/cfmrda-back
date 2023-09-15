@@ -69,7 +69,7 @@ async def export_rankings():
     await _db.execute("select from build_activators_rating();")
 
     rankings = await _db.execute("""
-                select rankings_json(null, null, null, null, 104, null, null) as data
+                select rankings_json(null, null, null, null, 105, null, null) as data
                 """, None, False)
 
     save_json(rankings, CONF.get('web', 'root') + '/json/rankings.json')
