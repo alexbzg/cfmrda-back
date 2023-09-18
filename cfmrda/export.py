@@ -19,7 +19,7 @@ def set_local_owner(file):
         shutil.chown(CONF.get('web', 'root') + file,\
             user=CONF.get('web', 'user'), group=CONF.get('web', 'group'))
 
-async def export_rankings():
+async def export_rankings(export_only=False):
     """rebuild rankings table in db and export top100 to json file for web"""
     logging.debug('export rankings')
 
@@ -38,35 +38,36 @@ async def export_rankings():
 
     update_msc_data(statsDate=None)
 
-    await _db.execute('select from build_rankings_purge_rda();')
-    if do_maint:
-        await _db.execute("vacuum full freeze verbose analyze rda_activator;")
-        logging.debug('export rankings: rda_activator table vacuumed')
-        await _db.execute("vacuum full freeze verbose analyze rda_hunter;")
-        logging.debug('export rankings: rda_hunter table vacuumed')
+    if not export_only:
+        await _db.execute('select from build_rankings_purge_rda();')
+        if do_maint:
+            await _db.execute("vacuum full freeze verbose analyze rda_activator;")
+            logging.debug('export rankings: rda_activator table vacuumed')
+            await _db.execute("vacuum full freeze verbose analyze rda_hunter;")
+            logging.debug('export rankings: rda_hunter table vacuumed')
 
-    await _db.execute('select from build_rankings_activator_data();')
+        await _db.execute('select from build_rankings_activator_data();')
 
-    if do_maint:
-        await _db.execute('delete from rankings;')
-        await _db.execute("vacuum full freeze verbose analyze rankings;")
-        logging.debug('export rankings: rankings table vacuumed')
-        await _db.execute('delete from activators_rating;')
-        await _db.execute("vacuum full freeze verbose analyze activators_rating;")
-        logging.debug('export rankings: activators_rating table vacuumed')
-        await _db.execute('delete from activators_rating_detail;')
-        await _db.execute("vacuum full freeze verbose analyze activators_rating_detail;")
-        logging.debug('export rankings: activators_rating_detail table vacuumed')
+        if do_maint:
+            await _db.execute('delete from rankings;')
+            await _db.execute("vacuum full freeze verbose analyze rankings;")
+            logging.debug('export rankings: rankings table vacuumed')
+            await _db.execute('delete from activators_rating;')
+            await _db.execute("vacuum full freeze verbose analyze activators_rating;")
+            logging.debug('export rankings: activators_rating table vacuumed')
+            await _db.execute('delete from activators_rating_detail;')
+            await _db.execute("vacuum full freeze verbose analyze activators_rating_detail;")
+            logging.debug('export rankings: activators_rating_detail table vacuumed')
 
-        await _db.execute("vacuum full freeze verbose analyze qso;")
-        logging.debug('export rankings: qso table vacuumed')
+            await _db.execute("vacuum full freeze verbose analyze qso;")
+            logging.debug('export rankings: qso table vacuumed')
 
-    await _db.execute("select from build_rankings_main();")
+        await _db.execute("select from build_rankings_main();")
 
-    if do_countries:
-        await _db.execute("select from build_rankings_countries();")
+        if do_countries:
+            await _db.execute("select from build_rankings_countries();")
 
-    await _db.execute("select from build_activators_rating();")
+        await _db.execute("select from build_activators_rating();")
 
     rankings = await _db.execute("""
                 select rankings_json(null, null, null, null, 105, null, null) as data
@@ -76,8 +77,9 @@ async def export_rankings():
     set_local_owner('/json/rankings.json')
 
     if do_countries:
-        countries = await _db.execute("""
-            select id from countries""", None, False)
+        if not export_only:
+            countries = await _db.execute("""
+                select id from countries""", None, False)
         for country in countries:
             json_path = '/json/countries_rankings/' + str(country) + '.json'
             rankings = await _db.execute("""
@@ -250,10 +252,11 @@ def main():
     parser.add_argument('-m', action="store_true")
     parser.add_argument('-s', action="store_true")
     parser.add_argument('-c', action="store_true")
+    parser.add_argument('--export_only', action="store_true")
     args = parser.parse_args()
     export_all = not args.r and not args.u and not args.m and not args.s and not args.c
     if args.r or export_all:
-        asyncio.get_event_loop().run_until_complete(export_rankings())
+        asyncio.get_event_loop().run_until_complete(export_rankings(args.export_only))
         set_local_owner('/json/msc.json')
     if args.u or export_all:
         asyncio.get_event_loop().run_until_complete(export_recent_uploads())
