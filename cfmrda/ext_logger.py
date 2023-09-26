@@ -152,6 +152,12 @@ class ExtLogger():
                                     rsp_adif.raise_for_status()
                                     adifs.append(rsp_adif.text)
                                     logging.info("completed")
+                    else:
+                        logging.warning("timeouts limit")
+                        date_mid = date_from + (date_till - date_from) / 2
+                        get_eqsl_adifs(date_from, date_mid)
+                        get_eqsl_adifs(date_mid, date_till)
+
 
                 get_eqsl_adifs(RDA_START_DATE, datetime.date.today())
 

@@ -33,7 +33,8 @@ async def main(conf):
             """, {'reload_interval': reload_interval})
         loggers = await cur.fetchall()
         if not loggers:
-            logging.debug('No updates are due today.')
+            await _db.disconnect()
+            logging.debug('No updates are due now.')
             return
 
         async def rda_search(qso):
@@ -231,6 +232,9 @@ async def main(conf):
                 await _db.param_update('ext_loggers', splice_params(row, ('id',)),\
                     update_params)
                 logging.debug('logger data updated')
+
+    await _db.disconnect()
+
 
 if __name__ == "__main__":
     CONF = site_conf()

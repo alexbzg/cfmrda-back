@@ -89,7 +89,7 @@ class DBConn:
 
     async def disconnect(self):
         if self.pool:
-            self.pool.close()
+            self.pool.terminate()
             await self.pool.wait_closed()
 
     async def connect(self):
