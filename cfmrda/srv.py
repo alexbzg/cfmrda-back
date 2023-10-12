@@ -19,6 +19,9 @@ import chardet
 import requests
 
 from common import site_conf, start_logging, APP_ROOT, datetime_format, date_format
+from web_responses import (response_error_default, response_error_recaptcha,
+    response_ok, response_error_email_cfm, response_error_admin_required)
+
 from db import DBConn, typed_values_list, CfmrdaDbException, params_str, splice_params
 import send_email
 from secret import get_secret, create_token
@@ -27,6 +30,8 @@ from json_utils import load_json, save_json, JSONvalidator
 from qrz import QRZComLink, QRZRuLink
 from ham_radio import load_adif, strip_callsign, ADIFParseException
 from ext_logger import ExtLogger, ExtLoggerException
+
+from service.announces import AnnouncesService
 
 CONF = site_conf()
 start_logging('srv', level=CONF.get('logs', 'srv_level'))
@@ -41,28 +46,6 @@ def _del_qsl_image(qsl_id):
 
 class CfmRdaServer():
 
-    @staticmethod
-    def response_error_default():
-        return web.HTTPBadRequest(\
-            text='Ошибка сайта. Пожалуйста, попробуйте позднее.')
-
-    @staticmethod
-    def response_error_recaptcha():
-        return web.HTTPBadRequest(text='Проверка на робота не пройдена ' +\
-            'или данные устарели. Попробуйте еще раз.')
-
-    @staticmethod
-    def response_ok():
-        return web.Response(text='OK')
-
-    @staticmethod
-    def response_error_email_cfm():
-        return web.HTTPBadRequest(text='Ваш адрес электронной почты не подтвержден.')
-
-    @staticmethod
-    def response_error_admin_required():
-        return web.HTTPBadRequest(text='Необходимы права администратора сайта.')
-
     def __init__(self):
         self._db = DBConn(dict(CONF.items('db')))
         self._qrzcom = None
@@ -71,6 +54,7 @@ class CfmRdaServer():
         self._site_admins = str(CONF.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(\
             load_json(APP_ROOT + '/schemas.json'))
+        self._announces_service = AnnouncesService(CONF)
 
     async def on_startup(self, app):
         await self._db.connect()
@@ -114,7 +98,7 @@ class CfmRdaServer():
             elif data['mode'] == 'emailRequest':
                 return await self.email_request(data)
         logging.debug(data)
-        return CfmRdaServer.response_error_default()
+        return response_error_default()
 
     async def correspondent_email_hndlr(self, request):
         callsign = request.match_info.get('callsign', None)
@@ -180,9 +164,9 @@ class CfmRdaServer():
                             set user_cs = null
                             where id = %(id)s"""
                     if (await self._db.execute(sql, {'id': data['delete']})):
-                        return CfmRdaServer.response_ok()
+                        return response_ok()
                     else:
-                        return CfmRdaServer.response_error_default()
+                        return response_error_default()
                 else:
                     qso = await self._db.execute("""
                         select json_build_object(
@@ -206,7 +190,7 @@ class CfmRdaServer():
                         qso = []
                     return web.json_response(qso)
             else:
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
 
     async def contact_support_hndlr(self, request):
         data = await request.json()
@@ -223,7 +207,7 @@ class CfmRdaServer():
             else:
                 rc_test = await recaptcha.check_recaptcha(data['recaptcha'])
                 if not rc_test:
-                    return CfmRdaServer.response_error_recaptcha()
+                    return response_error_recaptcha()
                 email = data['email']
             send_email.send_email(\
                 text=data['text'] + '\n\n' + email,\
@@ -231,9 +215,9 @@ class CfmRdaServer():
                 fr=email,\
                 subject="CFMRDA.ru support" + \
                     (' (' + callsign + ')' if callsign else ''))
-            return CfmRdaServer.response_ok()
+            return response_ok()
 
-        return CfmRdaServer.response_error_default()
+        return response_error_default()
 
     async def chat_hndlr(self, request):
         data = await request.json()
@@ -285,9 +269,9 @@ class CfmRdaServer():
                 if 'typing' in data and data['typing']:
                     active_users[callsign]['typing'] = True
             save_json(active_users, active_users_path)
-            return CfmRdaServer.response_ok()
+            return response_ok()
 
-        return CfmRdaServer.response_error_default()
+        return response_error_default()
 
     async def email_request(self, data):
         callsign = self.decode_token(data)
@@ -336,7 +320,7 @@ class CfmRdaServer():
                             image_file.write(image_bytes)
             return web.json_response(res)
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
 
 
     async def _cfm_qsl_qso_delete(self, callsign, data):
@@ -363,8 +347,8 @@ class CfmRdaServer():
                     await self._db.execute("""
                         delete from cfm_qsl
                         where id = %(id)s""", qsl)
-                return CfmRdaServer.response_ok()
-        return CfmRdaServer.response_error_default()
+                return response_ok()
+        return response_error_default()
 
     async def _get_qsl_list(self, callsign=None):
         sql = """
@@ -420,7 +404,7 @@ class CfmRdaServer():
                     qsl_list = await self._get_qsl_list(callsign)
                     return web.json_response(qsl_list)
             else:
-                return CfmRdaServer.response_error_email_cfm()
+                return response_error_email_cfm()
         else:
             return callsign
 
@@ -449,16 +433,16 @@ class CfmRdaServer():
                                         and state is null
                                     limit 1""", qso)):
                                     _del_qsl_image(qso['qslId'])
-                            return CfmRdaServer.response_ok()
+                            return response_ok()
                         else:
-                            return CfmRdaServer.response_error_default()
+                            return response_error_default()
                     else:
-                        return CfmRdaServer.response_error_default()
+                        return response_error_default()
                 else:
                     qsl_list = await self._get_qsl_list()
                     return web.json_response(qsl_list)
             else:
-                return CfmRdaServer.response_error_admin_required()
+                return response_error_admin_required()
         else:
             return callsign
 
@@ -551,7 +535,7 @@ class CfmRdaServer():
             else:
                 return callsign
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
 
     async def password_request(self, data):
         error = None
@@ -582,11 +566,11 @@ class CfmRdaServer():
             else:
                 error = 'Проверка на робота не пройдена или данные устарели. Попробуйте еще раз.'
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
         if error:
             return web.HTTPBadRequest(text=error)
         else:
-            return CfmRdaServer.response_ok()
+            return response_ok()
 
     async def password_change(self, data):
         if self._json_validator.validate('passwordChange', data):
@@ -594,11 +578,11 @@ class CfmRdaServer():
             if isinstance(callsign, str):
                 await self._db.param_update('users', {'callsign': callsign},\
                     {'email_confirmed': True, 'password': data['password']})
-                return CfmRdaServer.response_ok()
+                return response_ok()
             else:
                 return callsign
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
 
     async def _edit_uploads(self, data, callsign):
         if 'delete' in data:
@@ -609,7 +593,7 @@ class CfmRdaServer():
                     where id = %(id)s
                     """, data, False)
                 if check_uploader != callsign:
-                    return CfmRdaServer.response_error_default()
+                    return response_error_default()
             
             data['delBy'] = callsign
             upload_data = await self._db.execute("""
@@ -640,15 +624,15 @@ class CfmRdaServer():
             if not (await self._db.execute("""
                 delete from qso where upload_id = %(id)s
                 """, data)):
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
             if not (await self._db.execute("""
                 delete from activators where upload_id = %(id)s
                 """, data)):
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
             if not (await self._db.execute("""
                 delete from uploads where id = %(id)s
                 """, data)):
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
             if upload_data and upload_data['rda']:
                 upload_data['delBy'] = callsign
                 del_uploads_path = CONF.get('web', 'root') + '/json/del_uploads.json'
@@ -659,12 +643,12 @@ class CfmRdaServer():
                 save_json(del_uploads, del_uploads_path)
         elif 'enabled' in data:
             if callsign not in self._site_admins:
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
             if not(await self._db.execute("""
                 update uploads set enabled = %(enabled)s where id = %(id)s
                 """, data)):
-                return CfmRdaServer.response_error_default()
-        return CfmRdaServer.response_ok()
+                return response_error_default()
+        return response_ok()
 
     async def cfm_blacklist_hndlr(self, request):
         data = await request.json()
@@ -675,35 +659,15 @@ class CfmRdaServer():
                 if self.is_admin(callsign):
                     bl_callsign = data['blacklist']
                 else:
-                    return CfmRdaServer.response_error_admin_required()
+                    return response_error_admin_required()
             else:
                 bl_callsign = callsign
             if (await self._db.cfm_blacklist(bl_callsign)):
-                return CfmRdaServer.response_ok()
+                return response_ok()
             else:
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
         else:
             return callsign
-
-    async def ann_hndlr(self, callsign, data):
-        site_root = CONF.get('web', 'root')
-        ann_path = site_root + '/json/ann.json'
-        ann = load_json(ann_path)
-        if not ann:
-            ann = []
-        if 'new' in data:
-            _ts = time.time()
-            data['new']['callsign'] = callsign
-            data['new']['ts'] = _ts
-            data['new']['date'] = date_format(datetime.utcnow())
-            ann.insert(0, data['new'])
-        if 'delete' in data:
-            callsign = self._require_callsign(data, True)
-            if not isinstance(callsign, str):
-                return callsign
-            ann = [x for x in ann if x['ts'] != data['delete']]
-        save_json(ann, ann_path)
-        return CfmRdaServer.response_ok()
 
     async def _ext_loggers_update(self, callsign, update):
         """stores ext_logger record in db
@@ -723,7 +687,7 @@ class CfmRdaServer():
             schema = logger_params['schema'] if 'schema' in logger_params\
                 else 'extLoggersLoginDefault'
             if not self._json_validator.validate(schema, update['loginData']):
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
             logger = ExtLogger(update['logger'])
             login_check = False
             try:
@@ -755,11 +719,11 @@ class CfmRdaServer():
             if not _id:
                 _id = db_res
             if 'updateRequest' in update:
-                return CfmRdaServer.response_ok()
+                return response_ok()
             else:
                 return web.json_response({'state': params['state'], 'id': _id})
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
 
     async def _ext_loggers_delete(self, callsign, delete):
         """deletes ext_logger record from db return standard ok/error responses"""
@@ -773,9 +737,9 @@ class CfmRdaServer():
             where id = %(id)s and callsign = %(callsign)s
             returning id""", {'id': delete, 'callsign': callsign})
         if db_res and db_res == delete:
-            return CfmRdaServer.response_ok()
+            return response_ok()
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
 
     async def ext_loggers_hndlr(self, callsign, data):
         """handles loggers request
@@ -889,7 +853,7 @@ class CfmRdaServer():
                         values (%(callsign)s, %(dtStart)s, %(dtStop)s,
                             %(source)s, %(rda)s, %(comment)s)""", data['new'])
                 if not db_rslt:
-                    return CfmRdaServer.response_error_default()
+                    return response_error_default()
 
         else:
             if 'callsign' in data:
@@ -941,7 +905,7 @@ class CfmRdaServer():
         if isinstance(callsign, str):
             if require_admin:
                 if not self.is_admin(callsign):
-                    return CfmRdaServer.response_error_admin_required()
+                    return response_error_admin_required()
             return callsign
         else:
             return callsign
@@ -953,7 +917,7 @@ class CfmRdaServer():
             data = await request.json()
             if validation_scheme:
                 if not self._json_validator.validate(validation_scheme, data):
-                    return CfmRdaServer.response_error_default()
+                    return response_error_default()
             callsign = None
             if require_callsign:
                 callsign = self._require_callsign(data, require_admin)
@@ -973,7 +937,7 @@ class CfmRdaServer():
                 else:
                     return web.HTTPBadRequest(text=res)
             else:
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
         else:
             callsigns = await self._db.execute("""
                 select new, 
@@ -1022,7 +986,7 @@ class CfmRdaServer():
         if res:
             return web.Response(text=res)
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
 
     async def cfm_qso_hndlr(self, request):
         data = await request.json()
@@ -1040,7 +1004,7 @@ class CfmRdaServer():
                     upl_hash = await self._db.check_upload_hash(\
                             bytearray(repr(data['qso']['cfm']), 'utf8'))
                     if not upl_hash:
-                        return CfmRdaServer.response_error_default()
+                        return response_error_default()
 
                     ids = typed_values_list(data['qso']['cfm'], int)
                     date_start = await self._db.execute("""
@@ -1103,7 +1067,7 @@ class CfmRdaServer():
                         set status_tstamp = now(), state = %(state)s, 
                             comment = %(comment)s
                         where id = %(id)s""", qso_params)):
-                        return CfmRdaServer.response_error_default()
+                        return response_error_default()
                 if admin:
                     if 'blacklist' in data and data['blacklist']:
                         await self._db.cfm_blacklist(callsign)
@@ -1294,13 +1258,13 @@ support@cfmrda.ru"""
                         error =\
                             'Позывной или адрес электронной почты не зарегистрирован на QRZ.com'
             else:
-                return CfmRdaServer.response_error_default()
+                return response_error_default()
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
         if error:
             return web.HTTPBadRequest(text=error)
         else:
-            return CfmRdaServer.response_ok()
+            return response_ok()
 
     async def login(self, data):
         error = None
@@ -1317,7 +1281,7 @@ support@cfmrda.ru"""
             else:
                 error = 'Неверный позывной или пароль.'
         else:
-            return CfmRdaServer.response_error_default()
+            return response_error_default()
         if error:
             return web.HTTPBadRequest(text=error)
 
@@ -1519,7 +1483,7 @@ support@cfmrda.ru"""
                         return web.json_response(data)
                 except Exception:
                     logging.exception('error while importing qso for callsign ' + callsign)
-                    return CfmRdaServer.response_error_default()
+                    return response_error_default()
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
@@ -1562,7 +1526,7 @@ support@cfmrda.ru"""
                         return web.json_response(data)
                 except Exception:
                     logging.exception('error while importing rda hunter data for callsign ' + callsign)
-                    return CfmRdaServer.response_error_default()
+                    return response_error_default()
         else:
             return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
@@ -1709,7 +1673,7 @@ async def test_hndlr(request):
     if request.method == 'POST':
         data = await request.json()
         return web.json_response(data)
-    return CfmRdaServer.response_ok()
+    return response_ok()
 
 if __name__ == '__main__':
     APP = web.Application(client_max_size=100 * 1024 ** 2)
@@ -1740,9 +1704,17 @@ if __name__ == '__main__':
         SRV.handler_wrap(SRV.callsigns_current_rda_hndlr, require_callsign=False))
     APP.router.add_post('/aiohttp/user_data',\
         SRV.handler_wrap(SRV.user_data_hndlr, require_callsign=True))
-    APP.router.add_post('/aiohttp/ann',\
-        SRV.handler_wrap(SRV.ann_hndlr,\
-            validation_scheme='ann'))
+
+    APP.router.add_post('/aiohttp/announce',
+        SRV.handler_wrap(SRV._announces_service.post_hndlr,
+            validation_scheme='announce_post', require_callsign=True))
+    APP.router.add_put('/aiohttp/announce',
+        SRV.handler_wrap(SRV._announces_service.put_hndlr,
+            validation_scheme='announce_put', require_callsign=True))
+    APP.router.add_delete('/aiohttp/announce',
+        SRV.handler_wrap(SRV._announces_service.delete_hndlr,
+            validation_scheme='announce_delete', require_callsign=True))
+
     APP.router.add_post('/aiohttp/loggers',\
         SRV.handler_wrap(SRV.ext_loggers_hndlr, validation_scheme='extLoggers'))
     APP.router.add_get('/aiohttp/confirm_email', SRV.cfm_email_hndlr)
