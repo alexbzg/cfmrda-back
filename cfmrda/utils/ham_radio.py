@@ -4,7 +4,8 @@
 import logging
 import re
 from datetime import date
-from rda import RDA_VALUES
+
+from .rda import RDA_VALUES
 
 BANDS_WL = {'160M': '1.8', '80M': '3.5', '40M': '7', \
         '30M': '10', '20M': '14', '14M': '20', '17M': '18', '15M': '21', \

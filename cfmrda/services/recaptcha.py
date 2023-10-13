@@ -4,7 +4,7 @@ import logging
 
 import aiohttp
 
-from common import site_conf
+from cfmrda.common import site_conf
 
 async def check_recaptcha(response):
     conf = site_conf()

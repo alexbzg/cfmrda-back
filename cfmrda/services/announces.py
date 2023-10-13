@@ -2,15 +2,16 @@ import uuid
 
 from aiohttp import web
 
-from cfmrda.json_utils import load_json, save_json
-from cfmrda.web_responses import response_ok, response_error_unauthorized
+from cfmrda.utils.json_utils import load_json, save_json
+from cfmrda.utils.web_responses import response_ok, response_error_unauthorized
 
 def get_announce_index(announces, callsign, ann_id):
     for i, announce in enumerate(announces):
         if ann_id == announce['id']:
-            assert announce['user'] == callsign
-            return i
-    return -1
+            if announce['user'] == callsign:
+                return i
+            raise response_error_unauthorized()
+    raise web.HTTPNotFound()
 
 class AnnouncesService():
 
@@ -23,7 +24,16 @@ class AnnouncesService():
     def __write_file(self, data):
         save_json(data, self.__file_path())
 
-    async def post_hndlr(self, callsign, data):
+    def get_announce_for_edit(self, callsign, ann_id):
+        anns = self.__read_file()
+        for i, announce in enumerate(announces):
+            if ann_id == announce['id']:
+                if announce['user'] == callsign:
+                    return (anns, i)
+                raise response_error_unauthorized()
+        raise web.HTTPNotFound()
+
+    async def create(self, callsign, data):
         anns = self.__read_file()
         data['announce']['id'] = uuid.uuid1()
         data['announce']['user'] = callsign
@@ -31,26 +41,14 @@ class AnnouncesService():
         self.__write_file(anns)
         return response_ok()
 
-    async def put_hndlr(self, callsign, data):
-        anns = self.__read_file()
-        try:
-            edit_index = get_announce_index(anns, callsign, data['announce']['id'])
-        except AssertionError:
-            return response_error_unauthorized()
-        if edit_index == -1:
-            return web.HTTPNotFound()
+    async def update(self, callsign, data):
+        anns, edit_index = self.get_announce_for_edit(callsign, data['announce']['id'])
         anns[edit_index] = data['announce']
         self.__write_file(anns)
         return response_ok()
 
-    async def del_hndlr(self, callsign, data):
-        anns = self.__read_file()
-        try:
-            edit_index = get_announce_index(anns, callsign, data['announce_id'])
-        except AssertionError:
-            return response_error_unauthorized()
-        if edit_index == -1:
-            return web.HTTPNotFound()
+    async def delete(self, callsign, data):
+        anns, edit_index = self.get_announce_for_edit(callsign, data['id'])
         del anns[edit_index]
         self.__write_file(anns)
         return response_ok()

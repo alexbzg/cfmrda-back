@@ -3,7 +3,8 @@ Description=cfmrda-dev backend server
 After=network.target postgresql@13-main.service 
 
 [Service]
-ExecStart=/usr/local/cfmrda-dev/cfmrda/srv.py
+ExecStart=/usr/local/cfmrda-dev/srv_run.py
+WorkingDirectory=/usr/local/cfmrda-dev
 Restart=always
 User=www-data
 Group=www-data

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from aiohttp import web
 
 def response_error_default():
@@ -19,3 +21,12 @@ def response_error_admin_required():
 
 def response_error_unauthorized():
     return web.HTTPUnauthorized(text='Нет прав для выполнения этого действия.')
+
+def response_csv(callsign, str_buf):
+    return web.Response(
+        headers={
+            'Content-Disposition':
+                (f'Attachment;filename={callsign}' +
+                    f'{datetime.now().strftime("_%d_%b_%Y")}.csv')},
+        body=str_buf.getvalue().encode()
+    )

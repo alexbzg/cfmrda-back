@@ -9,7 +9,7 @@ import asyncio
 import requests
 import xmltodict
 
-from common import site_conf
+from cfmrda.common import site_conf
 
 class QRZComLink:
 

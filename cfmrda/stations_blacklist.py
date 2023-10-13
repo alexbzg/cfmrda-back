@@ -5,7 +5,7 @@ import asyncio
 import logging
 from common import site_conf, start_logging
 from db import DBConn
-from json_utils import load_json
+from utils.json_utils import load_json
 
 CONF = site_conf()
 

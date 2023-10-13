@@ -7,9 +7,9 @@ import argparse
 import os
 import shutil
 import datetime
-from common import site_conf, start_logging
-from db import DBConn
-from json_utils import save_json, load_json
+from cfmrda.common import site_conf, start_logging
+from cfmrda.db import DBConn
+from cfmrda.utils.json_utils import save_json, load_json
 
 CONF = site_conf()
 

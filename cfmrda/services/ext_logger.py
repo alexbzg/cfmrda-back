@@ -8,7 +8,7 @@ import logging
 import requests
 from requests.exceptions import ReadTimeout
 
-from ham_radio import RDA_START_DATE
+from cfmrda.utils.ham_radio import RDA_START_DATE
 
 class SessionTimeout(requests.Session):
     def __init__(self, timeout=(3.05, 90.05), **kwargs):
