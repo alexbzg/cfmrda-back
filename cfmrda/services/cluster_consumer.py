@@ -13,9 +13,9 @@ def get_data(db_params, all_data=False, spot_filter=None):
     if not spot_filter:
         spot_filter = {}
     if not all_data:
-        ts_prev = DB.consumers.find_one({'id':db_params['consumer']})['last']
+        ts_prev = DB.consumers.find_one({'id':db_params['consumer']})
         if ts_prev:
-            spot_filter['ts'] = {'$gt': ts_prev}
+            spot_filter['ts'] = {'$gt': ts_prev['last']}
 
     data = list(DB.dx.find(spot_filter).sort('ts', -1))
     if data:
