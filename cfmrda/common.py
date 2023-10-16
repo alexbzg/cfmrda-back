@@ -17,6 +17,8 @@ def site_conf():
     conf.read(APP_ROOT + '/site.conf')
     return conf
 
+CONF = site_conf()
+
 def start_logging(log_type, level=logging.DEBUG):
     """starts logging to file"""
     conf = site_conf()

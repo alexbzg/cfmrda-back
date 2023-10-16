@@ -18,7 +18,7 @@ import jwt
 import chardet
 import requests
 
-from cfmrda.common import site_conf, start_logging, APP_ROOT, datetime_format
+from cfmrda.common import CONF, start_logging, APP_ROOT, datetime_format
 from cfmrda.utils.web_responses import (response_error_default, response_error_recaptcha,
     response_ok, response_error_email_cfm, response_error_admin_required,
     response_error_unauthorized, response_csv)
@@ -31,9 +31,8 @@ from cfmrda.utils.json_utils import load_json, save_json, JSONvalidator
 from cfmrda.services.qrz import QRZComLink, QRZRuLink
 from cfmrda.utils.ham_radio import load_adif, strip_callsign, ADIFParseException
 from cfmrda.services.ext_logger import ExtLogger, ExtLoggerException
-from cfmrda.services.announces import AnnouncesService
+from cfmrda.services import auth_service, announces_service
 
-CONF = site_conf()
 start_logging('srv', level=CONF.get('logs', 'srv_level'))
 logging.debug("restart")
 
@@ -51,9 +50,7 @@ class CfmRdaServer():
         self._qrzcom = None
         self._qrzru = None
         self._secret = get_secret(CONF.get('files', 'secret'))
-        self._site_admins = str(CONF.get('web', 'admins')).split(' ')
         self._json_validator = JSONvalidator(load_json(APP_ROOT + '/schemas.json'))
-        self.announces = AnnouncesService(CONF)
 
     async def on_startup(self, app):
         await self._db.connect()
@@ -61,9 +58,6 @@ class CfmRdaServer():
         self._qrzru = None
         if CONF.has_option('QRZRu', 'login'):
             self._qrzru = QRZRuLink()
-
-    def is_admin(self, callsign):
-        return callsign in self._site_admins
 
     def create_token(self, data):
         return create_token(self._secret, data)
@@ -219,7 +213,7 @@ class CfmRdaServer():
         site_root = CONF.get('web', 'root')
         if 'token' in data:
             callsign = self.decode_token(data)
-            admin = self.is_admin(callsign)
+            admin = auth_service.is_admin(callsign)
         else:
             callsign = data['callsign']
         if 'message' in data or 'delete' in data:
@@ -400,7 +394,7 @@ class CfmRdaServer():
     async def qsl_admin_hndlr(self, request):
         data = await request.json()
         callsign = self.decode_token(data)
-        if not self.is_admin(callsign):
+        if not auth_service.is_admin(callsign):
             raise response_error_admin_required()
 
         if 'qsl' in data:
@@ -559,7 +553,7 @@ class CfmRdaServer():
 
     async def _edit_uploads(self, data, callsign):
         if 'delete' in data:
-            if not self.is_admin(callsign):
+            if not auth_service.is_admin(callsign):
                 check_uploader = await self._db.execute("""
                     select user_cs 
                     from uploads 
@@ -615,7 +609,7 @@ class CfmRdaServer():
                     del_uploads = del_uploads[:20]
                 save_json(del_uploads, del_uploads_path)
         elif 'enabled' in data:
-            if callsign not in self._site_admins:
+            if not auth_service.is_admin(callsign):
                 raise response_error_admin_required()
             if not await self._db.execute("""
                 update uploads set enabled = %(enabled)s where id = %(id)s
@@ -628,7 +622,7 @@ class CfmRdaServer():
         callsign = self.decode_token(data)
         bl_callsign = None
         if 'admin' in data:
-            if self.is_admin(callsign):
+            if auth_service.is_admin(callsign):
                 bl_callsign = data['blacklist']
             else:
                 return response_error_admin_required()
@@ -866,7 +860,7 @@ class CfmRdaServer():
     def _require_callsign(self, data, require_admin=False):
         callsign = self.decode_token(data)
         if require_admin:
-            if not self.is_admin(callsign):
+            if not auth_service.is_admin(callsign):
                 raise response_error_admin_required()
         return callsign
 
@@ -947,7 +941,7 @@ class CfmRdaServer():
         if 'admin' in data and data['admin']:
             admin_callsign = self.decode_token({'token': data['admin']})
             if isinstance(admin_callsign, str):
-                admin = self.is_admin(admin_callsign)
+                admin = auth_service.is_admin(admin_callsign)
         if 'qso' in data:
             if 'cfm' in data['qso'] and data['qso']['cfm']:
 
@@ -1121,7 +1115,7 @@ support@cfmrda.ru"""
                 where upload_id = u.id) as activators
                 ) as data
         """
-        admin = self.is_admin(callsign) and 'admin' in data and data['admin']
+        admin = auth_service.is_admin(callsign) and 'admin' in data and data['admin']
         params = {}
         where_cond = []
         qso_where_cond = []
@@ -1229,7 +1223,7 @@ support@cfmrda.ru"""
         user_data = await self.get_user_data(callsign)
         user_data['token'] = self.create_token({'callsign': callsign})
         del user_data['password']
-        if callsign in self._site_admins:
+        if auth_service.is_admin(callsign):
             user_data['admin'] = True
         return web.json_response(user_data)
 
@@ -1576,7 +1570,8 @@ support@cfmrda.ru"""
                 payload = jwt.decode(data['token'], self._secret,
                     algorithms=['HS256'])
             except jwt.exceptions.DecodeError as decode_exc:
-                raise web.HTTPUnauthorized(text='Токен просрочен. Пожалуйста, повторите операцию.') from decode_exc
+                raise web.HTTPUnauthorized(
+                    text='Токен просрочен. Пожалуйста, повторите операцию.') from decode_exc
             if 'callsign' in payload:
                 callsign = payload['callsign'].upper()
             if check_time:
@@ -1625,13 +1620,13 @@ def server_start():
         SRV.handler_wrap(SRV.user_data_hndlr, require_callsign=True))
 
     APP.router.add_post('/aiohttp/announce',
-        SRV.handler_wrap(SRV.announces.create,
+        SRV.handler_wrap(announces_service.create,
             validation_scheme='announce_create', require_callsign=True))
     APP.router.add_put('/aiohttp/announce',
-        SRV.handler_wrap(SRV.announces.update,
+        SRV.handler_wrap(announces_service.update,
             validation_scheme='announce_update', require_callsign=True))
     APP.router.add_delete('/aiohttp/announce',
-        SRV.handler_wrap(SRV.announces.delete,
+        SRV.handler_wrap(announces_service.delete,
             validation_scheme='announce_delete', require_callsign=True))
 
     APP.router.add_post('/aiohttp/loggers',\
