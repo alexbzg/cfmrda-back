@@ -226,7 +226,7 @@ class CfmRdaServer():
                     raise response_error_unauthorized()
                 delete_index = -1
                 for index, message in enumerate(chat):
-                    if message['ts'] == data['ts']:
+                    if message['ts'] == data['delete']:
                         if message['callsign'] != callsign and not admin:
                             raise response_error_unauthorized()
                         delete_index = index
@@ -761,11 +761,11 @@ class CfmRdaServer():
 
     async def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
+        logging.warn('callsigns_rda')
+        logging.warn(data)
         if ('delete' in data or 'new' in data or 'conflict' in data
             or 'meta' in data):
             callsign = self._require_callsign(data, True)
-            if not isinstance(callsign, str):
-                return callsign
             db_rslt = False
             if 'conflict' in data:
                 db_rslt = await self._db.execute("""
@@ -824,8 +824,7 @@ class CfmRdaServer():
                         where callsign != %(selected)s and
                             (callsign like %(search)s or callsign = %(base)s)""",\
                         search, True)
-                admin = self._require_callsign(data, require_admin=True)
-                if isinstance(admin, str):
+                if callsign and auth_service.is_admin(callsign):
                     rsp['meta'] = await self._db.execute("""
                         select * from callsigns_meta 
                         where callsign = %(callsign)s""", data)
@@ -864,17 +863,20 @@ class CfmRdaServer():
                 raise response_error_admin_required()
         return callsign
 
-    def handler_wrap(self, handler, validation_scheme=None, require_callsign=True,\
+    def handler_wrap(self, handler, validation_scheme=None, require_callsign=True,
         require_admin=False):
 
         async def handler_wrapped(request):
             data = await request.json()
             if validation_scheme:
                 if not self._json_validator.validate(validation_scheme, data):
-                    return response_error_default()
+                    raise response_error_default()
             callsign = None
-            if require_callsign:
+            try:
                 callsign = self._require_callsign(data, require_admin)
+            except Exception as exc:
+                if require_callsign:
+                    raise exc
             return await handler(callsign, data)
 
         return handler_wrapped
@@ -1235,14 +1237,14 @@ support@cfmrda.ru"""
         return web.Response(text='Ваш адрес электронной почты был подтвержден.')
 
     async def rankings_hndlr(self, request):
-        params = {'role': None,\
-                'band': None,\
-                'mode': None,\
-                'from': 1,\
-                'to': 100,\
+        params = {'role': None,
+                'band': None,
+                'mode': None,
+                'from': 1,
+                'to': 100,
                 'country': None}
         for param, default in params.items():
-            params[param] = request.match_info.get(param, default)
+            params[param] = request.match_info.get(param) or default
         rankings = await self._db.execute("""
             select rankings_json(%(role)s, %(mode)s, %(band)s, %(from)s, %(to)s, 
                 null, %(country)s) as data
@@ -1250,13 +1252,13 @@ support@cfmrda.ru"""
         return web.json_response(rankings)
 
     async def qso_hndlr(self, request):
-        params = {'callsign': None,\
-                'role': None,\
-                'rda': None,\
-                'band': None,\
+        params = {'callsign': None,
+                'role': None,
+                'rda': None,
+                'band': None,
                 'mode': None}
         for param, default in params.items():
-            params[param] = request.match_info.get(param, default)
+            params[param] = request.match_info.get(param) or default
         sql = {'hunter': """
         select json_build_object('band', band,
                 'mode', mode,
@@ -1611,9 +1613,11 @@ def server_start():
         SRV.handler_wrap(SRV.old_callsigns_admin_hndlr, require_admin=True))
     APP.router.add_post('/aiohttp/usr_reg_admin',\
         SRV.handler_wrap(SRV.usr_reg_admin_hndlr, require_admin=True))
-    APP.router.add_post('/aiohttp/callsigns_rda',\
-        SRV.handler_wrap(SRV.callsigns_rda_hndlr,\
-            validation_scheme='callsignsRda', require_callsign=False))
+    APP.router.add_post('/aiohttp/callsigns_rda',
+        SRV.handler_wrap(SRV.callsigns_rda_hndlr,
+            validation_scheme='callsignsRda',
+            require_callsign=False
+        ))
     APP.router.add_post('/aiohttp/callsigns_rda_current',\
         SRV.handler_wrap(SRV.callsigns_current_rda_hndlr, require_callsign=False))
     APP.router.add_post('/aiohttp/user_data',\
