@@ -1545,7 +1545,7 @@ support@cfmrda.ru"""
                 {'year': year, 'activator': activator, 'rda': rda}, keys=False)
         if isinstance(rating, dict):
             rating = [rating]
-        return web.json_response(rating)
+        return web.json_response({row['band']: row['qso_count'] for row in rating})
 
     async def get_activators_rating_years(self, request):
         rating_years = await self._db.execute("""
