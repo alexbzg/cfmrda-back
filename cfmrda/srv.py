@@ -1517,6 +1517,36 @@ support@cfmrda.ru"""
             rating = [rating]
         return web.json_response(rating)
 
+    async def get_activators_rating_detail_rda(self, request):
+
+        year = request.match_info.get('year', None)
+        activator = request.match_info.get('activator', None)
+        rda = request.match_info.get('rda', None)
+
+        if not year or not activator or not rda:
+            return web.HTTPBadRequest(text='Необходимо ввести год, позывной активатора и район')
+        rating_sql = """
+	        select band, count(distinct (callsign, mode)) as qso_count from
+		        (select qso.band, qso.mode, qso.callsign
+			        from qso join activators on qso.upload_id = activators.upload_id join 
+                        uploads on qso.upload_id = uploads.id
+			        where station_callsign like '%%/_' and uploads.enabled and 
+				        activators.activator = %(activator)s and qso.rda = %(rda)s 
+                        and extract(year from qso.dt) = %(year)s
+                union all
+                select qso.band, qso.mode, qso.callsign from qso
+                    where station_callsign like '%%/_' and activator = %(activator)s 
+                    and qso.rda = %(rda)s and extract(year from qso.dt) = %(year)s
+                ) as qsos
+                group by band
+                """
+
+        rating = await self._db.execute(rating_sql,
+                {'year': year, 'activator': activator, 'rda': rda}, keys=False)
+        if isinstance(rating, dict):
+            rating = [rating]
+        return web.json_response(rating)
+
     async def get_activators_rating_years(self, request):
         rating_years = await self._db.execute("""
             select distinct qso_year 
@@ -1655,6 +1685,8 @@ def server_start():
     APP.router.add_get('/aiohttp/activators_rating/{year}', SRV.get_activators_rating)
     APP.router.add_get('/aiohttp/activators_rating/{year}/{activator}',
 		SRV.get_activators_rating_detail)
+    APP.router.add_get('/aiohttp/activators_rating/{year}/{activator}/{rda}',
+		SRV.get_activators_rating_detail_rda)
     APP.router.add_get('/aiohttp/activators_rating', SRV.get_activators_rating_years)
 
     web.run_app(APP, path=CONF.get('files', 'server_socket'))
