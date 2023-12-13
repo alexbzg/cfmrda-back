@@ -113,7 +113,9 @@ delete from activators_rating_detail;
 for activator_row in 
     select distinct activators.activator from activators
         union
-        select distinct qso.activator from qso where qso.activator is not null
+        select distinct qso.activator 
+		from qso left join callsigns_meta on qso.activator = callsigns_meta.callsign
+		where qso.activator is not null and callsigns_meta.club_station is not true
 loop
 	insert into activators_rating_detail (activator, qso_year, rda, points, mult)
 		select activator, qso_year, rda, sum(qso_count) as points, count(*) filter (where qso_count > 49) as mult from 
@@ -123,8 +125,10 @@ loop
 			  		where station_callsign like '%/_' and uploads.enabled and 
 				 		activators.activator = activator_row.activator 
 				union all
-			  	select qso.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year from qso
-			  		where station_callsign like '%/_' and activator = activator_row.activator
+			  	select qso.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year 
+				 	from qso left join activators on qso.upload_id = activators.upload_id
+				 	where station_callsign like '%/_' and activator = activator_row.activator 
+				 		and activators.upload_id is null
 				) as qsos
 				group by activator, rda, band, qso_year) as rda_qsos
 			group by activator, rda, qso_year
@@ -142,6 +146,75 @@ $$;
 
 
 ALTER FUNCTION public.build_activators_rating() OWNER TO postgres;
+
+--
+-- Name: build_activators_rating_current(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.build_activators_rating_current() RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+begin
+RAISE LOG 'build_activators_raiting_current start';
+delete from activators_rating_tmp;
+delete from activators_rating_current;
+delete from activators_rating_current_detail;
+
+/*build tmp data*/
+insert into activators_rating_tmp 
+	(activator, rda, band, "mode", qso_count)
+select activator, rda, band, "mode", count(distinct callsign)
+from qso left join uploads on upload_id = uploads.id
+WHERE qso.tstamp > date_trunc('year', now()) and 
+	station_callsign LIKE '%/_' and 
+	(upload_id is null or uploads.enabled) 
+	/*and activator is not null*/ /*tmp condition for testing on current data*/
+group by activator, rda, band, "mode";
+
+/*build detail data by mode*/
+insert into activators_rating_current_detail
+	(activator, "mode", rda, points, mult)
+select activator, "mode", rda, 
+	sum(qso_count) as points, 
+	count(*) filter (where qso_count > 49) as mult
+from activators_rating_tmp
+group by activator, "mode", rda;
+
+/*build detail data total*/
+insert into activators_rating_current_detail
+	(activator, "mode", rda, points, mult)
+select activator, 'TOTAL', rda, 
+	sum(qso_count) as points, 
+	count(*) filter (where qso_count > 49) as mult
+from activators_rating_tmp
+group by activator, rda;
+
+/*build detail data cw+ssb*/
+insert into activators_rating_current_detail
+	(activator, "mode", rda, points, mult)
+select activator, 'CW/SSB', rda, 
+	sum(qso_count) as points, 
+	count(*) filter (where qso_count > 49) as mult
+from activators_rating_tmp
+where "mode" in ('SW', 'SSB')
+group by activator, rda;
+
+/*calc and save rating*/
+insert into activators_rating_current
+	(activator, club_station, "mode", rating)
+select activator, club_station is true, "mode", sum(points*mult) * count(*)
+from activators_rating_current_detail 
+	left join callsigns_meta on
+	activator = callsign
+where mult > 0
+group by activator, club_station, "mode";
+
+RAISE LOG 'build_activators_raiting_current finish';
+end;
+$$;
+
+
+ALTER FUNCTION public.build_activators_rating_current() OWNER TO postgres;
 
 --
 -- Name: build_rankings(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -814,15 +887,23 @@ begin
   then
     raise 'cfmrda_db_error:Информация о связи от наблюдателя (SWL)';
   end if;
+  if (_band = '10' and _mode = 'SSB')
+  then
+    raise 'cfmrda_db_error:Мода SSB некорректна на диапазоне 10MHz';
+  end if;  
+  if (_band not in ('1.8', '3.5', '7', '10', '14', '18', '21', '24', '28'))
+  then
+    raise 'cfmrda_db_error:Некорректный диапазон: %MHz', _band;
+  end if;
+  if (_mode not in ('CW', 'SSB', 'DIGI'))
+  then
+    raise 'cfmrda_db_error:Некорректная мода: %', _mode;
+  end if;  
   str_callsign = strip_callsign(_callsign);
   str_station_callsign = strip_callsign(_station_callsign);
   if str_callsign is null or str_station_callsign is null or str_callsign = str_station_callsign
   then
     raise 'cfmrda_db_error:Позывной некорректен или совпадает с позывным корреспондента';
-  end if;
-  if (_band = '10' and _mode = 'SSB')
-  then
-    raise 'cfmrda_db_error:Мода SSB некорректна на диапазоне 10MHz';
   end if;
   select date_begin, date_end  into blacklist_begin, blacklist_end
   	from stations_blacklist
@@ -858,7 +939,7 @@ begin
   then
     raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
   end if;    
-  if exists (select from qso where qso.callsign = new_callsign and qso.station_callsign = _station_callsign 
+  if exists (select from qso where qso.callsign = new_callsign and strip_callsign(qso.station_callsign) = str_station_callsign 
     and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and qso.tstamp::date = _ts::date)
   then
       raise exception using
@@ -1048,7 +1129,7 @@ CREATE FUNCTION public.strip_callsign(callsign character varying) RETURNS charac
   if substring(callsign from '[^\dA-Z/]') is not null then
     return null;
   end if;
-  return substring(callsign from '[\d]*[A-Z]+\d+[A-Z]+');
+  return substring(callsign from '([\d]*[A-Z]+\d+[A-Z]+|RAEM)');
 end$$;
 
 
@@ -1298,9 +1379,17 @@ begin
     new.callsign = new_callsign;
   end if;
   new.dt = date(new.tstamp);
-  if new.upload_id is null or not exists (select upload_id from activators where activators.upload_id = new.upload_id)
+  new.activator = strip_callsign(new.station_callsign); 
+  if new.upload_id is not null and 
+  	not exists
+  	 (select club_station from callsigns_meta where callsign = new.activator and club_station) 
+	and 
+	(select count(*) from activators where activators.upload_id = new.upload_id) > 1
   then
-    new.activator = strip_callsign(new.station_callsign);
+    insert into callsigns_meta (callsign, club_station)
+	values (new.activator, true)
+	on conflict on constraint callsigns_meta_pkey
+	do update set club_station = true;
   end if;
   return new;
  end
@@ -1358,6 +1447,35 @@ CREATE TABLE public.activators_rating (
 ALTER TABLE public.activators_rating OWNER TO postgres;
 
 --
+-- Name: activators_rating_current; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.activators_rating_current (
+    activator character varying(32) NOT NULL,
+    mode character varying(6) NOT NULL,
+    rating integer NOT NULL,
+    club_station boolean NOT NULL
+);
+
+
+ALTER TABLE public.activators_rating_current OWNER TO postgres;
+
+--
+-- Name: activators_rating_current_detail; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.activators_rating_current_detail (
+    activator character varying(32) NOT NULL,
+    mode character varying(6) NOT NULL,
+    rda character(5) NOT NULL,
+    points integer NOT NULL,
+    mult integer NOT NULL
+);
+
+
+ALTER TABLE public.activators_rating_current_detail OWNER TO postgres;
+
+--
 -- Name: activators_rating_detail; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1371,6 +1489,35 @@ CREATE TABLE public.activators_rating_detail (
 
 
 ALTER TABLE public.activators_rating_detail OWNER TO postgres;
+
+--
+-- Name: activators_rating_detail_bands; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.activators_rating_detail_bands (
+    activator character varying(32) NOT NULL,
+    qso_year smallint NOT NULL,
+    rda character(5) NOT NULL,
+    qso_count integer NOT NULL
+);
+
+
+ALTER TABLE public.activators_rating_detail_bands OWNER TO postgres;
+
+--
+-- Name: activators_rating_tmp; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.activators_rating_tmp (
+    activator character varying(32) NOT NULL,
+    rda character(5) NOT NULL,
+    mode character varying(6) NOT NULL,
+    band character varying(5) NOT NULL,
+    qso_count smallint NOT NULL
+);
+
+
+ALTER TABLE public.activators_rating_tmp OWNER TO postgres;
 
 --
 -- Name: active_locks; Type: VIEW; Schema: public; Owner: postgres
@@ -1412,7 +1559,8 @@ ALTER TABLE public.callsigns_countries OWNER TO postgres;
 CREATE TABLE public.callsigns_meta (
     callsign character varying(64) NOT NULL,
     disable_autocfm boolean,
-    comments character varying(512)
+    comments character varying(512),
+    club_station boolean DEFAULT false NOT NULL
 );
 
 
@@ -1970,6 +2118,30 @@ ALTER TABLE ONLY public.activators
 
 
 --
+-- Name: activators_rating_current_detail activators_rating_current_detail_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.activators_rating_current_detail
+    ADD CONSTRAINT activators_rating_current_detail_pkey PRIMARY KEY (activator, mode, rda);
+
+
+--
+-- Name: activators_rating_current activators_rating_current_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.activators_rating_current
+    ADD CONSTRAINT activators_rating_current_pkey PRIMARY KEY (activator, mode);
+
+
+--
+-- Name: activators_rating_detail_bands activators_rating_detail_bands_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.activators_rating_detail_bands
+    ADD CONSTRAINT activators_rating_detail_bands_pkey PRIMARY KEY (activator, qso_year, rda);
+
+
+--
 -- Name: activators_rating_detail activators_rating_detail_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1983,6 +2155,14 @@ ALTER TABLE ONLY public.activators_rating_detail
 
 ALTER TABLE ONLY public.activators_rating
     ADD CONSTRAINT activators_rating_pkey PRIMARY KEY (activator, qso_year);
+
+
+--
+-- Name: activators_rating_tmp activators_rating_tmp_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.activators_rating_tmp
+    ADD CONSTRAINT activators_rating_tmp_pkey PRIMARY KEY (activator, rda, mode, band);
 
 
 --
@@ -2185,6 +2365,13 @@ CREATE INDEX activators_activator_idx ON public.activators USING btree (activato
 
 
 --
+-- Name: activators_rating_current_rank_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX activators_rating_current_rank_idx ON public.activators_rating_current USING btree (club_station, mode, rating) INCLUDE (activator) WITH (deduplicate_items='true');
+
+
+--
 -- Name: callsigns_rda_callsign_dt_start_dt_stop_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2252,6 +2439,13 @@ CREATE UNIQUE INDEX old_callsigns_uq ON public.old_callsigns USING btree (old) W
 --
 
 CREATE INDEX qso_act_mode_band_rda_callsign_idx ON public.qso USING btree (activator, mode, band, rda, callsign, dt) WHERE (activator IS NOT NULL);
+
+
+--
+-- Name: qso_activator_cur_year; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX qso_activator_cur_year ON public.qso USING btree (upload_id NULLS FIRST, activator, rda, band, mode, callsign) WITH (deduplicate_items='true') WHERE ((tstamp > '2023-01-01 00:00:00'::timestamp without time zone) AND ((station_callsign)::text ~~ '%/_'::text));
 
 
 --
@@ -2487,6 +2681,13 @@ GRANT ALL ON FUNCTION public.build_activators_rating() TO "www-group";
 
 
 --
+-- Name: FUNCTION build_activators_rating_current(); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.build_activators_rating_current() TO "www-group";
+
+
+--
 -- Name: FUNCTION build_rankings_data(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -2544,10 +2745,31 @@ GRANT ALL ON TABLE public.activators_rating TO "www-group";
 
 
 --
+-- Name: TABLE activators_rating_current; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.activators_rating_current TO "www-group";
+
+
+--
+-- Name: TABLE activators_rating_current_detail; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.activators_rating_current_detail TO "www-group";
+
+
+--
 -- Name: TABLE activators_rating_detail; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.activators_rating_detail TO www;
+
+
+--
+-- Name: TABLE activators_rating_detail_bands; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.activators_rating_detail_bands TO www;
 
 
 --

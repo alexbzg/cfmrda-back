@@ -231,6 +231,7 @@ async def main(conf):
             elif not update_params:
                 update_params = {
                     'state': 0,
+                    'qso_count': 0,
                     'last_updated': datetime.now().strftime("%Y-%m-%d")}
 
             if update_params:
