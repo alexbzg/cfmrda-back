@@ -1459,6 +1459,29 @@ support@cfmrda.ru"""
             return web.json_response(False)
         return web.HTTPBadRequest(text='Необходимо ввести позывной')
 
+    async def get_activators_rating_current(self, request):
+        params = {
+            'mode': request.match_info.get('mode') or 'TOTAL',
+            'clubs': request.match_info.get('clubs') == 'clubs'
+            }
+        rating = await self._db.execute("""
+               select * from (
+				select activator, sum(rating) as rating,
+					rank() over w as act_rank,
+					row_number() over w as act_row
+					from activators_rating_current
+                    where "mode" = %(mode)s and 
+                        club_station is %(clubs)s
+					group by activator
+					window w as (order by sum(rating) desc)
+				) as ww
+				where act_row < 106
+				order by act_rank 
+                """, params, keys=False)
+        if isinstance(rating, dict):
+            rating = [rating]
+        return web.json_response(rating)
+
     async def get_activators_rating(self, request):
         year = request.match_info.get('year', None)
         if year != 'total':
@@ -1517,6 +1540,24 @@ support@cfmrda.ru"""
             rating = [rating]
         return web.json_response(rating)
 
+    async def get_activators_rating_current_detail(self, request):
+        params = {
+            'activator': request.match_info.get('activator', None),
+            'mode': request.match_info.get('mode') or 'TOTAL'
+            }
+        if not params['activator']:
+            raise web.HTTPBadRequest(text='Необходимо ввести позывной активатора')
+        rating = await self._db.execute("""
+				select rda, points, mult, points * mult as total
+				    from activators_rating_current_detail
+                    where activator = %(activator)s and 
+                        "mode" = %(mode)s and mult > 0
+				order by rda
+                """, params, keys=False)
+        if isinstance(rating, dict):
+            rating = [rating]
+        return web.json_response(rating)
+
     async def get_activators_rating_detail_rda(self, request):
 
         year = request.match_info.get('year', None)
@@ -1543,6 +1584,35 @@ support@cfmrda.ru"""
 
         rating = await self._db.execute(rating_sql,
                 {'year': year, 'activator': activator, 'rda': rda}, keys=False)
+        if isinstance(rating, dict):
+            rating = [rating]
+        return web.json_response({row['band']: row['qso_count'] for row in rating})
+
+    async def get_activators_rating_current_detail_rda(self, request):
+
+        params = {
+            'activator': request.match_info.get('activator', None),
+            'rda': request.match_info.get('rda', None),
+            }
+        if not params['activator'] or not params['rda']:
+            return web.HTTPBadRequest(text='Необходимо позывной активатора и район')
+        mode = request.match_info.get('mode') or 'TOTAL'
+        if mode == 'TOTAL':
+            mode_condition = ''
+        elif mode == 'CW+SSB':
+            mode_condition = "and \"mode\" in ('CW', 'SSB')"
+        else:
+            mode_condition = f"and \"mode\" = '{mode}'"
+        rating = await self._db.execute(f"""
+                select band, count(distinct (callsign, "mode")) as qso_count
+                from qso left join uploads on upload_id = uploads.id
+                WHERE qso.tstamp > date_trunc('year', now()) and 
+                    station_callsign LIKE '%%/_' and 
+                    (upload_id is null or uploads.enabled) 
+                    and activator = %(activator)s
+                    and rda = %(rda)s 
+                    {mode_condition}
+                group by band""", params, keys=False)
         if isinstance(rating, dict):
             rating = [rating]
         return web.json_response({row['band']: row['qso_count'] for row in rating})
@@ -1682,11 +1752,16 @@ def server_start():
             SRV.dwnld_hunter_rda_hndlr)
     APP.router.add_get('/aiohttp/download/hunter_rda/{callsign}', SRV.dwnld_hunter_rda_hndlr)
     APP.router.add_get('/aiohttp/qrzru/{callsign}', SRV.get_qrzru)
-    APP.router.add_get('/aiohttp/activators_rating/{year}', SRV.get_activators_rating)
-    APP.router.add_get('/aiohttp/activators_rating/{year}/{activator}',
+    APP.router.add_get('/aiohttp/activators_rating/current/{mode}/{clubs:[^{}/]*}', SRV.get_activators_rating_current),
+    APP.router.add_get('/aiohttp/activators_rating/archive/{year}', SRV.get_activators_rating)
+    APP.router.add_get('/aiohttp/activators_rating/archive/{year}/{activator}',
 		SRV.get_activators_rating_detail)
-    APP.router.add_get('/aiohttp/activators_rating/{year}/{activator}/{rda}',
+    APP.router.add_get('/aiohttp/activators_rating/current/detail/{activator}/{mode}',
+		SRV.get_activators_rating_current_detail)
+    APP.router.add_get('/aiohttp/activators_rating/archive/{year}/{activator}/{rda}',
 		SRV.get_activators_rating_detail_rda)
+    APP.router.add_get('/aiohttp/activators_rating/current/detail/{activator}/{mode}/{rda}',
+		SRV.get_activators_rating_current_detail_rda)
     APP.router.add_get('/aiohttp/activators_rating', SRV.get_activators_rating_years)
 
     web.run_app(APP, path=CONF.get('files', 'server_socket'))

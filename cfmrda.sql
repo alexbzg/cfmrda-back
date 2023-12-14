@@ -127,7 +127,7 @@ loop
 				union all
 			  	select qso.activator, qso.rda, qso.band, qso.mode, qso.callsign, extract(year from qso.dt) as qso_year 
 				 	from qso left join activators on qso.upload_id = activators.upload_id
-				 	where station_callsign like '%/_' and activator = activator_row.activator 
+				 	where station_callsign like '%/_' and qso.activator = activator_row.activator 
 				 		and activators.upload_id is null
 				) as qsos
 				group by activator, rda, band, qso_year) as rda_qsos
@@ -168,7 +168,7 @@ from qso left join uploads on upload_id = uploads.id
 WHERE qso.tstamp > date_trunc('year', now()) and 
 	station_callsign LIKE '%/_' and 
 	(upload_id is null or uploads.enabled) 
-	/*and activator is not null*/ /*tmp condition for testing on current data*/
+	and activator is not null /*tmp condition for testing on current data*/
 group by activator, rda, band, "mode";
 
 /*build detail data by mode*/
@@ -192,11 +192,11 @@ group by activator, rda;
 /*build detail data cw+ssb*/
 insert into activators_rating_current_detail
 	(activator, "mode", rda, points, mult)
-select activator, 'CW/SSB', rda, 
+select activator, 'CW+SSB', rda, 
 	sum(qso_count) as points, 
 	count(*) filter (where qso_count > 49) as mult
 from activators_rating_tmp
-where "mode" in ('SW', 'SSB')
+where "mode" in ('CW', 'SSB')
 group by activator, rda;
 
 /*calc and save rating*/
