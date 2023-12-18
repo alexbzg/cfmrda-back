@@ -67,7 +67,7 @@ async def export_rankings(export_only=False):
         if do_countries:
             await _db.execute("select from build_rankings_countries();")
 
-        await _db.execute("select from build_activators_rating();")
+#        await _db.execute("select from build_activators_rating();")
 
     rankings = await _db.execute("""
                 select rankings_json(null, null, null, null, 105, null, null) as data
@@ -77,9 +77,7 @@ async def export_rankings(export_only=False):
     set_local_owner('/json/rankings.json')
 
     if do_countries:
-        if not export_only:
-            countries = await _db.execute("""
-                select id from countries""", None, False)
+        countries = await _db.execute("""select id from countries""", None, False)
         for country in countries:
             json_path = '/json/countries_rankings/' + str(country) + '.json'
             rankings = await _db.execute("""
