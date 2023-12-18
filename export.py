@@ -214,10 +214,8 @@ async def export_stat():
             (select rda, json_object_agg(band, data) as data from
                 (select rda, band, json_object_agg(mode, qso_count) as data from
                     (select count(*) as qso_count, rda, band, mode 
-                    from qso 
-                    where upload_id is null or 
-                        (select enabled from uploads 
-                        where id=upload_id) 
+                    from qso left join uploads on upload_id = uploads.id
+                    where upload_id is null or enabled   
                     group by mode, band, rda
                     ) as q0
                 group by rda, band) as q1
