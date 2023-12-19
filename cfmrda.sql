@@ -154,11 +154,14 @@ ALTER FUNCTION public.build_activators_rating() OWNER TO postgres;
 CREATE FUNCTION public.build_activators_rating_current() RETURNS void
     LANGUAGE plpgsql
     AS $$
+declare 
+	cur_year smallint;
 begin
 RAISE LOG 'build_activators_raiting_current start';
+cur_year = extract(year from now());
 delete from activators_rating_tmp;
-delete from activators_rating_current;
-delete from activators_rating_current_detail;
+delete from activators_rating_current where "year" = cur_year;
+delete from activators_rating_current_detail where "year" = cur_year;
 
 /*build tmp data*/
 insert into activators_rating_tmp 
@@ -173,8 +176,8 @@ group by activator, rda, band, "mode";
 
 /*build detail data by mode*/
 insert into activators_rating_current_detail
-	(activator, "mode", rda, points, mult)
-select activator, "mode", rda, 
+	(activator, "year", "mode", rda, points, mult)
+select activator, cur_year, "mode", rda, 
 	sum(qso_count) as points, 
 	count(*) filter (where qso_count > 49) as mult
 from activators_rating_tmp
@@ -182,8 +185,8 @@ group by activator, "mode", rda;
 
 /*build detail data total*/
 insert into activators_rating_current_detail
-	(activator, "mode", rda, points, mult)
-select activator, 'TOTAL', rda, 
+	(activator, "year", "mode", rda, points, mult)
+select activator, cur_year, 'TOTAL', rda, 
 	sum(qso_count) as points, 
 	count(*) filter (where qso_count > 49) as mult
 from activators_rating_tmp
@@ -191,8 +194,8 @@ group by activator, rda;
 
 /*build detail data cw+ssb*/
 insert into activators_rating_current_detail
-	(activator, "mode", rda, points, mult)
-select activator, 'CW+SSB', rda, 
+	(activator, "year", "mode", rda, points, mult)
+select activator, cur_year, 'CW+SSB', rda, 
 	sum(qso_count) as points, 
 	count(*) filter (where qso_count > 49) as mult
 from activators_rating_tmp
@@ -201,8 +204,8 @@ group by activator, rda;
 
 /*calc and save rating*/
 insert into activators_rating_current
-	(activator, club_station, "mode", rating)
-select activator, club_station is true, "mode", sum(points*mult) * count(*)
+	(activator, club_station, "year", "mode", rating)
+select activator, club_station is true, cur_year, "mode", sum(points*mult) * count(*)
 from activators_rating_current_detail 
 	left join callsigns_meta on
 	activator = callsign
@@ -511,7 +514,8 @@ ALTER FUNCTION public.build_rankings() OWNER TO postgres;
 
 CREATE FUNCTION public.build_rankings_activator_data() RETURNS void
     LANGUAGE plpgsql
-    AS $$declare 
+    AS $$
+declare 
 	activator_row record;
 begin
 RAISE LOG 'build_rankings: activator data build up start';
@@ -524,7 +528,8 @@ loop
 		select qso.activator, qso.rda, qso.mode, qso.band, count(distinct (qso.callsign, qso.dt)) as callsigns from
 		  (select activators.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt 
 			  from qso join activators on qso.upload_id = activators.upload_id
-			  where activators.activator = activator_row.activator
+		   		  join uploads on qso.upload_id = uploads.id
+			  where activators.activator = activator_row.activator and enabled
 				  union all
 			  select qso.activator, qso.rda, qso.mode, qso.band, qso.callsign, qso.dt from qso
 			  where qso.activator = activator_row.activator) as qso
@@ -558,7 +563,8 @@ where not exists
 (select 1 from rda_hunter where hunter = activator and rda_hunter.rda = rda_activator_tt.rda);
 
 RAISE LOG 'build_rankings: activators data was merged with rda_hunter';
-end;$$;
+end;
+$$;
 
 
 ALTER FUNCTION public.build_rankings_activator_data() OWNER TO postgres;
@@ -1454,7 +1460,8 @@ CREATE TABLE public.activators_rating_current (
     activator character varying(32) NOT NULL,
     mode character varying(6) NOT NULL,
     rating integer NOT NULL,
-    club_station boolean NOT NULL
+    club_station boolean NOT NULL,
+    year smallint NOT NULL
 );
 
 
@@ -1469,7 +1476,8 @@ CREATE TABLE public.activators_rating_current_detail (
     mode character varying(6) NOT NULL,
     rda character(5) NOT NULL,
     points integer NOT NULL,
-    mult integer NOT NULL
+    mult integer NOT NULL,
+    year smallint NOT NULL
 );
 
 
@@ -2122,7 +2130,7 @@ ALTER TABLE ONLY public.activators
 --
 
 ALTER TABLE ONLY public.activators_rating_current_detail
-    ADD CONSTRAINT activators_rating_current_detail_pkey PRIMARY KEY (activator, mode, rda);
+    ADD CONSTRAINT activators_rating_current_detail_pkey PRIMARY KEY (activator, year, mode, rda);
 
 
 --
@@ -2130,7 +2138,7 @@ ALTER TABLE ONLY public.activators_rating_current_detail
 --
 
 ALTER TABLE ONLY public.activators_rating_current
-    ADD CONSTRAINT activators_rating_current_pkey PRIMARY KEY (activator, mode);
+    ADD CONSTRAINT activators_rating_current_pkey PRIMARY KEY (activator, mode, year);
 
 
 --
