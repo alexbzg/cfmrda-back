@@ -1462,6 +1462,7 @@ support@cfmrda.ru"""
     async def get_activators_rating_current(self, request):
         params = {
             'mode': request.match_info.get('mode') or 'TOTAL',
+            'year': request.match_info.get('year', None),
             'clubs': request.match_info.get('clubs') == 'clubs'
             }
         rating = await self._db.execute("""
@@ -1471,6 +1472,7 @@ support@cfmrda.ru"""
 					row_number() over w as act_row
 					from activators_rating_current
                     where "mode" = %(mode)s and 
+                        "year" = %(year)s and
                         club_station is %(clubs)s
 					group by activator
 					window w as (order by sum(rating) desc)
@@ -1482,7 +1484,7 @@ support@cfmrda.ru"""
             rating = [rating]
         return web.json_response(rating)
 
-    async def get_activators_rating(self, request):
+    async def get_activators_rating_legacy(self, request):
         year = request.match_info.get('year', None)
         if year != 'total':
             year = int(request.match_info.get('year', None))
@@ -1517,7 +1519,7 @@ support@cfmrda.ru"""
             rating = [rating]
         return web.json_response(rating)
 
-    async def get_activators_rating_detail(self, request):
+    async def get_activators_rating_legacy_detail(self, request):
         year = request.match_info.get('year', None)
         activator = request.match_info.get('activator', None)
         if not year or not activator:
@@ -1543,6 +1545,7 @@ support@cfmrda.ru"""
     async def get_activators_rating_current_detail(self, request):
         params = {
             'activator': request.match_info.get('activator', None),
+            'year': request.match_info.get('year', None),
             'mode': request.match_info.get('mode') or 'TOTAL'
             }
         if not params['activator']:
@@ -1550,15 +1553,16 @@ support@cfmrda.ru"""
         rating = await self._db.execute("""
 				select rda, points, mult, points * mult as total
 				    from activators_rating_current_detail
-                    where activator = %(activator)s and 
-                        "mode" = %(mode)s and mult > 0
+                    where activator = %(activator)s and
+                        "year" = %(year)s and
+                        "mode" = %(mode)s and mult > 0 
 				order by rda
                 """, params, keys=False)
         if isinstance(rating, dict):
             rating = [rating]
         return web.json_response(rating)
 
-    async def get_activators_rating_detail_rda(self, request):
+    async def get_activators_rating_legacy_detail_rda(self, request):
 
         year = request.match_info.get('year', None)
         activator = request.match_info.get('activator', None)
@@ -1592,6 +1596,7 @@ support@cfmrda.ru"""
 
         params = {
             'activator': request.match_info.get('activator', None),
+            'year': request.match_info.get('year', None),
             'rda': request.match_info.get('rda', None),
             }
         if not params['activator'] or not params['rda']:
@@ -1606,7 +1611,7 @@ support@cfmrda.ru"""
         rating = await self._db.execute(f"""
                 select band, count(distinct (callsign, "mode")) as qso_count
                 from qso left join uploads on upload_id = uploads.id
-                WHERE qso.tstamp > date_trunc('year', now()) and 
+                WHERE qso.tstamp between make_date(%(year)s, 1, 1) and make_date(%(year)s, 12, 31) and
                     station_callsign LIKE '%%/_' and 
                     (upload_id is null or uploads.enabled) 
                     and activator = %(activator)s
@@ -1618,10 +1623,19 @@ support@cfmrda.ru"""
         return web.json_response({row['band']: row['qso_count'] for row in rating})
 
     async def get_activators_rating_years(self, request):
-        rating_years = await self._db.execute("""
-            select distinct qso_year 
-                from activators_rating
-                order by qso_year desc""", keys=False)
+        rating_years = {
+            'legacy': await self._db.execute("""
+                    select distinct qso_year 
+                        from activators_rating
+                        order by qso_year desc""", keys=False),
+            'current': await self._db.execute("""
+                    select distinct "year"
+                        from activators_rating_current
+                        order by "year" desc""", keys=False)
+            }
+        for rating_type in rating_years:
+            if not isinstance(rating_years[rating_type], list):
+                rating_years[rating_type] = [rating_years[rating_type]]
         return web.json_response(rating_years)
 
     async def _load_qrz_rda(self, callsign):
@@ -1752,15 +1766,16 @@ def server_start():
             SRV.dwnld_hunter_rda_hndlr)
     APP.router.add_get('/aiohttp/download/hunter_rda/{callsign}', SRV.dwnld_hunter_rda_hndlr)
     APP.router.add_get('/aiohttp/qrzru/{callsign}', SRV.get_qrzru)
-    APP.router.add_get('/aiohttp/activators_rating/current/{mode}/{clubs:[^{}/]*}', SRV.get_activators_rating_current),
-    APP.router.add_get('/aiohttp/activators_rating/archive/{year}', SRV.get_activators_rating)
-    APP.router.add_get('/aiohttp/activators_rating/archive/{year}/{activator}',
-		SRV.get_activators_rating_detail)
-    APP.router.add_get('/aiohttp/activators_rating/current/detail/{activator}/{mode}',
+    APP.router.add_get('/aiohttp/activators_rating/current/{year}/{mode}/{clubs:[^{}/]*}',
+            SRV.get_activators_rating_current),
+    APP.router.add_get('/aiohttp/activators_rating/legacy/{year}', SRV.get_activators_rating_legacy)
+    APP.router.add_get('/aiohttp/activators_rating/legacy/{year}/{activator}',
+		SRV.get_activators_rating_legacy_detail)
+    APP.router.add_get('/aiohttp/activators_rating/current/detail/{year}/{activator}/{mode}',
 		SRV.get_activators_rating_current_detail)
-    APP.router.add_get('/aiohttp/activators_rating/archive/{year}/{activator}/{rda}',
-		SRV.get_activators_rating_detail_rda)
-    APP.router.add_get('/aiohttp/activators_rating/current/detail/{activator}/{mode}/{rda}',
+    APP.router.add_get('/aiohttp/activators_rating/legacy/{year}/{activator}/{rda}',
+		SRV.get_activators_rating_legacy_detail_rda)
+    APP.router.add_get('/aiohttp/activators_rating/current/detail/{year}/{activator}/{mode}/{rda}',
 		SRV.get_activators_rating_current_detail_rda)
     APP.router.add_get('/aiohttp/activators_rating', SRV.get_activators_rating_years)
 
