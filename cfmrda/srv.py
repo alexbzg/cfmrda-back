@@ -338,6 +338,20 @@ class CfmRdaServer():
                 return response_ok()
         return response_error_default()
 
+    async def _get_callsign_date_rdas(self, _callsign, data):
+        rda_list = await self._db.execute("""
+            select distinct rda
+                from callsigns_rda 
+                where callsigns_rda.callsign = %(callsign)s and
+                    (dt_start is null or dt_start <= %(tstamp)s) and
+                    (dt_stop is null or dt_stop >= %(tstamp)s)""", 
+                    data)
+        if not rda_list:
+            rda_list = []
+        if not isinstance(rda_list, list):
+            rda_list = [rda_list]
+        return web.json_response(rda_list)
+
     async def _get_qsl_list(self, callsign=None):
         sql = """
             select json_agg(json_build_object(
@@ -761,8 +775,6 @@ class CfmRdaServer():
 
     async def callsigns_rda_hndlr(self, callsign, data):
         rsp = {}
-        logging.warn('callsigns_rda')
-        logging.warn(data)
         if ('delete' in data or 'new' in data or 'conflict' in data
             or 'meta' in data):
             callsign = self._require_callsign(data, True)
@@ -1734,6 +1746,8 @@ def server_start():
         ))
     APP.router.add_post('/aiohttp/callsigns_rda_current',\
         SRV.handler_wrap(SRV.callsigns_current_rda_hndlr, require_callsign=False))
+    APP.router.add_post('/aiohttp/callsign_date_rda',\
+        SRV.handler_wrap(SRV._get_callsign_date_rdas, require_callsign=False))
     APP.router.add_post('/aiohttp/user_data',\
         SRV.handler_wrap(SRV.user_data_hndlr, require_callsign=True))
 
