@@ -357,14 +357,14 @@ class CfmRdaServer():
             select json_agg(json_build_object(
                 'id', cfm_qsl_qso.id,
                 'qslId', cfm_qsl.id,
-                'callsign', callsign,""" +\
-                ('' if callsign else """'callsignRda',
+                'callsign', callsign,
+                'callsignRda',
                 (select json_agg(distinct rda)
                     from callsigns_rda 
                     where callsigns_rda.callsign = station_callsign and
                         (dt_start is null or dt_start <= tstamp) and
                         (dt_stop is null or dt_stop >= date(tstamp))
-                    ),""") + """
+                    ),
                 'stationCallsign', station_callsign,
                 'rda', rda,
                 'band', band,
@@ -1639,11 +1639,11 @@ support@cfmrda.ru"""
             'legacy': await self._db.execute("""
                     select distinct qso_year 
                         from activators_rating
-                        order by qso_year desc""", keys=False),
+                        order by qso_year desc""", keys=False) or [],
             'current': await self._db.execute("""
                     select distinct "year"
                         from activators_rating_current
-                        order by "year" desc""", keys=False)
+                        order by "year" desc""", keys=False) or []
             }
         for rating_type in rating_years:
             if not isinstance(rating_years[rating_type], list):
