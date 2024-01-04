@@ -171,7 +171,6 @@ from qso left join uploads on upload_id = uploads.id
 WHERE qso.tstamp > date_trunc('year', now()) and 
 	station_callsign LIKE '%/_' and 
 	(upload_id is null or uploads.enabled) 
-	and activator is not null /*tmp condition for testing on current data*/
 group by activator, rda, band, "mode";
 
 /*build detail data by mode*/
@@ -181,7 +180,8 @@ select activator, cur_year, "mode", rda,
 	sum(qso_count) as points, 
 	count(*) filter (where qso_count > 49) as mult
 from activators_rating_tmp
-group by activator, "mode", rda;
+group by activator, "mode", rda
+having count(*) filter (where qso_count > 49) > 0;
 
 /*build detail data total*/
 insert into activators_rating_current_detail
@@ -189,8 +189,14 @@ insert into activators_rating_current_detail
 select activator, cur_year, 'TOTAL', rda, 
 	sum(qso_count) as points, 
 	count(*) filter (where qso_count > 49) as mult
-from activators_rating_tmp
-group by activator, rda;
+from (
+	select activator, rda, band,
+		sum(qso_count) as qso_count
+	from activators_rating_tmp
+	group by activator, rda, band
+) as tmp_sum
+group by activator, rda
+having count(*) filter (where qso_count > 49) > 0;
 
 /*build detail data cw+ssb*/
 insert into activators_rating_current_detail
@@ -198,9 +204,15 @@ insert into activators_rating_current_detail
 select activator, cur_year, 'CW+SSB', rda, 
 	sum(qso_count) as points, 
 	count(*) filter (where qso_count > 49) as mult
-from activators_rating_tmp
-where "mode" in ('CW', 'SSB')
-group by activator, rda;
+from (
+	select activator, rda, band,
+		sum(qso_count) as qso_count
+	from activators_rating_tmp
+	where "mode" in ('CW', 'SSB')
+	group by activator, rda, band
+) as tmp_sum
+group by activator, rda
+having count(*) filter (where qso_count > 49) > 0;
 
 /*calc and save rating*/
 insert into activators_rating_current
