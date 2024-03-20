@@ -11,16 +11,15 @@ import requests
 from db import DBConn
 from common import site_conf
 
-@asyncio.coroutine
-def main():
+async def main():
     logger = logging.getLogger('')
     logger.setLevel(logging.DEBUG)
     conf = site_conf()
     _db = DBConn(conf.items('db'))
-    yield from _db.connect()
-    yield from _db.execute('delete from old_rda;')
+    #await _db.connect()
+    #await _db.execute('delete from old_rda;')
 
-    rda_rus = requests.get('http://rdaward.org/rda_eng.txt').text
+    rda_rus = requests.get('https://rdaward.ru/rda_list.php?lang=en').text
 
     params_old = []
     params = []
@@ -58,56 +57,57 @@ def main():
     if group and group['values']:
         groups.append(group)
 
-    with open('/var/www/adxc.test/csv/rda.csv', 'w') as fcsv:
+    with open('/var/www/cfmrda/files/csv/rda.csv', 'w') as fcsv:
         for group in groups:
             fcsv.write('{id};;{title};\n'.format_map(group))
             for val in group['values']:
                 fcsv.write(';{val};{title};{id}\n'.format_map(val))
 
-    with open('/var/www/adxc.test/csv/rda_old_new_new.csv', 'w') as fcsv:
+    with open('/var/www/cfmrda/files/csv/rda_old_new.csv', 'w') as fcsv:
         for item in params_old:
             if item['new']:
                 fcsv.write('{old};{new}\n'.format_map(item))
     logging.debug('csv created')
 
     logging.debug('populating old_rda table')
-    yield from _db.execute("""insert into old_rda
-        values (%(old)s, %(new)s)""",\
-        params_old, progress=True)
+    #await _db.execute("""insert into old_rda
+    #    values (%(old)s, %(new)s)""",\
+    #    params_old, progress=True)
 
     rda_changed = [i for i in params_old if i['new']]
     rda_deleted = [i for i in params_old if not i['new']]
 
+    return
     logging.debug('adding new rda')
-    yield from _db.execute("""insert into rda
+    await _db.execute("""insert into rda
         (select %(rda)s 
         where not exists
         (select from rda where rda = %(rda)s))""",\
         params, progress=True)
 
     logging.debug('changing qsos rda')
-    yield from _db.execute("""update qso
+    await _db.execute("""update qso
         set rda = %(new)s where rda = %(old)s""",\
         rda_changed, progress=True)
 
     logging.debug('deleting obsolete qsos')
-    yield from _db.execute("""delete from qso
+    await _db.execute("""delete from qso
         where rda = %(old)s""",\
         rda_deleted, progress=True)
 
     logging.debug('deleting obsolete callsigns rda')
-    yield from _db.execute("""delete from callsigns_rda
+    await _db.execute("""delete from callsigns_rda
         where rda = %(old)s""",\
         rda_deleted, progress=True)
 
     logging.debug('changing callsigns rda')
-    yield from _db.execute("""update callsigns_rda
+    await _db.execute("""update callsigns_rda
         set rda = %(new)s
         where rda = %(old)s""",\
         rda_changed, progress=True)
 
     logging.debug('deleting obsolete rda')
-    yield from _db.execute("""delete from rda
+    await _db.execute("""delete from rda
         where rda = %(old)s""",\
         rda_deleted, progress=True)
 
