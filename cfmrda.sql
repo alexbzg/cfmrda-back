@@ -1325,6 +1325,9 @@ CREATE FUNCTION public.tf_old_callsigns_aiu() RETURNS trigger
     update qso 
       set callsign = new.new, old_callsign = new.old 
       where callsign = new.old;
+    update qso
+      set acivator = new.new
+      where activator = new.old;
     update activators as a1
       set activator = new.new
       where activator = new.old and not exists 
@@ -1398,6 +1401,10 @@ begin
   end if;
   new.dt = date(new.tstamp);
   new.activator = strip_callsign(new.station_callsign); 
+  if exists (select from old_callsigns where confirmed and old_callsigns.old = new.activator)
+  then
+    select old_callsigns.new into new.activator from old_callsigns where confirmed and old_callsigns.old = new.activator;
+  end if;
   if new.upload_id is not null and 
   	not exists
   	 (select club_station from callsigns_meta where callsign = new.activator and club_station) 
