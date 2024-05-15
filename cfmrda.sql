@@ -1326,7 +1326,7 @@ CREATE FUNCTION public.tf_old_callsigns_aiu() RETURNS trigger
       set callsign = new.new, old_callsign = new.old 
       where callsign = new.old;
     update qso
-      set acivator = new.new
+      set activator = new.new
       where activator = new.old;
     update activators as a1
       set activator = new.new
