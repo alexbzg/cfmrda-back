@@ -94,34 +94,6 @@ async def main(conf):
             logger = ExtLogger(row['logger'])
             update_params = {}
 
-            if row['logger'] != 'HAMLOG' and row['logger'] != 'RDAWARD':
-
-                await exec_cur(cur, """
-                    select json_build_object('id', id, 
-                        'station_callsign', station_callsign, 'rda', rda,
-                        'tstamp', tstamp)
-                    from qso 
-                    where upload_id in 
-                        (select id 
-                        from uploads 
-                        where ext_logger_id = %(id)s)""", row)
-                prev_qsos = await cur.fetchall()
-                for qso_data in prev_qsos:
-                    qso = qso_data[0]
-                    rda = await rda_search(qso)
-                    if rda:
-                        if rda != qso['rda']:
-                            qso['rda'] = rda
-                            await exec_cur(cur, """
-                                update qso
-                                set rda = %(rda)s
-                                where id = %(id)s
-                                """, qso)
-                    else:
-                        await exec_cur(cur, """
-                            delete from qso
-                            where id = %(id)s""", qso)
-
             logger_data = None
             try:
                 logger_data = logger.load(row['login_data'])
@@ -131,7 +103,7 @@ async def main(conf):
                 if isinstance(exc, ExtLoggerException):
                     update_params['state'] = 1
 
-            if logger_data:
+            if logger_data is not None:
 
                 if row['logger'] == 'HAMLOG' or row['logger'] == 'RDAWARD':
                     await exec_cur(cur, """
@@ -143,6 +115,35 @@ async def main(conf):
                     await exec_cur(cur, """
                         delete from uploads
                         where ext_logger_id = %(id)s""", row)
+
+                else:
+                    await exec_cur(cur, """
+                        select json_build_object('id', id, 
+                            'station_callsign', station_callsign, 'rda', rda,
+                            'tstamp', tstamp)
+                        from qso 
+                        where upload_id in 
+                            (select id 
+                            from uploads 
+                            where ext_logger_id = %(id)s)""", row)
+                    prev_qsos = await cur.fetchall()
+                    for qso_data in prev_qsos:
+                        qso = qso_data[0]
+                        rda = await rda_search(qso)
+                        if rda:
+                            if rda != qso['rda']:
+                                qso['rda'] = rda
+                                await exec_cur(cur, """
+                                    update qso
+                                    set rda = %(rda)s
+                                    where id = %(id)s
+                                    """, qso)
+                        else:
+                            await exec_cur(cur, """
+                                delete from qso
+                                where id = %(id)s""", qso)
+
+
 
                 qso_count = 0
                 station_callsign_field = None if row['logger'] == 'eQSL'\
