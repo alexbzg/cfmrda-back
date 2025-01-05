@@ -8,7 +8,7 @@ import re
 import argparse
 
 import requests
-from yaml import load
+import yaml
 
 from db import DBConn
 from common import site_conf
@@ -17,55 +17,44 @@ async def main():
     logger = logging.getLogger('')
     logger.setLevel(logging.DEBUG)
     conf = site_conf()
-    _db = DBConn(conf.items('db'))
-    #await _db.connect()
+    _db = DBConn(dict(conf.items('db')))
+    await _db.connect()
     #await _db.execute('delete from old_rda;')
 
-    rda_update = load('/usr/local/cfmrda-dev/cfmrda/rda_update_2025')
-
-    params_old = []
-    params = []
-
-    with open('/var/www/cfmrda/files/csv/rda.csv', 'w') as fcsv:
-        for group in groups:
-            fcsv.write('{id};;{title};\n'.format_map(group))
-            for val in group['values']:
-                fcsv.write(';{val};{title};{id}\n'.format_map(val))
-
-    with open('/var/www/cfmrda/files/csv/rda_old_new.csv', 'w') as fcsv:
-        for item in params_old:
-            if item['new']:
-                fcsv.write('{old};{new}\n'.format_map(item))
-    logging.debug('csv created')
-
-    rda_changed = [i for i in params_old if i['new']]
-    rda_deleted = [i for i in params_old if not i['new']]
+    with open('/usr/local/cfmrda-dev/cfmrda/rda_update_2025.yaml', 'r') as rda_update_file:
+        rda_update = yaml.safe_load(rda_update_file)
 
     old_rda_params = []
     add_rda_params = []
+    replace_rda_params = []
 
     for entry in rda_update.get('add', []):
-        for val, title in entry['values'].items():
+        for val in entry['values']:
             add_rda_params.append({'rda': val})
             if entry.get('start'):
-                old_rda_params.appens({'old': val, 'new': None, 'stop': entry['start']})
+                old_rda_params.append({'old': val, 'new': None, 'start': None, 'stop': entry['start']})
+
+    for old, val in rda_update.get('replace', {}).items():
+        params = {'old': old, 'new': None, 'start': None, 'stop': None}
+        if isinstance(val, str):
+            params['new'] = val
+        else:
+            params.update(val)
+        old_rda_params.append(params)
+        replace_rda_params.append(params)
 
     logging.debug('updating rda table')
     await _db.execute("""insert into rda
         (select %(rda)s 
         where not exists
         (select from rda where rda = %(rda)s))""",\
-        params, progress=True)
+        add_rda_params, progress=True)
 
     logging.debug('updating old_rda table')
     await _db.execute("""insert into old_rda
-        values (%(old)s, %(new)s)""",\
-        params_old, progress=True)
+        values (%(old)s, %(new)s, %(start)s, %(stop)s)""",\
+        old_rda_params, progress=True)
 
-    replace_rda_params = []
-    for old, new in rda_update.get('replace', {}):
-        replace_rda_params.append({'old': old, 'new': new})
-    
     logging.debug('changing qsos rda')
     await _db.execute("""update qso
         set rda = %(new)s where rda = %(old)s""",\
@@ -77,23 +66,22 @@ async def main():
         where rda = %(old)s""",\
         replace_rda_params, progress=True)
 
-    for item in rda_update.get('delete', []):
-        replace_rda_params.append({'old': item})
+    delete_rda_params = [{'old': item} for item in rda_update.get('delete', [])]
 
     logging.debug('deleting obsolete qsos')
     await _db.execute("""delete from qso
         where rda = %(old)s""",\
-        replace_rda_params, progress=True)
+        delete_rda_params, progress=True)
 
     logging.debug('deleting obsolete callsigns rda')
     await _db.execute("""delete from callsigns_rda
         where rda = %(old)s""",\
-        replace_rda_params, progress=True)
+        delete_rda_params, progress=True)
 
     logging.debug('deleting obsolete rda')
     await _db.execute("""delete from rda
         where rda = %(old)s""",\
-        replace_rda_params, progress=True)
+        delete_rda_params + replace_rda_params, progress=True)
 
 asyncio.get_event_loop().run_until_complete(main())
 

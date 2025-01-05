@@ -957,7 +957,7 @@ begin
   then
     raise 'cfmrda_db_error:Некорректный район RDA (%)', _rda;    
   end if;    
-  if exists (select from qso where qso.callsign = new_callsign and strip_callsign(qso.station_callsign) = str_station_callsign 
+  if exists (select from qso where qso.callsign = new_callsign and qso.station_callsign = _station_callsign 
     and qso.rda = new_rda and qso.mode = _mode and qso.band = _band and qso.tstamp::date = _ts::date)
   then
       raise exception using
@@ -1136,6 +1136,23 @@ end$$;
 
 
 ALTER FUNCTION public.rankings_json_country(_role character varying, _mode character varying, _band character varying, _row_from integer, _row_to integer, _callsign character varying, _country_id integer) OWNER TO postgres;
+
+--
+-- Name: remove_old_callsign(character); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.remove_old_callsign(remove_value character) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+begin
+  update qso set callsign = old_callsign where old_callsign = remove_value;
+  update qso set activator = remove_value where remove_value = strip_callsign(station_callsign);
+  delete from old_callsigns where old = remove_value;
+end;
+$$;
+
+
+ALTER FUNCTION public.remove_old_callsign(remove_value character) OWNER TO postgres;
 
 --
 -- Name: strip_callsign(character varying); Type: FUNCTION; Schema: public; Owner: postgres
