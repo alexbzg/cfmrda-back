@@ -19,9 +19,8 @@ async def main():
     conf = site_conf()
     _db = DBConn(dict(conf.items('db')))
     await _db.connect()
-    #await _db.execute('delete from old_rda;')
 
-    with open('/usr/local/cfmrda-dev/cfmrda/rda_update_2025.yaml', 'r') as rda_update_file:
+    with open('/usr/local/cfmrda-dev/cfmrda/rda_update_2025_1.yaml', 'r') as rda_update_file:
         rda_update = yaml.safe_load(rda_update_file)
 
     old_rda_params = []
@@ -43,45 +42,51 @@ async def main():
         old_rda_params.append(params)
         replace_rda_params.append(params)
 
-    logging.debug('updating rda table')
-    await _db.execute("""insert into rda
-        (select %(rda)s 
-        where not exists
-        (select from rda where rda = %(rda)s))""",\
-        add_rda_params, progress=True)
+    if add_rda_params:
+        logging.debug('updating rda table')
+        await _db.execute("""insert into rda
+            (select %(rda)s 
+            where not exists
+            (select from rda where rda = %(rda)s))""",\
+            add_rda_params, progress=True)
 
-    logging.debug('updating old_rda table')
-    await _db.execute("""insert into old_rda
-        values (%(old)s, %(new)s, %(start)s, %(stop)s)""",\
-        old_rda_params, progress=True)
+    if old_rda_params:
+        logging.debug('updating old_rda table')
+        await _db.execute("""insert into old_rda
+            values (%(old)s, %(new)s, %(start)s, %(stop)s)""",\
+            old_rda_params, progress=True)
 
-    logging.debug('changing qsos rda')
-    await _db.execute("""update qso
-        set rda = %(new)s where rda = %(old)s""",\
-        replace_rda_params, progress=True)
+    if replace_rda_params:
+        logging.debug('changing qsos rda')
+        await _db.execute("""update qso
+            set rda = %(new)s where rda = %(old)s""",\
+            replace_rda_params, progress=True)
 
-    logging.debug('changing callsigns rda')
-    await _db.execute("""update callsigns_rda
-        set rda = %(new)s
-        where rda = %(old)s""",\
-        replace_rda_params, progress=True)
+        logging.debug('changing callsigns rda')
+        await _db.execute("""update callsigns_rda
+            set rda = %(new)s
+            where rda = %(old)s""",\
+            replace_rda_params, progress=True)
 
     delete_rda_params = [{'old': item} for item in rda_update.get('delete', [])]
 
-    logging.debug('deleting obsolete qsos')
-    await _db.execute("""delete from qso
-        where rda = %(old)s""",\
-        delete_rda_params, progress=True)
+    if delete_rda_params:
+        logging.debug('deleting obsolete qsos')
+        await _db.execute("""delete from qso
+            where rda = %(old)s""",\
+            delete_rda_params, progress=True)
 
-    logging.debug('deleting obsolete callsigns rda')
-    await _db.execute("""delete from callsigns_rda
-        where rda = %(old)s""",\
-        delete_rda_params, progress=True)
+        logging.debug('deleting obsolete callsigns rda')
+        await _db.execute("""delete from callsigns_rda
+            where rda = %(old)s""",\
+            delete_rda_params, progress=True)
 
-    logging.debug('deleting obsolete rda')
-    await _db.execute("""delete from rda
-        where rda = %(old)s""",\
-        delete_rda_params + replace_rda_params, progress=True)
+
+    if delete_rda_params or replace_rda_params:
+        logging.debug('deleting obsolete rda')
+        await _db.execute("""delete from rda
+            where rda = %(old)s""",\
+            delete_rda_params + replace_rda_params, progress=True)
 
 asyncio.get_event_loop().run_until_complete(main())
 

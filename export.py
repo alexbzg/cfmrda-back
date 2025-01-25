@@ -52,10 +52,10 @@ async def export_rankings(export_only=False):
             await _db.execute('delete from rankings;')
             await _db.execute("vacuum full freeze verbose analyze rankings;")
             logging.debug('export rankings: rankings table vacuumed')
-            await _db.execute('delete from activators_rating_current;')
+            await _db.execute('delete from activators_rating_current where year = extract(year from now());')
             await _db.execute("vacuum full freeze verbose analyze activators_rating_current;")
             logging.debug('export rankings: activators_rating_current table vacuumed')
-            await _db.execute('delete from activators_rating_current_detail;')
+            await _db.execute('delete from activators_rating_current_detail where year = extract(year from now());')
             await _db.execute("vacuum full freeze verbose analyze activators_rating_current_detail;")
             logging.debug('export rankings: activators_rating_current_detail table vacuumed')
             await _db.execute('delete from activators_rating_tmp;')
@@ -70,7 +70,7 @@ async def export_rankings(export_only=False):
         if do_countries:
             await _db.execute("select from build_rankings_countries();")
 
-        await _db.execute("select from build_activators_rating_current();")
+        await _db.execute("select from build_activators_rating_current(extract(year from now())::smallint);")
 
     rankings = await _db.execute("""
                 select rankings_json(null, null, null, null, 105, null, null) as data

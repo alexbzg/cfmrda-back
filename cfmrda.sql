@@ -232,6 +232,87 @@ $$;
 ALTER FUNCTION public.build_activators_rating_current() OWNER TO postgres;
 
 --
+-- Name: build_activators_rating_current(smallint); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.build_activators_rating_current(cur_year smallint) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+begin
+RAISE LOG 'build_activators_raiting_current start';
+delete from activators_rating_tmp;
+delete from activators_rating_current where "year" = cur_year;
+delete from activators_rating_current_detail where "year" = cur_year;
+
+/*build tmp data*/
+insert into activators_rating_tmp 
+	(activator, rda, band, "mode", qso_count)
+select activator, rda, band, "mode", count(distinct callsign)
+from qso left join uploads on upload_id = uploads.id
+WHERE qso.tstamp between make_date(cur_year, 1, 1) and make_date(cur_year + 1, 1, 1) 
+	and station_callsign LIKE '%/_' 
+	and (upload_id is null or uploads.enabled) 
+group by activator, rda, band, "mode";
+
+/*build detail data by mode*/
+insert into activators_rating_current_detail
+	(activator, "year", "mode", rda, points, mult)
+select activator, cur_year, "mode", rda, 
+	sum(qso_count) as points, 
+	count(*) filter (where qso_count > 49) as mult
+from activators_rating_tmp
+group by activator, "mode", rda
+having count(*) filter (where qso_count > 49) > 0;
+
+/*build detail data total*/
+insert into activators_rating_current_detail
+	(activator, "year", "mode", rda, points, mult)
+select activator, cur_year, 'TOTAL', rda, 
+	sum(qso_count) as points, 
+	count(*) filter (where qso_count > 49) as mult
+from (
+	select activator, rda, band,
+		sum(qso_count) as qso_count
+	from activators_rating_tmp
+	group by activator, rda, band
+) as tmp_sum
+group by activator, rda
+having count(*) filter (where qso_count > 49) > 0;
+
+/*build detail data cw+ssb*/
+insert into activators_rating_current_detail
+	(activator, "year", "mode", rda, points, mult)
+select activator, cur_year, 'CW+SSB', rda, 
+	sum(qso_count) as points, 
+	count(*) filter (where qso_count > 49) as mult
+from (
+	select activator, rda, band,
+		sum(qso_count) as qso_count
+	from activators_rating_tmp
+	where "mode" in ('CW', 'SSB')
+	group by activator, rda, band
+) as tmp_sum
+group by activator, rda
+having count(*) filter (where qso_count > 49) > 0;
+
+/*calc and save rating*/
+insert into activators_rating_current
+	(activator, club_station, "year", "mode", rating)
+select activator, club_station is true, cur_year, "mode", sum(points*mult) * count(*)
+from activators_rating_current_detail 
+	left join callsigns_meta on
+	activator = callsign
+where year = cur_year and mult > 0
+group by activator, club_station, "mode";
+
+RAISE LOG 'build_activators_raiting_current finish';
+end;
+$$;
+
+
+ALTER FUNCTION public.build_activators_rating_current(cur_year smallint) OWNER TO postgres;
+
+--
 -- Name: build_rankings(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -2729,6 +2810,13 @@ GRANT ALL ON FUNCTION public.build_activators_rating() TO "www-group";
 --
 
 GRANT ALL ON FUNCTION public.build_activators_rating_current() TO "www-group";
+
+
+--
+-- Name: FUNCTION build_activators_rating_current(cur_year smallint); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.build_activators_rating_current(cur_year smallint) TO "www-group";
 
 
 --
