@@ -300,9 +300,9 @@ insert into activators_rating_current
 	(activator, club_station, "year", "mode", rating)
 select activator, club_station is true, cur_year, "mode", sum(points*mult) * count(*)
 from activators_rating_current_detail 
-	left join callsigns_meta on
-	activator = callsign
-where year = cur_year and mult > 0
+	left join callsigns_meta_yearly on
+	activator = callsign and callsigns_meta_yearly.year = activators_rating_current_detail.year
+where activators_rating_current_detail.year = cur_year and mult > 0
 group by activator, club_station, "mode";
 
 RAISE LOG 'build_activators_raiting_current finish';
@@ -1488,6 +1488,7 @@ CREATE FUNCTION public.tf_qso_bi() RETURNS trigger
     AS $$
 declare 
   new_callsign character varying(32);
+  qso_year smallint;
 begin
   new.callsign = strip_callsign(new.callsign);
   select * from check_qso(new.callsign, new.station_callsign, new.rda, new.band, new.mode, new.tstamp)
@@ -1503,15 +1504,16 @@ begin
   then
     select old_callsigns.new into new.activator from old_callsigns where confirmed and old_callsigns.old = new.activator;
   end if;
+  qso_year = extract(year from new.dt);
   if new.upload_id is not null and 
   	not exists
-  	 (select club_station from callsigns_meta where callsign = new.activator and club_station) 
+  	 (select club_station from callsigns_meta_yearly where callsign = new.activator and club_station and year = qso_year) 
 	and 
 	(select count(*) from activators where activators.upload_id = new.upload_id) > 1
   then
-    insert into callsigns_meta (callsign, club_station)
-	values (new.activator, true)
-	on conflict on constraint callsigns_meta_pkey
+    insert into callsigns_meta (callsign, year, club_station)
+	values (new.activator, qso_year, true)
+	on conflict on constraint callsigns_meta_yearly_pkey
 	do update set club_station = true;
   end if;
   return new;
@@ -1690,6 +1692,19 @@ CREATE TABLE public.callsigns_meta (
 
 
 ALTER TABLE public.callsigns_meta OWNER TO postgres;
+
+--
+-- Name: callsigns_meta_yearly; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.callsigns_meta_yearly (
+    callsign character varying(64) NOT NULL,
+    year smallint NOT NULL,
+    club_station boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE public.callsigns_meta_yearly OWNER TO postgres;
 
 --
 -- Name: callsigns_rda; Type: TABLE; Schema: public; Owner: postgres
@@ -2307,6 +2322,14 @@ ALTER TABLE ONLY public.callsigns_meta
 
 
 --
+-- Name: callsigns_meta_yearly callsigns_meta_yearly_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.callsigns_meta_yearly
+    ADD CONSTRAINT callsigns_meta_yearly_pkey PRIMARY KEY (callsign, year);
+
+
+--
 -- Name: callsigns_rda callsigns_rda_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2916,6 +2939,13 @@ GRANT ALL ON TABLE public.callsigns_countries TO "www-group";
 --
 
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.callsigns_meta TO "www-group";
+
+
+--
+-- Name: TABLE callsigns_meta_yearly; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,UPDATE ON TABLE public.callsigns_meta_yearly TO "www-group";
 
 
 --
