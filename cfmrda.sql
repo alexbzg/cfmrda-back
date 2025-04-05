@@ -1511,7 +1511,7 @@ begin
 	and 
 	(select count(*) from activators where activators.upload_id = new.upload_id) > 1
   then
-    insert into callsigns_meta (callsign, year, club_station)
+    insert into callsigns_meta_yearly (callsign, year, club_station)
 	values (new.activator, qso_year, true)
 	on conflict on constraint callsigns_meta_yearly_pkey
 	do update set club_station = true;
