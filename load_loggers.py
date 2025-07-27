@@ -157,12 +157,12 @@ async def main(conf):
 
                         for entry in logger_data:
                             if entry['band'] in BANDS_WL:
-                                qso = {'callsign': row['callsign'],
-                                    'old_callsign': entry.get('mycall'),
-                                    'station_callsign': entry['hiscall'],
-                                    'rda': entry['rda'],
+                                qso = {'callsign': row['callsign'].upper(),
+                                    'old_callsign': entry['mycall'].upper() if entry.get('mycall') else None,
+                                    'station_callsign': entry['hiscall'].upper(),
+                                    'rda': entry['rda'].upper(),
                                     'band': BANDS_WL[entry['band']],
-                                    'mode': 'SSB' if entry['mainmode'] == 'PH' else entry['mainmode'],
+                                    'mode': 'SSB' if entry['mainmode'].upper() == 'PH' else entry['mainmode'].upper(),
                                     'tstamp': entry['date']}
                                 if not await rda_check(qso):
                                     qsos.append(qso)
