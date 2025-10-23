@@ -95,7 +95,7 @@ class ExtLogger():
     @staticmethod
     def request_rdaward(method, login_data):
         login_data.update({'old': 'on'})
-        rsp = requests.request(method, 'https://rdaward.ru/rda_cs_qso.php', params=login_data)
+        rsp = requests.request(method, 'https://rdaward.ru/external/rda_cs_qso.php', params=login_data)
         rsp.raise_for_status()
         return rsp
 
