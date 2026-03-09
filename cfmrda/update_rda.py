@@ -20,7 +20,7 @@ async def main():
     _db = DBConn(dict(conf.items('db')))
     await _db.connect()
 
-    with open('/usr/local/cfmrda-dev/cfmrda/rda_update_2026.yaml', 'r') as rda_update_file:
+    with open('/usr/local/cfmrda-dev/cfmrda/rda_update_2026_1.yaml', 'r') as rda_update_file:
         rda_update = yaml.safe_load(rda_update_file)
 
     old_rda_params = []

@@ -19,7 +19,7 @@ rda_list_full = []
 rdas = []
 for line in lines:
     if line.count(';') == 2:
-        value, _, title = line.split(';')
+        value, title, _ = line.split(';')
         rdas.append((value, title))
 
 rdas.sort()
